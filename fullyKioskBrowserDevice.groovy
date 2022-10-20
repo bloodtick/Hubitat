@@ -45,7 +45,7 @@ private getVersionLabel() { return "Fully Kiosk Browser Device, version ${getVer
 @Field volatile static Map<String,Boolean> isInitialized = [:]
 
 metadata {
-    definition (name: "Fully Kiosk Browser Device", namespace: "bloodtick", author: "Hubitat") {
+    definition (name: "Fully Kiosk Browser Device", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/fullyKioskBrowserDevice.groovy") {
         capability "Actuator"
         capability "Switch"
         capability "SwitchLevel"
