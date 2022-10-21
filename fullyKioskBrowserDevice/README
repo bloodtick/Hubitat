@@ -1,1 +1,5 @@
 Hubitat solution for Fully Kiosk Browser
+
+If you turn on Image Capture Timeout suggest changing on devices:
+  "Event history size, per event type" to 5
+  "State history size, per attribute" to 15
