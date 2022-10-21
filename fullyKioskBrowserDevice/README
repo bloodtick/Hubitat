@@ -3,3 +3,10 @@ Hubitat solution for Fully Kiosk Browser
 If you turn on Image Capture Timeout suggest changing on devices:
   "Event history size, per event type" to 5
   "State history size, per attribute" to 15
+
+
+You can load sounds locally by going to settings->file manager then update (for example with local IP address)
+  "Audio Media URL (Chime):" to http://192.168.1.160/local/doorbell.mp3
+  "Audio Alarm URL:" to http://192.168.1.160/local/alarm.mp3
+  
+ 
