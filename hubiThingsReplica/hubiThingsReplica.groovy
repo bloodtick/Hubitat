@@ -15,11 +15,12 @@
 *  Update: Bloodtick Jones
 *  Date: 2022-10-01
 *
-*  1.0.00 2022-10-01 First pass.
+*  1.0.0 2022-10-01 First pass.
+*  1.0.1 2022-10-25 Allow for more than one instance. UI modes. Turn off status refresh. Bug fixes.
 *
 */
 
-public static String version() {  return "v1.0.0"  }
+public static String version() {  return "v1.0.1"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -40,7 +41,7 @@ import groovy.transform.Field
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
-@Field static final String sCodeRelease=" : [ Alpha Release ]"
+@Field static final String sCodeRelease="Alpha Release"
 
 // IN-MEMORY VARIABLES (Cleared only on HUB REBOOT or CODE UPDATES)
 @Field volatile static Map<String,Map> g_mSmartDevices = [:]
@@ -60,7 +61,7 @@ definition(
     iconUrl: "",
     iconX2Url: "",
     oauth: [displayName: "HubiThings Replica", displayLink: ""],
-    singleInstance: true
+    singleInstance: false
 ){}
 
 preferences {
@@ -102,24 +103,34 @@ def mainPage(){
     return dynamicPage(name: "mainPage", install: true,  refreshInterval: 0){
         displayHeader()
         
-		section(menuHeader("Hubitat Endpoint Webhook")+"$sHubitatIconStatic $sSamsungIconStatic") {
+        section(menuHeader("${app.getLabel()} Configuration")+"$sHubitatIconStatic $sSamsungIconStatic") {
 			input(name: "mainPageAllowCloudAccess", type: "bool", title: getFormat("text","$sHubitatIcon Enable Hubitat REST API Endpoint for SmartThings Developer Workspace SmartApp"), defaultValue: false, submitOnChange: true)  
             
             if(mainPageAllowCloudAccess) {
                 paragraph("<ul><strong>External</strong>: ${getFormat("hyperlink", getCloudUri(), getCloudUri())}</ul>")
                 
                 paragraph("<ul><b style='color:${sColorDarkRed}'>&#9888;Warning:</b> Enabling external endpoints can allow data on the local Hubitat Hub to be exposed and/or captured. "
-                         +"I am not saying this is actually happening, but cloud logging of the HTML response could allow the ability to reassemble the data.</ul>")                  
-            
-                // required for authToken refresh
-                input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), submitOnChange: true)
-                input(name: "clientSecretUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client Secret from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), submitOnChange: true)
-                
-                if(state.authTokenDate) {
-                    paragraph("Token Expiration Date: ${state.authTokenDate}")
-                    input( name: "webhook::refreshToken", type: "button", title: "Refresh Token", width: 3, style:"width:50%;" )
-                } 
+                         +"I am not saying this is actually happening, but cloud logging of the HTML response could allow the ability to reassemble the data.</ul>")           
             }
+            
+            if(!pageMainPageAppLabel || !mainPageAllowConfig) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
+            input(name: "mainPageAllowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Additional Configuration"), defaultValue: false, submitOnChange: true)            
+            if(mainPageAllowConfig) {
+                paragraph( getFormat("line"))
+                // required for authToken refresh
+                input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
+                input(name: "clientSecretUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client Secret from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
+                              
+                if(state.authTokenDate) {
+                    paragraph( getFormat("text","$sSamsungIcon Token Expiration Date: ${state.authTokenDate}") )
+                    input(name: "mainPage::refreshToken", type: "button", title: "Refresh Token", width: 3, style:"width:50%;", newLineAfter:true )
+                }
+                
+                input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change SmartApp Name:"), width: 6, submitOnChange: true, newLineAfter:true)
+                input(name: "mainPage::changeName", type: "button", title: "Change Name", width: 3, style:"width:50%;", newLineAfter:true )
+ 
+            }
+            
         }
             
         section(menuHeader("HubiThings Device List")){            
@@ -156,11 +167,11 @@ def mainPage(){
                 paragraph( html )
             }
             
-            input( name: "mainpage::list",         type: "button", width: 2, title: "Device List", style:"width:75%;" )
-            input( name: "mainpage::description",  type: "button", width: 2, title: "Device Description", style:"width:75%;" )
-            input( name: "mainpage::status",       type: "button", width: 2, title: "Device Status", style:"width:75%;" )
-            input( name: "mainpage::health",       type: "button", width: 2, title: "Device Health", style:"width:75%;" )
-            //input( name: "mainpage::test",         type: "button", width: 2, title: "Test Method", style:"width:75%;" )            
+            input( name: "mainPage::list",         type: "button", width: 2, title: "Device List", style:"width:75%;" )
+            input( name: "mainPage::description",  type: "button", width: 2, title: "Device Description", style:"width:75%;" )
+            input( name: "mainPage::status",       type: "button", width: 2, title: "Device Status", style:"width:75%;" )
+            input( name: "mainPage::health",       type: "button", width: 2, title: "Device Health", style:"width:75%;" )
+            //input( name: "mainPage::test",         type: "button", width: 2, title: "Test Method", style:"width:75%;" )            
     	}
         
         section(menuHeader("HubiThings Device Creation and Control")){	
@@ -208,13 +219,16 @@ def pageCreateDevice(){
         def smartDeviceType   = smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.deviceTypeName ?: (smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.name ?: "UNKNOWN")
         def smartCapabilities = smartAttributes?.sort()?.join(', ')
         def hubitatDeviceTypes = ["Virtual Switch", "Virtual Dimmer", "Virtual Contact Sensor", "Virtual Motion Sensor", "Virtual Temperature Sensor", "Virtual Humidity Sensor", "Virtual Presence"]
-        
+        app.updateSetting( "pageCreateDeviceLabel", smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.label ?: "" )
+
         section(menuHeader("Create HubiThings Device")+"$sHubitatIconStatic $sSamsungIconStatic") {
-            input(name: "pageCreateDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true)
+ 
+            input(name: "pageCreateDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
             paragraph("Device Type: ${smartDeviceType ?: ""}<br>Capabilities: ${smartCapabilities ?: ""}")
             paragraph( getFormat("line"))
             
-            input(name: "pageCreateDeviceType", type: "enum", title: "$sHubitatIcon Create Hubitat Device Type:", description: "Choose a Hubitat device type", options: hubitatDeviceTypes, required: false, submitOnChange:true)
+            input(name: "pageCreateDeviceType", type: "enum", title: "$sHubitatIcon Create Hubitat Device Type:", description: "Choose a Hubitat device type", options: hubitatDeviceTypes, required: false, submitOnChange:true, width: 6, newLineAfter:true)
+            input(name: "pageCreateDeviceLabel", type: "text", title: "$sHubitatIcon Create Hubitat Device Label:", submitOnChange: false, width: 6)
             paragraph( getFormat("line"))
             
             if (pageCreateDeviceSmartDevice && pageCreateDeviceType) {
@@ -253,7 +267,7 @@ def pageMirrorDevice(){
         def smartCapabilities = smartAttributes?.sort()?.join(', ')
       
         section(menuHeader("Mirror HubiThings Device")+"$sHubitatIconStatic $sSamsungIconStatic") {
-            input(name: "pageMirrorDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true)
+            input(name: "pageMirrorDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 4)
             paragraph("Device Type: ${smartDeviceType ?: ""}<br>Capabilities: ${smartCapabilities ?: ""}")
             paragraph( getFormat("line"))
             
@@ -319,8 +333,8 @@ def pageAddDevice() {
     dynamicPage(name: "pageAddDevice", uninstall: false) {
         displayHeader()
         
-        def label  = (smartDevices?.items.find{it.deviceId == pageCreateDeviceSmartDevice}.label)
-        
+        def label  = pageCreateDeviceLabel
+
         def response
         if (getChildDevices().find{it.label == label}){
             response = "There is already a device labled '${label}'. Go back and change the label name."
@@ -338,8 +352,8 @@ def addChildDevices(){
     
     def deviceNetworkId = "${UUID.randomUUID().toString()}"
     def nameSpace = "hubitat"
-    def label = (smartDevices?.items.find{it.deviceId == pageCreateDeviceSmartDevice}.label)
-    def name  = (smartDevices?.items.find{it.deviceId == pageCreateDeviceSmartDevice}.name)
+    def label = pageCreateDeviceLabel
+    def name  = (smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.name)
     def deviceId = pageCreateDeviceSmartDevice
     
     def response = "A '${pageCreateDeviceType}' named '${label}' could not be created. Ensure you have the correct Hubitat Drivers Code."
@@ -470,8 +484,6 @@ def childDevicesRuleSection(){
     }
 }
 
-def deviceEventHandler(evt) { deviceTriggerHandler(evt) }
-
 def deviceTriggerHandler(event) {    
     logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' displayName:'${event?.getDisplayName()}' name:'${event?.name}' value:'${event?.value}' unit:'${event?.unit}'"
     //event.properties.each { logInfo "$it.key -> $it.value" }
@@ -487,21 +499,21 @@ def deviceTriggerHandler(event) {
         // simple enum case
         if(event.name==trigger?.name && event.value==trigger?.value ) {
             if(childDeviceEvent?.attribute==trigger?.name && childDeviceEvent?.value?.toString()==event.value?.toString()) {
-                logInfo "EVENT CACHE BLOCKED: attribute:${childDeviceEvent?.attribute} value:${childDeviceEvent?.value.toString()}"
+                logDebug "EVENT CACHE BLOCKED: attribute:${childDeviceEvent?.attribute} value:${childDeviceEvent?.value.toString()}"
             }
             else {  
-                logInfo "Executing SmartThings enum command:${command?.name}()"                
+                logInfo "Sending SmartThings '${childDevice?.getLabel()}' enum command:${command?.name}()"                
                 commandDevice(deviceId, command?.capability, command?.name)
             }
         }
         // non-enum case https://developer-preview.smartthings.com/docs/devices/capabilities/capabilities
         else if(event.name==trigger?.name && !trigger?.value) {
             if(childDeviceEvent?.attribute==trigger?.name && childDeviceEvent?.value?.toString()==event.value?.toString()) {
-                logInfo "EVENT CACHE BLOCKED: attribute:${childDeviceEvent?.attribute} value:${childDeviceEvent?.value.toString()}"
+                logDebug "EVENT CACHE BLOCKED: attribute:${childDeviceEvent?.attribute} value:${childDeviceEvent?.value.toString()}"
             }
             else {
                 def type = command?.arguments?.getAt(0)?.schema?.type?.toLowerCase()
-                logInfo "Executing SmartThings $type command:${command?.name}(${event?.value})"
+                logInfo "Sending SmartThings '${childDevice?.getLabel()}' $type command:${command?.name}(${event?.value})"
                 
                 switch(type) {
                     case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
@@ -538,14 +550,14 @@ def smartTriggerHandler(childDevice, event) {
     def childDeviceRules = getChildDeviceDataJson(childDevice, "rules")
     event?.each { capability, attributes ->
         attributes.each{ attribute, value ->
-            //logInfo "smartEvent: capability:'$capability' attribute:'$attribute' value:'$value'" 
+            logTrace "smartEvent: capability:'$capability' attribute:'$attribute' value:'$value'" 
             childDeviceRules?.findAll{ it.type == "smartTrigger" }?.each { rule -> 
                 def trigger = rule?.trigger.values()?.getAt(0) ?: []
                 def command = rule?.command.values()?.getAt(0) ?: []
                     
                 // simple enum case
-                if(attribute==trigger?.attribute && value.value==trigger?.value ) {    
-                    logInfo "Executing Hubitat enum command:${command?.name}()"                  
+                if(attribute==trigger?.attribute && value?.value==trigger?.value ) {    
+                    logInfo "Executing Hubitat '${childDevice?.getLabel()}' enum command:${command?.name}()"                  
                     def args = []
                     def method = command?.name
                     if(childDevice.hasCommand(method)) {
@@ -554,7 +566,7 @@ def smartTriggerHandler(childDevice, event) {
                 }
                 // non-enum case
                 else if(attribute==trigger?.attribute && !trigger?.value) {
-                    logInfo "Executing Hubitat command:${command?.name}(${value?.value})"
+                    logInfo "Executing Hubitat '${childDevice?.getLabel()}' command:${command?.name}(${value?.value})"
                     def args = [value.value]
                     def method = command?.name
                     if(childDevice.hasCommand(method)) {
@@ -583,7 +595,7 @@ def pageConfigureDevice() {
                 hubitatDescription += "Attributes: ${pageConfigureDeviceHubitatDevice?.getSupportedAttributes()?.collect { it.toString() }?.sort()?.join(', ')}\n"
                 hubitatDescription += "Commands: ${pageConfigureDeviceHubitatDevice?.getSupportedCommands()?.sort()?.join(', ')}"
                 paragraph( hubitatDescription )
-                input(name: "mainpage::description",  type: "button", title: "Refresh", width: 2, style:"width:75%;")
+                input(name: "mainPage::description",  type: "button", title: "Refresh", width: 2, style:"width:75%;")
                 input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;")
                 paragraph( getFormat("line"))
             }
@@ -628,7 +640,7 @@ def pageConfigureDevice() {
             g_mPageConfigureDevice['smartCommand']     = ["$smartCommand": smartCommandOptions?.get(smartCommand)] ?: null
             g_mPageConfigureDevice['hubitatCommand']   = ["$hubitatCommand": hubitatCommandOptions?.get(hubitatCommand)] ?: null
             
-            input( name: "mainpage::test",         type: "button", width: 2, title: "Test Method" ) 
+            input( name: "mainPage::test",         type: "button", width: 2, title: "Test Method" ) 
         }
         
         childDevicesRuleSection()
@@ -834,7 +846,7 @@ def oldSmartStatusHandler(childDevice, status, deviceEvent=null){
 }
 
 def smartStatusHandler(childDevice, status) {
-    logInfo "${app.getLabel()} executing 'smartStatusHandler()' childDevice:'${childDevice?.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartStatusHandler()' childDevice:'${childDevice?.getLabel()}'"
     def response = [statusCode:iHttpError]
     
     childDevice.updateDataValue("status", JsonOutput.toJson(status))
@@ -934,7 +946,7 @@ void appButtonHandler(String btn) {
             String v = (String)items[1]
             logTrace "Button [$k] [$v] pressed"
             switch(k) {                
-                case "mainpage":                    
+                case "mainPage":                    
                     switch(v) {
                         case "list":
                             deviceList()
@@ -951,12 +963,14 @@ void appButtonHandler(String btn) {
                         case "test":
                             testit()
                             break
-                    }                            
-                    break
-                case "webhook":
-                    switch(v) {
                         case "refreshToken":
                             handleTokenRefresh()                       
+                            break
+                        case "changeName":
+                            if(pageMainPageAppLabel && pageMainPageAppLabel!=app.getLabel()) {
+                                logInfo "Changing Hubitat SmartApp from ${app.getLabel()} to $pageMainPageAppLabel"
+                                app.updateLabel( pageMainPageAppLabel )
+                            } 
                             break
                     }                            
                     break
@@ -1142,7 +1156,8 @@ def getCapability(deviceId, capabilityId, capabilityVersion="1") {
 def allDeviceStatus() {
     logInfo "${app.getLabel()} refreshing all devices status"
     runIn(1, getAllDeviceStatus)
-    runEvery1Hour(getAllDeviceStatus)
+    unschedule("getAllDeviceStatus")
+    //runEvery3Hours(getAllDeviceStatus)
 }
 
 def getAllDeviceStatus() {
@@ -1808,7 +1823,7 @@ def getFormat(type, myText="", myHyperlink=""){
 }
 
 def displayHeader() { 
-    section (getFormat("title", "${app.getLabel()}$sCodeRelease")) { 
+    section (getFormat("title", "${app.getLabel()}${sCodeRelease?.size() ? " : [ $sCodeRelease ]" : ""}"  )) { 
         paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: ${version()} -  ${copyright()}</div>"
         paragraph getFormat("line") 
     }
