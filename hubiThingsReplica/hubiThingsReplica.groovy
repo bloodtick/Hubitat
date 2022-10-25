@@ -17,10 +17,11 @@
 *
 *  1.0.0 2022-10-01 First pass.
 *  1.0.1 2022-10-25 Allow for more than one instance. UI modes. Turn off status refresh. Bug fixes.
+*  1.0.2 2022-10-25 Build refresh device method. Add 'Generic Component Dimmer' to test moving to Component types.
 *
 */
 
-public static String version() {  return "v1.0.1"  }
+public static String version() {  return "v1.0.2"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -218,7 +219,7 @@ def pageCreateDevice(){
         }
         def smartDeviceType   = smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.deviceTypeName ?: (smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.name ?: "UNKNOWN")
         def smartCapabilities = smartAttributes?.sort()?.join(', ')
-        def hubitatDeviceTypes = ["Virtual Switch", "Virtual Dimmer", "Virtual Contact Sensor", "Virtual Motion Sensor", "Virtual Temperature Sensor", "Virtual Humidity Sensor", "Virtual Presence"]
+        def hubitatDeviceTypes = ["Virtual Switch", "Virtual Dimmer", "Virtual Contact Sensor", "Virtual Motion Sensor", "Virtual Temperature Sensor", "Virtual Humidity Sensor", "Virtual Presence", "Generic Component Dimmer"]
         app.updateSetting( "pageCreateDeviceLabel", smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.label ?: "" )
 
         section(menuHeader("Create HubiThings Device")+"$sHubitatIconStatic $sSamsungIconStatic") {
@@ -359,10 +360,9 @@ def addChildDevices(){
     def response = "A '${pageCreateDeviceType}' named '${label}' could not be created. Ensure you have the correct Hubitat Drivers Code."
     try {
         def childDevice = addChildDevice(nameSpace, pageCreateDeviceType, deviceNetworkId, null, [name: name, label: label, completedSetup: true])
+        // the deviceId makes this a hubiThing
         childDevice?.updateDataValue("deviceId", deviceId)
-        getDeviceHealth(deviceId)
-        getDeviceDescription(deviceId)
-        getDeviceStatus(deviceId)
+        smartDeviceRefresh(childDevice)
 
         logInfo "${app.getLabel()} created device '${childDevice.label}' with network id: ${childDevice.deviceNetworkId}"            
         
@@ -371,16 +371,28 @@ def addChildDevices(){
         response += "Capabilities: ${childDevice.getCapabilities()?.sort()?.join(', ')}\n"
         response += "Attributes: ${childDevice.getSupportedAttributes()?.sort()?.join(', ')}"
         
-        // for now, subscribe to everything. need todo this better.
-        //childDevice.getSupportedAttributes().each { attributes ->
-        //    logInfo "${childDevice.label} subscribed to $attributes"
-        //    subscribe(childDevice, "${attributes}", deviceTriggerHandler)
-        //}        
-        
     } catch (e) {
         logWarn "Error creating device: ${e}"        
     }
     return response   
+}
+
+def smartDeviceRefresh(childDevice) {
+    
+    def deviceId = childDevice?.getDataValue("deviceId")    
+    if(deviceId) {
+        // for now, subscribe to everything. need todo this better.
+        childDevice?.getSupportedAttributes()?.each { attributes ->
+            logInfo "${childDevice.label} subscribed to $attributes"
+            subscribe(childDevice, "${attributes}", deviceTriggerHandler)
+        }
+        getDeviceHealth(deviceId)
+        getDeviceDescription(deviceId)
+        getDeviceStatus(deviceId)
+    } 
+    else if(childDevice) {
+        unsubscribe(childDevice)
+    }
 }
 
 def pageDeleteDevice(){
@@ -580,6 +592,34 @@ def smartTriggerHandler(childDevice, event) {
     return [statusCode:response.statusCode]
 }
 
+void componentOn(device) {
+    logDebug "componentOn device:$device"
+    getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${device.displayName} was turned on", data:[appId:app.getId()]]])
+}
+
+void componentOff(device) {
+    logDebug "componentOff device:$device"
+    getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${device.displayName} was turned off", data:[appId:app.getId()]]])
+}
+
+void componentSetLevel(device, level, ramp=null) {
+    logDebug "componentSetLevel device:$device $level $ramp"
+    getChildDevice(device.deviceNetworkId).parse([[name:"level", value:level, descriptionText:"${device.displayName} level was set to ${level}%", unit: "%", data:[appId:app.getId()]]])
+}
+
+void componentStartLevelChange(device, direction) {
+    logWarn "componentStartLevelChange device:$device $direction : No Operation"
+}
+
+void componentStopLevelChange(device) {
+    logWarn "componentStopLevelChange device:$device : No Operation"
+}
+
+void componentRefresh(device) {
+    logDebug "componentRefresh device:$device"
+    smartDeviceRefresh(device)
+}
+
 def pageConfigureDevice() {
     
     dynamicPage(name: "pageConfigureDevice", uninstall: false) {
@@ -595,7 +635,7 @@ def pageConfigureDevice() {
                 hubitatDescription += "Attributes: ${pageConfigureDeviceHubitatDevice?.getSupportedAttributes()?.collect { it.toString() }?.sort()?.join(', ')}\n"
                 hubitatDescription += "Commands: ${pageConfigureDeviceHubitatDevice?.getSupportedCommands()?.sort()?.join(', ')}"
                 paragraph( hubitatDescription )
-                input(name: "mainPage::description",  type: "button", title: "Refresh", width: 2, style:"width:75%;")
+                input(name: "pageConfigureDevice::refreshDevice",  type: "button", title: "Refresh", width: 2, style:"width:75%;")
                 input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;")
                 paragraph( getFormat("line"))
             }
@@ -759,92 +799,6 @@ def getSmartAttributeOptions(childDevice) {
     return smartAttributeOptions
 }
 
-def getSmartDescription(childDevice, key) {
-    def description = getChildDeviceDataJson(childDevice, "description")
-    return ((description?.get(key)) ?: [])
-}
-
-def getSmartCapabilities(childDevice) {
-    def reponse = []
-    def capabilities = getChildDeviceDataJson(childDevice, "capabilities")
-    capabilities?.components?.each { capability -> 
-        reponse.add(capability.id)
-    }
-    return reponse
-}
-
-
-
-
-def oldSmartStatusHandler(childDevice, status, deviceEvent=null){
-    logDebug "${app.getLabel()} executing 'oldSmartStatusHandler()' childDevice:'${childDevice?.getLabel()}'"
-    def response = [statusCode:iHttpError]
-
-    if (!deviceEvent) childDevice.updateDataValue("status", JsonOutput.toJson(status))
-    status?.components?.main?.each { capability, data ->    
-    //{"components":{"main":{"switchLevel":{"level":{"value":30,"unit":"%","timestamp":"2022-09-07T21:16:59.576Z"}},"switch":{"switch":{"value":"off","timestamp":"2022-09-11T20:17:54.711Z"}}}}}
-    //{"components":{"main":{"powerMeter":{"power":{"value":0.0,"unit":"W","timestamp":"2022-09-07T21:22:29.052Z"}},"refresh":{},"firmwareUpdate":{"lastUpdateStatusReason":{"value":null},
-    //    "availableVersion":{"value":"00000011","timestamp":"2022-09-07T21:26:36.619Z"},"lastUpdateStatus":{"value":null},"state":{"value":"normalOperation","timestamp":"2022-09-07T21:26:36.618Z"},
-    //    "currentVersion":{"value":"00000011","timestamp":"2022-09-07T21:26:36.620Z"},"lastUpdateTime":{"value":null}},"switch":{"switch":{"value":"on","timestamp":"2022-09-12T23:31:22.180Z"}}}}}
-        switch(capability) {
-            case 'healthCheck':
-                if (childDevice.hasAttribute("healthStatus") && childDevice.currentValue("healthStatus") != "${data?.healthStatus?.value}") {
-                    def descriptionText = "${app.getLabel()} set healthStatus ${data?.healthStatus?.value} since ${getCommonTimeFormat(data?.healthStatus?.timestamp)}"
-                    childDevice.sendEvent(name:"healthStatus", value:(data?.healthStatus?.value), descriptionText:descriptionText, data:[appId:app.getId()])
-                }
-                if (data?.healthStatus?.value != "online") updateDeviceTableStatus( childDevice, sColorDarkRed )
-                break            
-            case 'switch':
-                if (childDevice.hasAttribute("switch") && childDevice.currentValue("switch") != "${data.switch.value}") {
-                    def descriptionText = "${app.getLabel()} set switch ${data?.switch?.value} at ${getCommonTimeFormat(data?.switch?.timestamp)}"
-                    childDevice.sendEvent(name:"switch", value:"${data?.switch?.value}", descriptionText:descriptionText, data:[appId:app.getId()])
-                }
-                updateDeviceTableStatus( childDevice, (data?.switch?.value == 'on' ? sColorDarkBlue : sColorDarkGrey) )
-                break
-            case 'switchLevel':
-                if (childDevice.hasAttribute("level") && childDevice.currentValue("level") != "${data.level.value}") {
-                    def descriptionText = "${app.getLabel()} set level ${data?.level?.value} at ${getCommonTimeFormat(data?.level?.timestamp)}"
-                    childDevice.sendEvent(name:"level", value:"${data.level.value}", unit: "%", descriptionText:descriptionText, data:[appId:app.getId()])
-                }
-                break
-            case 'contactSensor':
-                if (childDevice.hasAttribute("contact") && childDevice.currentValue("contact") != "${data.contact.value}") {
-                    def descriptionText = "${app.getLabel()} set contact ${data?.contact?.value} at ${getCommonTimeFormat(data?.contact?.timestamp)}"
-                    childDevice.sendEvent(name:"contact", value:"${data.contact.value}", descriptionText:descriptionText, data:[appId:app.getId()])
-                }    
-                updateDeviceTableStatus( childDevice, (data?.contact?.value == 'open' ? sColorDarkBlue : sColorDarkGrey) )
-                break
-            case 'motionSensor':
-                if (childDevice.hasAttribute("motion") && childDevice.currentValue("motion") != "${data.motion.value}") {
-                    def descriptionText = "${app.getLabel()} set motion ${data?.motion?.value} at ${getCommonTimeFormat(data?.motion?.timestamp)}"
-                    childDevice.sendEvent(name:"motion", value:"${data.motion.value}", descriptionText:descriptionText, data:[appId:app.getId()])
-                }    
-                updateDeviceTableStatus( childDevice, (data?.motion?.value == 'active' ? sColorDarkBlue : sColorDarkGrey) )
-                break
-           case 'temperatureMeasurement':
-                if (childDevice.hasAttribute("temperature") && childDevice.currentValue("temperature") != "${data.temperature.value}") {
-                    def descriptionText = "${app.getLabel()} set temperature ${data?.temperature?.value}°${data?.temperature?.unit} at ${getCommonTimeFormat(data?.temperature?.timestamp)}"
-                    childDevice.sendEvent(name:"temperature", value:(data?.temperature?.value), unit:"°${data?.temperature?.unit}", descriptionText:descriptionText, data:[appId:app.getId()])
-                }            
-                //updateDeviceTableStatus( childDevice, (data?.motion?.value == 'active' ? sColorDarkBlue : sColorDarkGrey) )                
-                break 
-            case 'relativeHumidityMeasurement':
-                if (childDevice.hasAttribute("humidity") && childDevice.currentValue("humidity") != "${data.humidity.value}") {
-                    def descriptionText = "${app.getLabel()} set humidity ${data?.humidity?.value.toInteger()}${data?.humidity?.unit} at ${getCommonTimeFormat(data?.humidity?.timestamp)}"
-                    childDevice.sendEvent(name:"humidity", value:(data.humidity.value.toInteger()), unit:(data?.humidity?.unit), descriptionText:descriptionText, data:[appId:app.getId()])
-                }    
-                //updateDeviceTableStatus( childDevice, (data?.motion?.value == 'active' ? sColorDarkBlue : sColorDarkGrey) )                
-                break           
-            
-             default:
-                //logWarn "${app.getLabel()} smartTriggerHandler ${capability} not supported"
-                break
-        }
-        response.statusCode = iHttpSuccess
-    }
-    return [statusCode:response.statusCode]
-}
-
 def smartStatusHandler(childDevice, status) {
     logDebug "${app.getLabel()} executing 'smartStatusHandler()' childDevice:'${childDevice?.getLabel()}'"
     def response = [statusCode:iHttpError]
@@ -997,7 +951,10 @@ void appButtonHandler(String btn) {
                         case "clearDeviceRules":
                             pageConfigureDeviceHubitatDevice?.removeDataValue("rules")
                             unsubscribe(pageConfigureDeviceHubitatDevice)
-                            break 
+                            break
+                        case "refreshDevice":
+                            smartDeviceRefresh(pageConfigureDeviceHubitatDevice)
+                            break
                     }
                     break                    
                 default:
@@ -1155,8 +1112,8 @@ def getCapability(deviceId, capabilityId, capabilityVersion="1") {
 
 def allDeviceStatus() {
     logInfo "${app.getLabel()} refreshing all devices status"
-    runIn(1, getAllDeviceStatus)
     unschedule("getAllDeviceStatus")
+    runIn(1, getAllDeviceStatus)    
     //runEvery3Hours(getAllDeviceStatus)
 }
 
