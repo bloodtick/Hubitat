@@ -18,10 +18,11 @@
 *  1.0.0 2022-10-01 First pass.
 *  1.0.1 2022-10-25 Allow for more than one instance. UI modes. Turn off status refresh. Bug fixes.
 *  1.0.2 2022-10-25 Build refresh device method. Add 'Generic Component Dimmer' to test moving to Component types.
+*  1.0.3 2022-10-26 Log Info Mute function for chatty devices (like power)
 *
 */
 
-public static String version() {  return "v1.0.2"  }
+public static String version() {  return "v1.0.3"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -169,8 +170,8 @@ def mainPage(){
             }
             
             input( name: "mainPage::list",         type: "button", width: 2, title: "Device List", style:"width:75%;" )
-            input( name: "mainPage::description",  type: "button", width: 2, title: "Device Description", style:"width:75%;" )
             input( name: "mainPage::status",       type: "button", width: 2, title: "Device Status", style:"width:75%;" )
+            input( name: "mainPage::description",  type: "button", width: 2, title: "Device Description", style:"width:75%;" )
             input( name: "mainPage::health",       type: "button", width: 2, title: "Device Health", style:"width:75%;" )
             //input( name: "mainPage::test",         type: "button", width: 2, title: "Test Method", style:"width:75%;" )            
     	}
@@ -219,7 +220,7 @@ def pageCreateDevice(){
         }
         def smartDeviceType   = smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.deviceTypeName ?: (smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.name ?: "UNKNOWN")
         def smartCapabilities = smartAttributes?.sort()?.join(', ')
-        def hubitatDeviceTypes = ["Virtual Switch", "Virtual Dimmer", "Virtual Contact Sensor", "Virtual Motion Sensor", "Virtual Temperature Sensor", "Virtual Humidity Sensor", "Virtual Presence", "Generic Component Dimmer"]
+        def hubitatDeviceTypes = ["Generic Component Switch", "Generic Component Dimmer", "Virtual Switch", "Virtual Contact Sensor", "Virtual Motion Sensor", "Virtual Temperature Sensor", "Virtual Humidity Sensor", "Virtual Presence"]
         app.updateSetting( "pageCreateDeviceLabel", smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.label ?: "" )
 
         section(menuHeader("Create HubiThings Device")+"$sHubitatIconStatic $sSamsungIconStatic") {
@@ -447,16 +448,16 @@ def updateRuleList(action, type) {
 
     def childDeviceRules = getChildDeviceDataJson(pageConfigureDeviceHubitatDevice, "rules") ?: []
     def allowDuplicateAttribute = pageConfigureDeviceAllowDuplicateAttribute
+    def muteTriggerRuleInfo = pageConfigureDeviceMuteTriggerRuleInfo
     app.updateSetting("pageConfigureDeviceAllowDuplicateAttribute", false)
+    app.updateSetting("pageConfigureDeviceMuteTriggerRuleInfo", false)
   
     if(action=='delete') {
         childDeviceRules?.removeAll{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey && it?.command?.keySet()?.getAt(0)==commandKey }
-        def attribute = trigger?.values()?.getAt(0)?.name
-        logInfo "Detaching '$pageConfigureDeviceHubitatDevice' to attribute:'$attribute'"
-        unsubscribe(pageConfigureDeviceHubitatDevice, attribute)
     }
     else if(triggerKey && commandKey && !childDeviceRules?.find{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey && it?.command?.keySet()?.getAt(0)==commandKey }) {
-        def newRule = [ trigger:trigger, command:command, type:type ]
+        def newRule = [ trigger:trigger, command:command, type:type]
+        if(muteTriggerRuleInfo) newRule['mute'] = true
 
         if(action=='replace'){
             childDeviceRules = childDeviceRules?.collect{
@@ -496,151 +497,28 @@ def childDevicesRuleSection(){
     }
 }
 
-def deviceTriggerHandler(event) {    
-    logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' displayName:'${event?.getDisplayName()}' name:'${event?.name}' value:'${event?.value}' unit:'${event?.unit}'"
-    //event.properties.each { logInfo "$it.key -> $it.value" }
-    def childDevice = event?.getDevice() 
-    def deviceId = event?.getDevice()?.getDataValue("deviceId")    
-    
-    def childDeviceRules = getChildDeviceDataJson(childDevice, "rules")
-    def childDeviceEvent = getChildDeviceDataJson(childDevice, "event")
-    childDeviceRules?.findAll{ it.type == "hubitatTrigger" }?.each { rule ->            
-        def trigger = rule?.trigger.values()?.getAt(0) ?: []
-        def command = rule?.command.values()?.getAt(0) ?: []          
-           
-        // simple enum case
-        if(event.name==trigger?.name && event.value==trigger?.value ) {
-            if(childDeviceEvent?.attribute==trigger?.name && childDeviceEvent?.value?.toString()==event.value?.toString()) {
-                logDebug "EVENT CACHE BLOCKED: attribute:${childDeviceEvent?.attribute} value:${childDeviceEvent?.value.toString()}"
-            }
-            else {  
-                logInfo "Sending SmartThings '${childDevice?.getLabel()}' enum command:${command?.name}()"                
-                commandDevice(deviceId, command?.capability, command?.name)
-            }
-        }
-        // non-enum case https://developer-preview.smartthings.com/docs/devices/capabilities/capabilities
-        else if(event.name==trigger?.name && !trigger?.value) {
-            if(childDeviceEvent?.attribute==trigger?.name && childDeviceEvent?.value?.toString()==event.value?.toString()) {
-                logDebug "EVENT CACHE BLOCKED: attribute:${childDeviceEvent?.attribute} value:${childDeviceEvent?.value.toString()}"
-            }
-            else {
-                def type = command?.arguments?.getAt(0)?.schema?.type?.toLowerCase()
-                logInfo "Sending SmartThings '${childDevice?.getLabel()}' $type command:${command?.name}(${event?.value})"
-                
-                switch(type) {
-                    case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
-                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value.toInteger() ])
-                        break
-                    case 'number':  // A number that can have fractional values. Limits can be defined to constrain the range of possible values.
-                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value.toFloat() ])
-                        break
-                    case 'boolean': // Either true or false
-                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value.toBoolean() ])
-                        break
-                    case 'object':  // A map of name value pairs, where the values can be of different types.
-                        def map = new JsonSlurper().parseText(event?.value)
-                        commandDevice(deviceId, command?.capability, command?.name, map)
-                        break
-                    case 'array':   // A list of values of a single type.
-                        def list = new JsonSlurper().parseText(event?.value)
-                        commandDevice(deviceId, command?.capability, command?.name, list)
-                        break
-                    default:
-                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value ])
-                        break
-                }
-            }
-        }      
-    }            
-}
-
-def smartTriggerHandler(childDevice, event) {
-    logDebug "${app.getLabel()} executing 'smartTriggerHandler()' childDevice:'${childDevice?.getLabel()}'"
-    def response = [statusCode:iHttpError]    
-    //logInfo JsonOutput.toJson(event)
-    
-    def childDeviceRules = getChildDeviceDataJson(childDevice, "rules")
-    event?.each { capability, attributes ->
-        attributes.each{ attribute, value ->
-            logTrace "smartEvent: capability:'$capability' attribute:'$attribute' value:'$value'" 
-            childDeviceRules?.findAll{ it.type == "smartTrigger" }?.each { rule -> 
-                def trigger = rule?.trigger.values()?.getAt(0) ?: []
-                def command = rule?.command.values()?.getAt(0) ?: []
-                    
-                // simple enum case
-                if(attribute==trigger?.attribute && value?.value==trigger?.value ) {    
-                    logInfo "Executing Hubitat '${childDevice?.getLabel()}' enum command:${command?.name}()"                  
-                    def args = []
-                    def method = command?.name
-                    if(childDevice.hasCommand(method)) {
-                        childDevice."$method"(*args)
-                    }
-                }
-                // non-enum case
-                else if(attribute==trigger?.attribute && !trigger?.value) {
-                    logInfo "Executing Hubitat '${childDevice?.getLabel()}' command:${command?.name}(${value?.value})"
-                    def args = [value.value]
-                    def method = command?.name
-                    if(childDevice.hasCommand(method)) {
-                        childDevice."$method"(*args)
-                    }
-                }
-            }
-        }
-        response.statusCode = iHttpSuccess
-    }
-    return [statusCode:response.statusCode]
-}
-
-void componentOn(device) {
-    logDebug "componentOn device:$device"
-    getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${device.displayName} was turned on", data:[appId:app.getId()]]])
-}
-
-void componentOff(device) {
-    logDebug "componentOff device:$device"
-    getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${device.displayName} was turned off", data:[appId:app.getId()]]])
-}
-
-void componentSetLevel(device, level, ramp=null) {
-    logDebug "componentSetLevel device:$device $level $ramp"
-    getChildDevice(device.deviceNetworkId).parse([[name:"level", value:level, descriptionText:"${device.displayName} level was set to ${level}%", unit: "%", data:[appId:app.getId()]]])
-}
-
-void componentStartLevelChange(device, direction) {
-    logWarn "componentStartLevelChange device:$device $direction : No Operation"
-}
-
-void componentStopLevelChange(device) {
-    logWarn "componentStopLevelChange device:$device : No Operation"
-}
-
-void componentRefresh(device) {
-    logDebug "componentRefresh device:$device"
-    smartDeviceRefresh(device)
-}
-
 def pageConfigureDevice() {
     
     dynamicPage(name: "pageConfigureDevice", uninstall: false) {
         displayHeader()
        
-        section(menuHeader("Configure HubiThings Rules")+"$sHubitatIconStatic $sSamsungIconStatic") {            
+        section(menuHeader("Configure HubiThings Rules")+"$sHubitatIconStatic $sSamsungIconStatic") {
                         
             input(name: "pageConfigureDeviceHubitatDevice", type: "capability.*", title: "Hubitat Device:", description: "Choose a Hubitat device", multiple: false, submitOnChange: true)
-            if(pageConfigureDeviceShowDetail) {
+            if(pageConfigureDeviceShowDetail && pageConfigureDeviceHubitatDevice) {
                 def hubitatDescription = ""
                 hubitatDescription += "Device Type: ${pageConfigureDeviceHubitatDevice?.getTypeName() ?: ""}\n"
                 hubitatDescription += "Capabilities: ${pageConfigureDeviceHubitatDevice?.getCapabilities()?.sort()?.join(', ')}\n"
                 hubitatDescription += "Attributes: ${pageConfigureDeviceHubitatDevice?.getSupportedAttributes()?.collect { it.toString() }?.sort()?.join(', ')}\n"
                 hubitatDescription += "Commands: ${pageConfigureDeviceHubitatDevice?.getSupportedCommands()?.sort()?.join(', ')}"
+
                 paragraph( hubitatDescription )
                 input(name: "pageConfigureDevice::refreshDevice",  type: "button", title: "Refresh", width: 2, style:"width:75%;")
                 input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;")
                 paragraph( getFormat("line"))
             }
             
-            def hubitatAttributeOptions = getHubitatAttributeOptions(pageConfigureDeviceHubitatDevice)                       
+            def hubitatAttributeOptions = getHubitatAttributeOptions(pageConfigureDeviceHubitatDevice)                      
             def smartCommandOptions = getSmartCommandOptions(pageConfigureDeviceHubitatDevice)
             
             input(name: "hubitatAttribute", type: "enum", title: "$sHubitatIcon If Hubitat Attribute <b>TRIGGER</b> changes:", description: "Choose a Hubitat Attribute", options: hubitatAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4)
@@ -671,6 +549,7 @@ def pageConfigureDevice() {
             paragraph( getFormat("line"))     
             
             input(name: "pageConfigureDeviceAllowDuplicateAttribute", type: "bool", title: "Allow duplicate Attribute <b>TRIGGER</b>", defaultValue: false, submitOnChange: true, width: 3)
+            input(name: "pageConfigureDeviceMuteTriggerRuleInfo", type: "bool", title: "Mute <b>TRIGGER</b> rule Info output", defaultValue: false, submitOnChange: true, width: 3)
             input(name: "pageConfigureDeviceAllowActionAttribute", type: "bool", title: "Allow <b>ACTION</b> to update Hubitat Attributes", defaultValue: false, submitOnChange: true, width: 3)
             input(name: "pageConfigureDeviceShowDetail", type: "bool", title: "Show detail for attributes and commands", defaultValue: false, submitOnChange: true, width: 3)
             
@@ -680,7 +559,7 @@ def pageConfigureDevice() {
             g_mPageConfigureDevice['smartCommand']     = ["$smartCommand": smartCommandOptions?.get(smartCommand)] ?: null
             g_mPageConfigureDevice['hubitatCommand']   = ["$hubitatCommand": hubitatCommandOptions?.get(hubitatCommand)] ?: null
             
-            input( name: "mainPage::test",         type: "button", width: 2, title: "Test Method" ) 
+            //input( name: "mainPage::test",         type: "button", width: 2, title: "Test Method" ) 
         }
         
         childDevicesRuleSection()
@@ -738,6 +617,7 @@ def getHubitatAttributeOptions(childDevice) {
             hubitatAttributeOptions[attributeJson.label] = attributeJson 
         }
     }
+
     return hubitatAttributeOptions
 }
 
@@ -797,6 +677,131 @@ def getSmartAttributeOptions(childDevice) {
         smartAttributeOptions["attribute: healthStatus.online"] =  new JsonSlurper().parseText("""{"schema":{"type":"object","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"online","label":"attribute: healthStatus.online "}""")
     }
     return smartAttributeOptions
+}
+
+
+void componentOn(device) {
+    logDebug "componentOn device:$device"
+    getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${device.displayName} was turned on", data:[appId:app.getId()]]])
+}
+
+void componentOff(device) {
+    logDebug "componentOff device:$device"
+    getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${device.displayName} was turned off", data:[appId:app.getId()]]])
+}
+
+void componentSetLevel(device, level, ramp=null) {
+    logDebug "componentSetLevel device:$device $level $ramp"
+    getChildDevice(device.deviceNetworkId).parse([[name:"level", value:level, descriptionText:"${device.displayName} level was set to ${level}%", unit: "%", data:[appId:app.getId()]]])
+}
+
+void componentStartLevelChange(device, direction) {
+    logWarn "componentStartLevelChange device:$device $direction : No Operation"
+}
+
+void componentStopLevelChange(device) {
+    logWarn "componentStopLevelChange device:$device : No Operation"
+}
+
+void componentRefresh(device) {
+    logDebug "componentRefresh device:$device"
+    smartDeviceRefresh(device)
+}
+
+def deviceTriggerHandler(event) {    
+    logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' displayName:'${event?.getDisplayName()}' name:'${event?.name}' value:'${event?.value}' unit:'${event?.unit}'"
+    //event.properties.each { logInfo "$it.key -> $it.value" }
+    def childDevice = event?.getDevice() 
+    def deviceId = event?.getDevice()?.getDataValue("deviceId")    
+    
+    def childDeviceRules = getChildDeviceDataJson(childDevice, "rules")
+    def childDeviceEvent = getChildDeviceDataJson(childDevice, "event")
+    childDeviceRules?.findAll{ it.type == "hubitatTrigger" }?.each { rule ->            
+        def trigger = rule?.trigger.values()?.getAt(0) ?: []
+        def command = rule?.command.values()?.getAt(0) ?: []          
+           
+        // simple enum case
+        if(event.name==trigger?.name && event.value==trigger?.value ) {
+            if(childDeviceEvent?.attribute==trigger?.name && childDeviceEvent?.value?.toString()==event.value?.toString()) {
+                logDebug "EVENT CACHE BLOCKED: attribute:${childDeviceEvent?.attribute} value:${childDeviceEvent?.value.toString()}"
+            }
+            else {
+                if(!rule?.mute) logInfo "Sending SmartThings '${childDevice?.getLabel()}' enum command:${command?.name}()"                
+                commandDevice(deviceId, command?.capability, command?.name)
+            }
+        }
+        // non-enum case https://developer-preview.smartthings.com/docs/devices/capabilities/capabilities
+        else if(event.name==trigger?.name && !trigger?.value) {
+            if(childDeviceEvent?.attribute==trigger?.name && childDeviceEvent?.value?.toString()==event.value?.toString()) {
+                logDebug "EVENT CACHE BLOCKED: attribute:${childDeviceEvent?.attribute} value:${childDeviceEvent?.value.toString()}"
+            }
+            else {
+                def type = command?.arguments?.getAt(0)?.schema?.type?.toLowerCase()
+                
+                if(!rule?.mute) logInfo "Sending SmartThings '${childDevice?.getLabel()}' $type command:${command?.name}(${event?.value})"                
+                switch(type) {
+                    case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
+                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value.toInteger() ])
+                        break
+                    case 'number':  // A number that can have fractional values. Limits can be defined to constrain the range of possible values.
+                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value.toFloat() ])
+                        break
+                    case 'boolean': // Either true or false
+                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value.toBoolean() ])
+                        break
+                    case 'object':  // A map of name value pairs, where the values can be of different types.
+                        def map = new JsonSlurper().parseText(event?.value)
+                        commandDevice(deviceId, command?.capability, command?.name, map)
+                        break
+                    case 'array':   // A list of values of a single type.
+                        def list = new JsonSlurper().parseText(event?.value)
+                        commandDevice(deviceId, command?.capability, command?.name, list)
+                        break
+                    default:
+                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value ])
+                        break
+                }
+            }
+        }      
+    }            
+}
+
+def smartTriggerHandler(childDevice, event) {
+    logDebug "${app.getLabel()} executing 'smartTriggerHandler()' childDevice:'${childDevice?.getLabel()}'"
+    def response = [statusCode:iHttpError]    
+    //logInfo JsonOutput.toJson(event)
+    
+    def childDeviceRules = getChildDeviceDataJson(childDevice, "rules")
+    event?.each { capability, attributes ->
+        attributes.each{ attribute, value ->
+            logTrace "smartEvent: capability:'$capability' attribute:'$attribute' value:'$value'" 
+            childDeviceRules?.findAll{ it.type == "smartTrigger" }?.each { rule -> 
+                def trigger = rule?.trigger.values()?.getAt(0) ?: []
+                def command = rule?.command.values()?.getAt(0) ?: []
+                    
+                // simple enum case
+                if(attribute==trigger?.attribute && value?.value==trigger?.value ) {
+                    if(!rule?.mute) logInfo "Executing Hubitat '${childDevice?.getLabel()}' enum command:${command?.name}()"                  
+                    def args = []
+                    def method = command?.name
+                    if(childDevice.hasCommand(method)) {
+                        childDevice."$method"(*args)
+                    }
+                }
+                // non-enum case
+                else if(attribute==trigger?.attribute && !trigger?.value) {
+                    if(!rule?.mute) logInfo "Executing Hubitat '${childDevice?.getLabel()}' command:${command?.name}(${value?.value})"
+                    def args = [value.value]
+                    def method = command?.name
+                    if(childDevice.hasCommand(method)) {
+                        childDevice."$method"(*args)
+                    }
+                }
+            }
+        }
+        response.statusCode = iHttpSuccess
+    }
+    return [statusCode:response.statusCode]
 }
 
 def smartStatusHandler(childDevice, status) {
