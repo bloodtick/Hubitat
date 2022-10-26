@@ -19,10 +19,11 @@
 *  1.0.1 2022-10-25 Allow for more than one instance. UI modes. Turn off status refresh. Bug fixes.
 *  1.0.2 2022-10-25 Build refresh device method. Add 'Generic Component Dimmer' to test moving to Component types.
 *  1.0.3 2022-10-26 Log Info Mute function for chatty devices (like power)
+*  1.0.4 2022-10-26 Bug fixes, removed scheduled events, Added "events' to the main GUI that reset every new Token or 'Device List' button
 *
 */
 
-public static String version() {  return "v1.0.3"  }
+public static String version() {  return "v1.0.4"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -85,11 +86,15 @@ def getCloudUri() {
     return "${getApiServerUrl()}/${hubUID}/apps/${app.id}/webhook?access_token=${state.accessToken}"
 }
 
-def getSmartDevices() {
+def getSmartDevices(doNotWait=false) {
     def appId = app.getId()
-    if (!g_mSmartDevices[appId]?.items) {
+    if (!doNotWait && !g_mSmartDevices[appId]?.items) {
         getDeviceList()
         pauseExecution(2000)
+        //logInfo JsonOutput.toJson(g_mSmartDevices[appId])
+    }
+    else if ( !g_mSmartDevices[appId]?.items ) {
+        runIn(1, getSmartDevices)
     }
     return g_mSmartDevices[appId]
 }    
@@ -101,6 +106,7 @@ def mainPage(){
     
     //app.removeSetting("pageConfigureDeviceAllowDuplicateSmartAttribute")
     //state.remove("rule")
+    def smartDevices = getSmartDevices()
     
     return dynamicPage(name: "mainPage", install: true,  refreshInterval: 0){
         displayHeader()
@@ -137,11 +143,11 @@ def mainPage(){
             
         section(menuHeader("HubiThings Device List")){            
             
-            if (getSmartDevices() && state?.install) {
+            if (smartDevices && state?.install) {
                
                 def devicesTable = "<table style='width:100%;'>"
-                devicesTable += "<tr><th>$sSamsungIcon SmartThings Device</th><th>$sSamsungIcon SmartThings Type</th><th>$sHubitatIcon Hubitat Device</th><th style='text-align:center;'>Status</th></tr>"
-                getSmartDevices()?.items?.sort{ it.label }?.each { smartDevice -> 
+                devicesTable += "<tr><th>$sSamsungIcon SmartThings Device</th><th>$sSamsungIcon SmartThings Type</th><th>$sHubitatIcon Hubitat Device</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
+                smartDevices?.items?.sort{ it.label }?.each { smartDevice -> 
                     def hubitatDevices = getSmartChildDevices(smartDevice.deviceId)
                     for (def i = 0; i ==0 || i < hubitatDevices.size(); i++) {
                         def deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${hubitatDevices[i]?.getId()}"                            
@@ -151,7 +157,8 @@ def mainPage(){
                         devicesTable += "<td>${smartDevice.label}</td>"                  
                         devicesTable += "<td>${state?.install[smartDevice.deviceId]?.id?.join(', ')}</td>"
                         devicesTable += hubitatDevices[i] ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.label}</a></td>" : "<td></td>"
-                        devicesTable += "<td style='text-align:center;'><div><span id='${hubitatDevices[i]?.deviceNetworkId}' style='background:${deviceColor};' class='dot'></span></div></td>"
+                        //devicesTable += "<td style='text-align:center;'><div><span id='${hubitatDevices[i]?.deviceNetworkId}' style='background:${deviceColor};' class='dot'></span></div></td>"
+                        devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${smartDevice?.eventCount}</td>"
                         devicesTable += "</tr>"
                     }
 		        }                
@@ -163,7 +170,8 @@ def mainPage(){
                     html += """<style>th,td{border-bottom:3px solid #ddd;}</style>"""
                     html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(2),td:nth-of-type(2) { display: none; } }</style>"""
                     html += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { updatedot(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
-                    html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='statuscolor' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).style.background = evt.value;}}</script>"""
+                    //html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='statuscolor' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).style.background = evt.value;}}</script>"""
+                    html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerText = evt.value; }}</script>"""
                     html += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
                 
                 paragraph( html )
@@ -190,13 +198,6 @@ def mainPage(){
         
         displayFooter()
     }
-}
-
-def updateDeviceTableStatus(childDevice, color=sColorLightGrey) {
-    logDebug "${app.getLabel()} executing 'updateDeviceTableStatus()' childDevice:'${childDevice?.getLabel()}'"
-    color = isChildDeviceOnline(childDevice) ? color : sColorDarkRed
-    childDevice?.updateDataValue("statuscolor", color)
-    sendEvent(name:'statuscolor', value:color, descriptionText: JsonOutput.toJson([ deviceNetworkId:(childDevice?.deviceNetworkId), debug: appLogEnable ]))    
 }
 
 def pageCreateDevice(){
@@ -817,7 +818,7 @@ def smartStatusHandler(childDevice, status) {
 
 def smartEventHandler(childDevice, deviceEvent){
     logDebug "${app.getLabel()} executing 'smartEventHandler()' childDevice:'${childDevice.getLabel()}'"
-    def response = [statusCode:iHttpError]    
+    def response = [statusCode:iHttpError]
 
     childDevice.updateDataValue("event", JsonOutput.toJson(deviceEvent)) 
     try {
@@ -908,7 +909,7 @@ void appButtonHandler(String btn) {
                 case "mainPage":                    
                     switch(v) {
                         case "list":
-                            deviceList()
+                            allDeviceList()
                             break
                         case "description":
                             allDeviceDescription()
@@ -1036,18 +1037,13 @@ def hasCapability(childDevice, capabilityId, capabilityVersion="1") {
     return reponse
 }
 
-def isChildDeviceOnline(childDevice) {
-    return (getChildDeviceDataJson(childDevice, "health")?.state?.toLowerCase() != "offline")
-}
-
 def getSmartChildDevices(deviceId) {
     return getChildDevices()?.findAll{ childDevice -> childDevice?.getDataValue("deviceId") == deviceId }
 }
 
 def allDeviceHealth() {
-    logInfo "${app.getLabel()} refreshing all devices health"
+    logInfo "${app.getLabel()} refreshing all SmartThings device health"
     runIn(1, getAllDeviceHealth)
-    runEvery10Minutes(getAllDeviceHealth)
 }
 
 def getAllDeviceHealth() {
@@ -1074,9 +1070,8 @@ def getDeviceHealth(deviceId) {
 }
 
 def allDeviceDescription() {
-    logInfo "${app.getLabel()} refreshing all devices descriptions"
+    logInfo "${app.getLabel()} refreshing all SmartThings device descriptions"
     runIn(1, getAllDeviceDescription)
-    runEvery3Hours(getAllDeviceDescription)
 }
 
 def getAllDeviceDescription() {
@@ -1116,10 +1111,8 @@ def getCapability(deviceId, capabilityId, capabilityVersion="1") {
 }
 
 def allDeviceStatus() {
-    logInfo "${app.getLabel()} refreshing all devices status"
-    unschedule("getAllDeviceStatus")
+    logInfo "${app.getLabel()} refreshing all SmartThings device status"
     runIn(1, getAllDeviceStatus)    
-    //runEvery3Hours(getAllDeviceStatus)
 }
 
 def getAllDeviceStatus() {
@@ -1145,7 +1138,7 @@ def getDeviceStatus(deviceId) {
 	asyncHttpGet("asyncHttpGetCallback", data)
 }
 
-def deviceList() {
+def allDeviceList() {
     runIn(1, getDeviceList)    
 }
 
@@ -1249,18 +1242,10 @@ def asyncHttpGetCallback(resp, data) {
                     }
                 }
                 break
-            case "getDeviceList":
-            
+            case "getDeviceList":            
                 //state.devices = new JsonSlurper().parseText(resp.data)
-                def smartDevices = g_mSmartDevices[app.getId()] = new JsonSlurper().parseText(resp.data)
-                  
-                getChildDevices()?.each { childDevice ->         
-                    //def device = state?.devices?.items?.find{it.deviceId == childDevice.getDataValue("deviceId")}
-                    def device = smartDevices?.items?.find{it.deviceId == childDevice.getDataValue("deviceId")}
-                    
-                    //setChildDeviceDataJson(childDevice, "device", JsonOutput.toJson(device ?: "{}"))
-                    //childDevice.updateDataValue("device", JsonOutput.toJson(device ?: "{}"))
-                }
+                def smartDevices = g_mSmartDevices[app.getId()] = new JsonSlurper().parseText(resp.data)            
+                smartDevices?.items?.each{ device -> device['eventCount'] = 0 }            
                 logInfo "${app.getLabel()} retrieved SmartThings device list"
                 break
             default:
@@ -1404,7 +1389,10 @@ def refreshTokens(def data) {
     logDebug "${app.getLabel()} executing 'refreshTokens()'"
     if (data.authToken != state?.authToken) {    
         state.authToken = data?.authToken ?: state?.authToken
-        state.refreshToken = data?.refreshToken ?: state?.refreshToken 
+        state.refreshToken = data?.refreshToken ?: state?.refreshToken
+        if(state?.installedAppId && data?.installedApp?.installedAppId && state.installedAppId != data?.installedApp?.installedAppId) {
+            logWarn "${app.getLabel()} already has attached to a ST SmartApp and is now moving to a new ST SmartApp installedAppId:${data?.installedApp?.installedAppId}"
+        }
         state.installedAppId = data?.installedApp?.installedAppId ?: state?.installedAppId
         
         def expiration = data?.expiration?.toInteger() ?: 24*60*60
@@ -1414,7 +1402,14 @@ def refreshTokens(def data) {
         runIn((expiration/2).toInteger(), handleTokenRefresh) // good for 24 hours, lets refresh every 12.        
         logInfo "${app.getLabel()} authToken updated at ${state.authTokenDate}"
         
+        unschedule('getAllDeviceStatus')
+        unschedule('getAllDeviceDescription')
+        unschedule('getAllDeviceHealth')
+        
+        allDeviceList()
         allDeviceStatus()
+        allDeviceDescription()
+        runEvery10Minutes('allDeviceHealth')
     }
 }
 
@@ -1479,8 +1474,15 @@ def handleEvent(eventData) {
     logDebug "${app.getLabel()} executing 'eventData()'"
     def response = [statusCode:iHttpSuccess]
     
-    eventData?.events?.each { event ->  
+    eventData?.events?.each { event ->
+        
+        def smartDevices = getSmartDevices(true) // this will not block, but might return null
+        def device = smartDevices?.items?.find{it.deviceId == event.deviceEvent.deviceId}
+        if (device) device.eventCount += 1        
+        
         getSmartChildDevices(event?.deviceEvent?.deviceId)?.each { childDevice ->
+            if(device) sendEvent(name:'smartEvent', value:(device.eventCount), descriptionText: JsonOutput.toJson([ deviceId:(device.deviceId), deviceNetworkId:(childDevice?.deviceNetworkId), debug: appLogEnable ]))
+            
             if (event?.deviceEvent) {                           
                 response.statusCode = smartEventHandler(childDevice, event.deviceEvent).statusCode
             }
@@ -1513,7 +1515,6 @@ def handleInstall(installData) {
     getDeviceList()
     runIn(1, createSmartSubscriptions)
     //createSmartSubscriptions()
-
     
     return [statusCode:response.statusCode, installData:{}]
 }
