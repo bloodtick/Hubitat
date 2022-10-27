@@ -20,10 +20,10 @@
 *  1.0.2 2022-10-25 Build refresh device method. Add 'Generic Component Dimmer' to test moving to Component types.
 *  1.0.3 2022-10-26 Log Info Mute function for chatty devices (like power)
 *  1.0.4 2022-10-26 Bug fixes, removed scheduled events, Added "events' to the main GUI that reset every new Token or 'Device List' button
-*
+*  1.0.5 2022-10-27 GUI updates, getting ready to support mirror functions
 */
 
-public static String version() {  return "v1.0.4"  }
+public static String version() {  return "v1.0.5"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -44,7 +44,7 @@ import groovy.transform.Field
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
-@Field static final String sCodeRelease="Alpha Release"
+@Field static final String sCodeRelease="Alpha"
 
 // IN-MEMORY VARIABLES (Cleared only on HUB REBOOT or CODE UPDATES)
 @Field volatile static Map<String,Map> g_mSmartDevices = [:]
@@ -97,33 +97,59 @@ def getSmartDevices(doNotWait=false) {
         runIn(1, getSmartDevices)
     }
     return g_mSmartDevices[appId]
-}    
+}
+
+List<ChildDeviceWrapper> getAllDevices() {    
+    List<ChildDeviceWrapper> devices = getChildDevices()    
+    if( ((Map<String,Object>)settings).find{ it.key == "userSelectedDevices" } ) {
+        userSelectedDevices?.each{ userSelectedDevice ->
+            if( !devices?.find{ it.deviceNetworkId == userSelectedDevice.deviceNetworkId } )
+                devices.add(userSelectedDevice)
+        }
+    }    
+    return devices?.sort{ it.getDisplayName() }
+}
+
+List<ChildDeviceWrapper> getAllReplicaDevices() {
+    return getAllDevices()?.findAll{ it?.getDataValue("deviceId") }   
+}
+
+ChildDeviceWrapper getDevice(deviceNetworkId) {
+    return getAllDevices()?.find{ it.deviceNetworkId == deviceNetworkId } // only one 
+}
+
+List<ChildDeviceWrapper> getReplicaDevice(deviceId) {
+    return getAllDevices()?.findAll{ it?.getDataValue("deviceId") == deviceId } // more than one
+}
+
 
 def mainPage(){
     if(!state.accessToken){	
         createAccessToken()	
     }
     
-    //app.removeSetting("pageConfigureDeviceAllowDuplicateSmartAttribute")
+    app.removeSetting("mainPageAllowConfig")
+    app.removeSetting("pageConfigureDeviceHubitatDevice")
     //state.remove("rule")
     def smartDevices = getSmartDevices()
+    
+    if(!pageMainPageAppLabel || !mainPageShowConfig) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
     
     return dynamicPage(name: "mainPage", install: true,  refreshInterval: 0){
         displayHeader()
         
         section(menuHeader("${app.getLabel()} Configuration")+"$sHubitatIconStatic $sSamsungIconStatic") {
-			input(name: "mainPageAllowCloudAccess", type: "bool", title: getFormat("text","$sHubitatIcon Enable Hubitat REST API Endpoint for SmartThings Developer Workspace SmartApp"), defaultValue: false, submitOnChange: true)  
             
-            if(mainPageAllowCloudAccess) {
-                paragraph("<ul><strong>External</strong>: ${getFormat("hyperlink", getCloudUri(), getCloudUri())}</ul>")
+            input(name: "mainPageShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: false, submitOnChange: true)
+            if(mainPageShowConfig) {
                 
-                paragraph("<ul><b style='color:${sColorDarkRed}'>&#9888;Warning:</b> Enabling external endpoints can allow data on the local Hubitat Hub to be exposed and/or captured. "
-                         +"I am not saying this is actually happening, but cloud logging of the HTML response could allow the ability to reassemble the data.</ul>")           
-            }
+			    input(name: "mainPageAllowCloudAccess", type: "bool", title: getFormat("text","$sHubitatIcon Enable Hubitat REST API Endpoint for SmartThings Developer Workspace SmartApp"), defaultValue: false, submitOnChange: true)  
+                if(mainPageAllowCloudAccess) {
+                    paragraph("<ul><strong>External</strong>: ${getFormat("hyperlink", getCloudUri(), getCloudUri())}</ul>")                
+                    paragraph("<ul><b style='color:${sColorDarkRed}'>&#9888;Warning:</b> Enabling external endpoints can allow data on the local Hubitat Hub to be exposed and/or captured. "
+                             +"I am not saying this is actually happening, but cloud logging of the HTML response could allow the ability to reassemble the data.</ul>")           
+                }                       
             
-            if(!pageMainPageAppLabel || !mainPageAllowConfig) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
-            input(name: "mainPageAllowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Additional Configuration"), defaultValue: false, submitOnChange: true)            
-            if(mainPageAllowConfig) {
                 paragraph( getFormat("line"))
                 // required for authToken refresh
                 input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
@@ -158,7 +184,7 @@ def mainPage(){
                         devicesTable += "<td>${state?.install[smartDevice.deviceId]?.id?.join(', ')}</td>"
                         devicesTable += hubitatDevices[i] ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.label}</a></td>" : "<td></td>"
                         //devicesTable += "<td style='text-align:center;'><div><span id='${hubitatDevices[i]?.deviceNetworkId}' style='background:${deviceColor};' class='dot'></span></div></td>"
-                        devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${smartDevice?.eventCount}</td>"
+                        devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${getSmartDeviceEventCount(hubitatDevices[i])}</td>"
                         devicesTable += "</tr>"
                     }
 		        }                
@@ -205,20 +231,21 @@ def pageCreateDevice(){
     def smartDevices = getSmartDevices()
     
     def smartDevicesSelect = []
-    smartDevices?.items.each {    
-        def device = [ "${it.deviceId}" : "${it.label} [${it.deviceId}]" ]
+    smartDevices?.items.sort{ it.label }.each {    
+        def device = [ "${it.deviceId}" : "${it.label} &ensp; (deviceId: ${it.deviceId})" ]
         smartDevicesSelect.add(device)   
+    }
+    
+    def smartAttributes = []
+        smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.components.each { components ->
+            components?.capabilities?.each { capabilities ->
+            smartAttributes.add(capabilities.id)
+        }
     }
 
     dynamicPage(name: "pageCreateDevice", uninstall: false) {
-        displayHeader()
-        
-        def smartAttributes = []
-        smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.components.each { components ->
-            components?.capabilities?.each { capabilities ->
-                smartAttributes.add(capabilities.id)
-            }
-        }
+        displayHeader()        
+
         def smartDeviceType   = smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.deviceTypeName ?: (smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.name ?: "UNKNOWN")
         def smartCapabilities = smartAttributes?.sort()?.join(', ')
         def hubitatDeviceTypes = ["Generic Component Switch", "Generic Component Dimmer", "Virtual Switch", "Virtual Contact Sensor", "Virtual Motion Sensor", "Virtual Temperature Sensor", "Virtual Humidity Sensor", "Virtual Presence"]
@@ -373,6 +400,9 @@ def addChildDevices(){
         response += "Capabilities: ${childDevice.getCapabilities()?.sort()?.join(', ')}\n"
         response += "Attributes: ${childDevice.getSupportedAttributes()?.sort()?.join(', ')}"
         
+        app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: childDevice.deviceNetworkId] )
+
+        
     } catch (e) {
         logWarn "Error creating device: ${e}"        
     }
@@ -403,10 +433,10 @@ def pageDeleteDevice(){
 
         section(menuHeader("Delete HubiThings Device")+"$sHubitatIconStatic $sSamsungIconStatic") {
             def childDeviceList = []
-            getChildDevices().sort{ it.label }.sort{ it.typeName }.each {
+            getChildDevices().sort{ it.getDisplayName() }.each {
                 childDeviceList.add("${it.label}")
             }
-           input(name: "pageDeleteDeviceName", type: "enum",  title: "Delete Hubitat Device:", description: "Choose a Hubitat device", multiple: false, options: childDeviceList, submitOnChange: true)
+           input(name: "pageDeleteDeviceName", type: "enum",  title: "Delete HubiThings Device:", description: "Choose a HubiThings device", multiple: false, options: childDeviceList, submitOnChange: true)
            if (pageDeleteDeviceName) href "pageSubDevice", title: "Click to delete device", description: "Device '$pageDeleteDeviceName' will be deleted"            
            //input "btnDelDevice", "button", title: "<b style='color:Red'>Delete</b>", width: 3
         }
@@ -445,9 +475,9 @@ def updateRuleList(action, type) {
     }
     def triggerKey = trigger?.keySet()?.getAt(0)
     def commandKey = command?.keySet()?.getAt(0)
-    logDebug "${app.getLabel()} executing 'updateRuleList()' hubitatDevice:'${pageConfigureDeviceHubitatDevice}' trigger:'${triggerKey}' command:'${commandKey}' action:'${action}'" 
+    logDebug "${app.getLabel()} executing 'updateRuleList()' hubitatDevice:'${getDevice(pageConfigureDeviceReplicaDevice)}' trigger:'${triggerKey}' command:'${commandKey}' action:'${action}'" 
 
-    def childDeviceRules = getChildDeviceDataJson(pageConfigureDeviceHubitatDevice, "rules") ?: []
+    def childDeviceRules = getChildDeviceDataJson(getDevice(pageConfigureDeviceReplicaDevice), "rules") ?: []
     def allowDuplicateAttribute = pageConfigureDeviceAllowDuplicateAttribute
     def muteTriggerRuleInfo = pageConfigureDeviceMuteTriggerRuleInfo
     app.updateSetting("pageConfigureDeviceAllowDuplicateAttribute", false)
@@ -469,19 +499,19 @@ def updateRuleList(action, type) {
         if(action=='store' && (!childDeviceRules?.find{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey } || allowDuplicateAttribute)) {
             if(type=='hubitatTrigger') {
                 def attribute = trigger?.values()?.getAt(0)?.name
-                logInfo "Attaching '$pageConfigureDeviceHubitatDevice' to attribute:'$attribute'"
-                subscribe(pageConfigureDeviceHubitatDevice, attribute, deviceTriggerHandler)
+                logInfo "Attaching '${getDevice(pageConfigureDeviceReplicaDevice)}' to attribute:'$attribute'"
+                subscribe(getDevice(pageConfigureDeviceReplicaDevice), attribute, deviceTriggerHandler)
             }
             childDeviceRules.add(newRule)
         }
     }
   
-    pageConfigureDeviceHubitatDevice.updateDataValue("rules", JsonOutput.toJson(childDeviceRules))
+    getDevice(pageConfigureDeviceReplicaDevice).updateDataValue("rules", JsonOutput.toJson(childDeviceRules))
 }
 
 def childDevicesRuleSection(){
     
-    def childDeviceRules = getChildDeviceDataJson(pageConfigureDeviceHubitatDevice, "rules")
+    def childDeviceRules = getChildDeviceDataJson(getDevice(pageConfigureDeviceReplicaDevice), "rules")
     
     def childDeviceRulesList = "<span><table style='width:100%;'>"
     childDeviceRulesList += "<tr><th>Trigger</th><th>Action</th></tr>"
@@ -491,7 +521,7 @@ def childDevicesRuleSection(){
     childDeviceRulesList +="</table>"
     
     if (childDeviceRules?.size){        
-        section(menuHeader("[ $pageConfigureDeviceHubitatDevice ] Active Rules")) {    
+        section(menuHeader("[ ${getDevice(pageConfigureDeviceReplicaDevice)} ] Active Rules")) {    
             paragraph( childDeviceRulesList )
             paragraph("<style>th,td{border-bottom:3px solid #ddd;}</style>")
         }
@@ -500,27 +530,37 @@ def childDevicesRuleSection(){
 
 def pageConfigureDevice() {
     
+    def replicaDevicesSelect = []
+    getAllReplicaDevices()?.sort{ it.label }.each {    
+        def device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
+        replicaDevicesSelect.add(device)   
+    }
+    
     dynamicPage(name: "pageConfigureDevice", uninstall: false) {
         displayHeader()
        
         section(menuHeader("Configure HubiThings Rules")+"$sHubitatIconStatic $sSamsungIconStatic") {
-                        
-            input(name: "pageConfigureDeviceHubitatDevice", type: "capability.*", title: "Hubitat Device:", description: "Choose a Hubitat device", multiple: false, submitOnChange: true)
-            if(pageConfigureDeviceShowDetail && pageConfigureDeviceHubitatDevice) {
+            
+            //input(name: "userSelectedDevices", type: "capability.*", title: "Hubitat Device:", description: "Choose a Hubitat device", multiple: true, submitOnChange: true)
+            input(name: "pageConfigureDeviceReplicaDevice", type: "enum", title: "HubiThings Device:", description: "Choose a HubiThings device", options: replicaDevicesSelect, multiple: false, submitOnChange: true, width: 8, newLineAfter:true)
+            def configReplicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
+            //input(name: "pageConfigureDeviceHubitatDevice", type: "capability.*", title: "Hubitat Device:", description: "Choose a Hubitat device", multiple: false, submitOnChange: true)        
+            
+            if(pageConfigureDeviceShowDetail && configReplicaDevice) {
                 def hubitatDescription = ""
-                hubitatDescription += "Device Type: ${pageConfigureDeviceHubitatDevice?.getTypeName() ?: ""}\n"
-                hubitatDescription += "Capabilities: ${pageConfigureDeviceHubitatDevice?.getCapabilities()?.sort()?.join(', ')}\n"
-                hubitatDescription += "Attributes: ${pageConfigureDeviceHubitatDevice?.getSupportedAttributes()?.collect { it.toString() }?.sort()?.join(', ')}\n"
-                hubitatDescription += "Commands: ${pageConfigureDeviceHubitatDevice?.getSupportedCommands()?.sort()?.join(', ')}"
+                hubitatDescription += "Device Type: ${configReplicaDevice?.getTypeName() ?: ""}\n"
+                hubitatDescription += "Capabilities: ${configReplicaDevice?.getCapabilities()?.sort()?.join(', ')}\n"
+                hubitatDescription += "Attributes: ${configReplicaDevice?.getSupportedAttributes()?.collect { it.toString() }?.sort()?.join(', ')}\n"
+                hubitatDescription += "Commands: ${configReplicaDevice?.getSupportedCommands()?.sort()?.join(', ')}"
 
                 paragraph( hubitatDescription )
                 input(name: "pageConfigureDevice::refreshDevice",  type: "button", title: "Refresh", width: 2, style:"width:75%;")
-                input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;")
-                paragraph( getFormat("line"))
+                input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;")                
             }
+            paragraph( getFormat("line"))
             
-            def hubitatAttributeOptions = getHubitatAttributeOptions(pageConfigureDeviceHubitatDevice)                      
-            def smartCommandOptions = getSmartCommandOptions(pageConfigureDeviceHubitatDevice)
+            def hubitatAttributeOptions = getHubitatAttributeOptions(configReplicaDevice)                      
+            def smartCommandOptions = getSmartCommandOptions(configReplicaDevice)
             
             input(name: "hubitatAttribute", type: "enum", title: "$sHubitatIcon If Hubitat Attribute <b>TRIGGER</b> changes:", description: "Choose a Hubitat Attribute", options: hubitatAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4)
             input(name: "smartCommand", type: "enum", title: "$sSamsungIcon Then <b>ACTION</b> SmartThings Command:", description: "Choose a SmartThings Command", options: smartCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter:true)
@@ -534,8 +574,8 @@ def pageConfigureDevice() {
             }
             paragraph( getFormat("line"))
             
-            def smartAttributeOptions = getSmartAttributeOptions(pageConfigureDeviceHubitatDevice)         
-            def hubitatCommandOptions = getHubitatCommandOptions(pageConfigureDeviceHubitatDevice)
+            def smartAttributeOptions = getSmartAttributeOptions(configReplicaDevice)         
+            def hubitatCommandOptions = getHubitatCommandOptions(configReplicaDevice)
             
             input(name: "smartAttribute", type: "enum", title: "$sSamsungIcon If SmartThings Attribute <b>TRIGGER</b> changes:", description: "Choose a SmartThings Attribute", options: smartAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4)
             input(name: "hubitatCommand", type: "enum", title: "$sHubitatIcon Then <b>ACTION</b> Hubitat Command${pageConfigureDeviceAllowActionAttribute?'/Attribute':''}:", description: "Choose a Hubitat Command", options: hubitatCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter:true)
@@ -805,6 +845,16 @@ def smartTriggerHandler(childDevice, event) {
     return [statusCode:response.statusCode]
 }
 
+def getSmartDeviceEventCount(childDevice) {    
+    def healthState = getChildDeviceDataJson(childDevice, "health")?.state?.toLowerCase()
+    def deviceId = childDevice?.getDataValue("deviceId")
+    
+    def eventCount = getSmartDevices(true)?.items?.find{it.deviceId == deviceId}?.eventCount ?: 0
+    def value = (healthState=='offline' ? healthState : eventCount).toString()
+    if(childDevice) sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(childDevice?.deviceNetworkId), debug: appLogEnable ]))
+    return value
+}
+
 def smartStatusHandler(childDevice, status) {
     logDebug "${app.getLabel()} executing 'smartStatusHandler()' childDevice:'${childDevice?.getLabel()}'"
     def response = [statusCode:iHttpError]
@@ -813,6 +863,8 @@ def smartStatusHandler(childDevice, status) {
     status?.components?.main?.each { capability, attributes ->
         response.statusCode = smartTriggerHandler(childDevice, [ "$capability":attributes ]).statusCode
     }
+    
+    getSmartDeviceEventCount(childDevice)
     return [statusCode:response.statusCode]
 }
 
@@ -828,6 +880,8 @@ def smartEventHandler(childDevice, deviceEvent){
         def event = [ (deviceEvent.capability): [ (deviceEvent.attribute): [ value:(deviceEvent.value), unit:(deviceEvent?.unit ?: unit), timestamp: null ]]]
         logTrace JsonOutput.toJson(event)
         response.statusCode = smartTriggerHandler(childDevice, event).statusCode
+        
+        getSmartDeviceEventCount(childDevice)
     } catch (e) {
         logWarn "${app.getLabel()} smartEventHandler error: $e : $deviceEvent"
     }
@@ -845,6 +899,8 @@ def smartHealthHandler(childDevice, healthEvent){
         def event = [ healthCheck: [ healthStatus: [ value:(healthEvent.state.toLowerCase()), timestamp: healthEvent?.lastUpdatedDate ]]]
         logTrace JsonOutput.toJson(event)
         response.statusCode = smartTriggerHandler(childDevice, event).statusCode
+        
+        getSmartDeviceEventCount(childDevice)            
     } catch (e) {
         logWarn "${app.getLabel()} smartHealthHandler error: $e : $healthEvent"
     }    
@@ -955,11 +1011,11 @@ void appButtonHandler(String btn) {
                             updateRuleList('delete','smartTrigger')
                             break
                         case "clearDeviceRules":
-                            pageConfigureDeviceHubitatDevice?.removeDataValue("rules")
-                            unsubscribe(pageConfigureDeviceHubitatDevice)
+                            getDevice(pageConfigureDeviceReplicaDevice)?.removeDataValue("rules")
+                            unsubscribe(getDevice(pageConfigureDeviceReplicaDevice))
                             break
                         case "refreshDevice":
-                            smartDeviceRefresh(pageConfigureDeviceHubitatDevice)
+                            smartDeviceRefresh(getDevice(pageConfigureDeviceReplicaDevice))
                             break
                     }
                     break                    
@@ -1475,14 +1531,12 @@ def handleEvent(eventData) {
     def response = [statusCode:iHttpSuccess]
     
     eventData?.events?.each { event ->
-        
+        // count each event for t/s purposes. should probably thottle/block someday.
         def smartDevices = getSmartDevices(true) // this will not block, but might return null
         def device = smartDevices?.items?.find{it.deviceId == event.deviceEvent.deviceId}
         if (device) device.eventCount += 1        
         
         getSmartChildDevices(event?.deviceEvent?.deviceId)?.each { childDevice ->
-            if(device) sendEvent(name:'smartEvent', value:(device.eventCount), descriptionText: JsonOutput.toJson([ deviceId:(device.deviceId), deviceNetworkId:(childDevice?.deviceNetworkId), debug: appLogEnable ]))
-            
             if (event?.deviceEvent) {                           
                 response.statusCode = smartEventHandler(childDevice, event.deviceEvent).statusCode
             }
@@ -1786,7 +1840,7 @@ def getFormat(type, myText="", myHyperlink=""){
 }
 
 def displayHeader() { 
-    section (getFormat("title", "${app.getLabel()}${sCodeRelease?.size() ? " : [ $sCodeRelease ]" : ""}"  )) { 
+    section (getFormat("title", "${app.getLabel()}${sCodeRelease?.size() ? " : $sCodeRelease" : ""}"  )) { 
         paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: ${version()} -  ${copyright()}</div>"
         paragraph getFormat("line") 
     }
