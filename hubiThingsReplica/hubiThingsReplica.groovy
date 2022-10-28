@@ -22,9 +22,10 @@
 *  1.0.4 2022-10-26 Bug fixes, removed scheduled events, Added "events' to the main GUI that reset every new Token or 'Device List' button
 *  1.0.5 2022-10-27 GUI updates, getting ready to support mirror functions
 *  1.0.6 2022-10-28 GUI updates, bug fixes, SmartThings attribute change cache, more updates to support mirror functions
+*  1.0.7 2022-10-28 deviceTriggerHandlerCache now handles float to integer comparisons
 */
 
-public static String version() {  return "v1.0.6"  }
+public static String version() {  return "v1.0.7"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -661,7 +662,6 @@ def getSmartAttributeOptions(replicaDevice) {
     return smartAttributeOptions
 }
 
-
 void componentOn(device) {
     logDebug "componentOn device:$device"
     getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${device.displayName} was turned on", data:[appId:app.getId()]]])
@@ -718,7 +718,8 @@ def deviceTriggerHandler(event) {
                 if(!rule?.mute) logInfo "${app.getLabel()} sending SmartThings '${replicaDevice?.getLabel()}' $type trigger:${event.name} => command:${command?.name}(${event?.value})"                
                 switch(type) {
                     case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
-                        commandDevice(deviceId, command?.capability, command?.name, [ event?.value.toInteger() ])
+                        def value = event?.value.isFloat() ? (int)(Math.round(event?.value.toFloat())) : event?.value.toInteger()
+                        commandDevice(deviceId, command?.capability, command?.name, [ value ])
                         break
                     case 'number':  // A number that can have fractional values. Limits can be defined to constrain the range of possible values.
                         commandDevice(deviceId, command?.capability, command?.name, [ event?.value.toFloat() ])
@@ -749,9 +750,23 @@ def deviceTriggerHandlerCache(replicaDevice, attribute, value) {
     
     def smartDevices = getSmartDevices(true) // this will not block, but might return null
     def device = smartDevices?.items?.find{it.deviceId == replicaDevice?.getDataValue("deviceId")}
-    if (device) {        
-        response = (device.eventCache?.get(attribute).toString() == value.toString())
-        logDebug "${app.getLabel()} cache <= ${device.eventCache} match:$response"  
+    if (device) {
+        def a = device.eventCache?.get(attribute).toString()
+        def b = value.toString()
+        
+        if(a.isBigInteger() && b.isBigInteger()) {
+            response = a==b
+            logTrace "a:$a == b:$b match integer is $response"
+        }
+        else if(a.isNumber() && b.isNumber()) {
+            response = Float.valueOf(a).round(4)==Float.valueOf(b).round(4)
+            logTrace "a:$a == b:$b match float is $response"
+        }
+        else {
+            response = a==b
+            logTrace "a:$a == b:$b match string is $response"            
+        }
+        logDebug "${app.getLabel()} cache <= ${device.eventCache} match string:$response"
     }
     return response
 }
