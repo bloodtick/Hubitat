@@ -26,9 +26,10 @@
 *  1.0.8  2022-10-29 Use cache for most getDataValue events (not complete yet). Bug fixes to install/uninstall. 30 min log timeout after leaving mainPage.
 *  1.0.9  2022-10-30 Replica Device Capabilities threading (clean up). Update cache directly and then store data in object.
 *  1.0.10 2022-10-31 Added Alarm, mute indicator on rules
+*  1.0.11 2022-10-31 Event and Status Info logging
 */
 
-public static String version() {  return "v1.0.10"  }
+public static String version() {  return "v1.0.11"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -306,6 +307,7 @@ def mainPage(){
         }        
         
         section(menuHeader("Application Logging")) {
+            input "appLogEventEnable", 'bool', title: "Enable Event and Status Info logging", required: false, defaultValue: false, submitOnChange: true
             input "appLogEnable", 'bool', title: "Enable debug logging", required: false, defaultValue: false, submitOnChange: true
             input "appTraceEnable", 'bool', title: "Enable trace logging", required: false, defaultValue: false, submitOnChange: true
         }
@@ -1052,6 +1054,12 @@ def smartStatusHandler(replicaDevice, statusEvent) {
     logDebug "${app.getLabel()} executing 'smartStatusHandler()' replicaDevice:'${replicaDevice?.getLabel()}'"
     def response = [statusCode:iHttpError]
     
+    if(appLogEventEnable && statusEvent) {
+        def logevent =  statusEvent.clone()
+        logevent?.remove("ownerId")
+        if(logevent) logInfo "Status: ${JsonOutput.toJson(logevent)}"
+    }
+    
     setReplicaDataJsonValue(replicaDevice, "status", statusEvent)
     statusEvent?.components?.main?.each { capability, attributes ->
         response.statusCode = smartTriggerHandler(replicaDevice, [ "$capability":attributes ]).statusCode
@@ -1064,9 +1072,14 @@ def smartStatusHandler(replicaDevice, statusEvent) {
 def smartEventHandler(replicaDevice, deviceEvent){
     logDebug "${app.getLabel()} executing 'smartEventHandler()' replicaDevice:'${replicaDevice.getLabel()}'"
     def response = [statusCode:iHttpError]
-
+    
+    if(appLogEventEnable && deviceEvent) {
+        def logevent =  deviceEvent.clone()
+        logevent?.remove("ownerId")
+        if(logevent) logInfo "Event: ${JsonOutput.toJson(logevent)}"
+    }    
     // NOT USED YET?
-    //setReplicaDataJsonValue(replicaDevice, "event", deviceEvent)
+    //setReplicaDataJsonValue(replicaDevice, "event", deviceEvent)    
     try {
         // events do not carry units. so get it from status. yeah smartthings is great!
         def unit = getReplicaDataJsonValue(replicaDevice, "status")?.components?.get(deviceEvent.componentId)?.get(deviceEvent.capability)?.get(deviceEvent.attribute)?.unit
