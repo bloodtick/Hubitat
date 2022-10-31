@@ -15,19 +15,20 @@
 *  Update: Bloodtick Jones
 *  Date: 2022-10-01
 *
-*  1.0.0 2022-10-01 First pass.
-*  1.0.1 2022-10-25 Allow for more than one instance. UI modes. Turn off status refresh. Bug fixes.
-*  1.0.2 2022-10-25 Build refresh device method. Add 'Generic Component Dimmer' to test moving to Component types.
-*  1.0.3 2022-10-26 Log Info Mute function for chatty devices (like power)
-*  1.0.4 2022-10-26 Bug fixes, removed scheduled events, Added "events' to the main GUI that reset every new Token or 'Device List' button
-*  1.0.5 2022-10-27 GUI updates, getting ready to support mirror functions
-*  1.0.6 2022-10-28 GUI updates, bug fixes, SmartThings attribute change cache, more updates to support mirror functions
-*  1.0.7 2022-10-28 deviceTriggerHandlerCache now handles float to integer comparisons
-*  1.0.8 2022-10-29 Use cache for most getDataValue events (not complete yet). Bug fixes to install/uninstall. 30 min log timeout after leaving mainPage.
-*  1.0.9 2022-10-30 Replica Device Capabilities threading (clean up). Update cache directly and then store data in object.
+*  1.0.0  2022-10-01 First pass.
+*  1.0.1  2022-10-25 Allow for more than one instance. UI modes. Turn off status refresh. Bug fixes.
+*  1.0.2  2022-10-25 Build refresh device method. Add 'Generic Component Dimmer' to test moving to Component types.
+*  1.0.3  2022-10-26 Log Info Mute function for chatty devices (like power)
+*  1.0.4  2022-10-26 Bug fixes, removed scheduled events, Added "events' to the main GUI that reset every new Token or 'Device List' button
+*  1.0.5  2022-10-27 GUI updates, getting ready to support mirror functions
+*  1.0.6  2022-10-28 GUI updates, bug fixes, SmartThings attribute change cache, more updates to support mirror functions
+*  1.0.7  2022-10-28 deviceTriggerHandlerCache now handles float to integer comparisons
+*  1.0.8  2022-10-29 Use cache for most getDataValue events (not complete yet). Bug fixes to install/uninstall. 30 min log timeout after leaving mainPage.
+*  1.0.9  2022-10-30 Replica Device Capabilities threading (clean up). Update cache directly and then store data in object.
+*  1.0.10 2022-10-31 Added Alarm, mute indicator on rules
 */
 
-public static String version() {  return "v1.0.9"  }
+public static String version() {  return "v1.0.10"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -220,6 +221,8 @@ def mainPage(){
         section(menuHeader("${app.getLabel()} Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
             
             input(name: "mainPageShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: false, submitOnChange: true)
+            paragraph( getFormat("line"))
+            
             if(mainPageShowConfig) {
                 
 			    input(name: "mainPageAllowCloudAccess", type: "bool", title: getFormat("text","$sHubitatIcon Enable Hubitat REST API Endpoint for SmartThings Developer Workspace SmartApp"), defaultValue: false, submitOnChange: true)  
@@ -244,7 +247,11 @@ def mainPage(){
                 
                 input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change SmartApp Name:"), width: 6, submitOnChange: true, newLineAfter:true)
                 input(name: "mainPage::changeName", type: "button", title: "Change Name", width: 3, style:"width:50%;", newLineAfter:true )
-            }            
+            }
+            else {
+                paragraph( "<< Placeholder for SmartThings Stats >>" )
+            }
+                
         }
             
         section(menuHeader("HubiThings Device List")){            
@@ -318,11 +325,19 @@ def updateMainPage() {
 }
 
 def pageAuthDevice(){
+    
+    def deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
+    
     dynamicPage(name: "pageAuthDevice", uninstall: false) {
         displayHeader()
 
         section(menuHeader("Authorize Hubitat Devices $sHubitatIconStatic $sSamsungIconStatic")) {
-           input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, submitOnChange: true)
+          input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, submitOnChange: true)
+            if(deviceAuthCount>0) {
+                paragraph( getFormat("line"))
+                href "pageMirrorDevice", title: "Mirror HubiThings Device", description: "Click to show"
+            }
+    
         }
     }
 }
@@ -653,8 +668,11 @@ def replicaDevicesRuleSection(){
     
     def replicaDeviceRulesList = "<span><table style='width:100%;'>"
     replicaDeviceRulesList += "<tr><th>Trigger</th><th>Action</th></tr>"
-    replicaDeviceRules?.sort{ it?.type }?.each { rule ->  
-        replicaDeviceRulesList += "<tr><td>${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.keySet()?.getAt(0)}</td><td>${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.keySet()?.getAt(0)}</td></tr>"
+    replicaDeviceRules?.sort{ it?.type }?.each { rule ->
+        def muteflag = rule?.mute ? " [muted]" : ""
+        def trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.keySet()?.getAt(0)}"
+        def command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.keySet()?.getAt(0)}$muteflag"
+        replicaDeviceRulesList += "<tr><td>$trigger</td><td>$command</td></tr>"
     }
     replicaDeviceRulesList +="</table>"
     
@@ -1962,6 +1980,21 @@ def getMainPage() {
                                 description:'Tap to set', 
                                 multiple:true, 
                                 capabilities:['presenceSensor'], 
+                                permissions:['r', 'x']
+                            ]
+                        ]
+                    ],
+                    [
+                        //name:'Select Sensors',
+                        settings:[
+                            [
+                                id:'alarm', 
+                                required:false, 
+                                type:'DEVICE',
+                                name:'Select Alarm Devices',
+                                description:'Tap to set', 
+                                multiple:true, 
+                                capabilities:['alarm'], 
                                 permissions:['r', 'x']
                             ]
                         ]
