@@ -27,9 +27,10 @@
 *  1.0.9  2022-10-30 Replica Device Capabilities threading (clean up). Update cache directly and then store data in object.
 *  1.0.10 2022-10-31 Added Alarm, mute indicator on rules
 *  1.0.11 2022-10-31 Event and Status Info logging
+*. 1.0.12 2022-10-31 Fix for Capabilities on create page, temporary subscription update/logging/deletes
 */
 
-public static String version() {  return "v1.0.11"  }
+public static String version() {  return "v1.0.12"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -194,10 +195,11 @@ def getReplicaDataValue(replicaDevice, dataKey, setDataValue=null) { // setDataV
 
 def clearReplicaDataCache() { g_mReplicaDeviceCache[app.getId()] = [:] }
 def clearReplicaDataCache(replicaDevice) { if(g_mReplicaDeviceCache[app.getId()] && replicaDevice?.deviceNetworkId ) { g_mReplicaDeviceCache[app.getId()][replicaDevice?.deviceNetworkId] = [:] }}
-def clearReplicaDataCache(replicaDevice, dataKey) { 
+def clearReplicaDataCache(replicaDevice, dataKey, delete=false) {
+    if(delete) { replicaDevice?.removeDataValue(dataKey) }
     if(g_mReplicaDeviceCache[app.getId()] && replicaDevice?.deviceNetworkId && dataKey) { 
         if(g_mReplicaDeviceCache[app.getId()]?.get(replicaDevice?.deviceNetworkId)?.get(dataKey)) {
-            g_mReplicaDeviceCache[app.getId()].get(replicaDevice?.deviceNetworkId).remove(dataKey)
+            g_mReplicaDeviceCache[app.getId()].get(replicaDevice?.deviceNetworkId).remove(dataKey)            
         }
     }
 }
@@ -346,21 +348,21 @@ def pageAuthDevice(){
 
 def pageCreateDevice(){    
     def smartDevices = getSmartDevices()
+    def smartDeviceId = pageCreateDeviceSmartDevice
     
     def smartDevicesSelect = []
-    smartDevices?.items.sort{ it.label }?.each {    
+    smartDevices?.items?.sort{ it.label }?.each {    
         def device = [ "${it.deviceId}" : "${it.label} &ensp; (deviceId: ${it.deviceId})" ]
         smartDevicesSelect.add(device)   
     }
     
     def smartCapabilities = []
-    smartDevices?.items?.find{it.deviceId == pageMirrorDeviceSmartDevice}?.components.each { components ->
+    smartDevices?.items?.find{it.deviceId == smartDeviceId}?.components.each { components ->
         components?.capabilities?.each { capabilities ->
             smartCapabilities.add(capabilities.id)
         }
-    }
+    }    
     
-    def smartDeviceId = pageCreateDeviceSmartDevice
     def smartStats =  ""
     if(smartDeviceId) {
         smartStats += "Device Type: ${smartDevices?.items?.find{it.deviceId == smartDeviceId}?.deviceTypeName ?: (smartDevices?.items?.find{it.deviceId == smartDeviceId}?.name ?: "UNKNOWN")}\n"
@@ -473,17 +475,21 @@ def replicaDeviceRefresh(replicaDevice, delay=1) {
     runIn(delay, getReplicaDeviceRefresh, [data: [deviceNetworkId:(replicaDevice.deviceNetworkId)]])
 }
 
+def replicaDeviceSubscribe(replicaDevice) {
+    // for now, subscribe to everything. need todo this better.
+    replicaDevice?.getSupportedAttributes()?.each { attributes ->
+        logInfo "${app.getLabel()} '${replicaDevice.getDisplayName()}' subscribed to $attributes"
+        subscribe(replicaDevice, "${attributes}", deviceTriggerHandler)
+    }
+}
+
 def getReplicaDeviceRefresh(data) {
     logDebug "${app.getLabel()} executing 'getReplicaDeviceRefresh(deviceNetworkId:${data?.deviceNetworkId})'"
     
     def replicaDevice = getDevice(data?.deviceNetworkId)
     def deviceId = getReplicaDataValue(replicaDevice, "deviceId")    
     if(deviceId) {
-        // for now, subscribe to everything. need todo this better.
-        replicaDevice?.getSupportedAttributes()?.each { attributes ->
-            logInfo "${app.getLabel()} '${replicaDevice.getDisplayName()}' subscribed to $attributes"
-            subscribe(replicaDevice, "${attributes}", deviceTriggerHandler)
-        }
+        replicaDeviceSubscribe(replicaDevice)
         getSmartDeviceHealth(deviceId)
         pauseExecution(250) // no need to hammer ST
         getSmartDeviceDescription(deviceId)
@@ -497,6 +503,7 @@ def getReplicaDeviceRefresh(data) {
 
 def pageMirrorDevice(){    
     def smartDevices = getSmartDevices()
+    def smartDeviceId = pageMirrorDeviceSmartDevice
     
     def smartDevicesSelect = []
     smartDevices?.items.sort{ it.label }?.each {    
@@ -505,13 +512,12 @@ def pageMirrorDevice(){
     }
     
     def smartCapabilities = []
-    smartDevices?.items?.find{it.deviceId == pageMirrorDeviceSmartDevice}?.components.each { components ->
+    smartDevices?.items?.find{it.deviceId == smartDeviceId}?.components.each { components ->
         components?.capabilities?.each { capabilities ->
             smartCapabilities.add(capabilities.id)
         }
-    }
-    
-    def smartDeviceId = pageMirrorDeviceSmartDevice
+    }    
+   
     def smartStats =  ""
     if(smartDeviceId) {
         smartStats += "Device Type: ${smartDevices?.items?.find{it.deviceId == smartDeviceId}?.deviceTypeName ?: (smartDevices?.items?.find{it.deviceId == smartDeviceId}?.name ?: "UNKNOWN")}\n"
@@ -1244,8 +1250,7 @@ void appButtonHandler(String btn) {
                             break
                         case "clearDeviceRules":
                             def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
-                            replicaDevice?.removeDataValue("rules")
-                            clearReplicaDataCache(replicaDevice, "rules")
+                            clearReplicaDataCache(replicaDevice, "rules", true)
                             unsubscribe(replicaDevice)
                             break
                         case "refreshDevice":
@@ -1543,6 +1548,13 @@ def commandSmartDevice(deviceId, capability, command, arguments = []) {
 def deleteSmartSubscriptions() {
     logDebug "${app.getLabel()} executing 'deleteSmartSubscriptions()'"
     def response = [statusCode:iHttpError]
+    //temp location todo this
+    getAllReplicaDeviceIds()?.each { deviceId ->
+        getReplicaDevices(deviceId)?.each { replicaDevice ->
+            unsubscribe(replicaDevice)
+            clearReplicaDataCache(replicaDevice, 'subscription', true)
+        }
+    }
     
     def params = [
         uri: sURI,
@@ -1575,10 +1587,12 @@ def createSmartSubscriptions() {
     deleteSmartSubscriptions()
     pauseExecution(250) // no need to hammer ST
     
-    state?.install.each { deviceId, value ->
+    state?.install?.each{ deviceId, value ->
         response = createSmartSubscription(deviceId)
+        //temp location todo this
         getReplicaDevices(deviceId)?.each { replicaDevice -> 
             setReplicaDataJsonValue(replicaDevice, "subscription", [subscriptionName:response.subscriptionName, statusCode:response.statusCode, timestamp:(new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")).toString()])
+            replicaDeviceSubscribe(replicaDevice)
         }
         pauseExecution(250) // no need to hammer ST        
     }       
