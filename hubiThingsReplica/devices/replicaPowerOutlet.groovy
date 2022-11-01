@@ -15,10 +15,10 @@ metadata
 {
     definition(name: "Replica Power Outlet", namespace: "hubitat", author: "bloodtick", , importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaPowerOutlet.groovy")
 	{
-		capability "Actuator"
-		capability "Switch"
-		capability "PowerMeter"
-		capability "VoltageMeasurement"
+        capability "Actuator"
+        capability "Switch"
+        capability "PowerMeter"
+        capability "VoltageMeasurement"
         capability "Refresh"
         
         attribute "healthStatus", "enum", ["offline", "online"]
