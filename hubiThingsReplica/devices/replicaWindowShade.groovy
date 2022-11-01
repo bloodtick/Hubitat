@@ -22,12 +22,14 @@ metadata
         capability "WindowShade"
         //capability "windowShadeLevel" // doesn't exist in Hubitat
         
-        attribute "shadeLevel", "number"
+        attribute "supportedWindowShadeCommands", "enum", ["close", "open", "pause"] // doesn't exist in Hubitat WindowShade
+        attribute "shadeLevel", "number"        
         attribute "healthStatus", "enum", ["offline", "online"]
         
         command "setEnergy", [[name: "number*", type: "NUMBER", description: "Energy level in kWh"]]
         command "setPower", [[name: "number*", type: "NUMBER", description: "Power level in W"]]
         command "setShadeLevel", [[name: "number*", type: "NUMBER", description: "Shade level in %"]]
+        command "setSupportedWindowShadeCommands", [[name: "string*", type: "STRING", description: "Send Supported Commands"]]
         command "setWindowShadeOpening"
         command "setWindowShadePartiallyOpen"
         command "setWindowClosed"
@@ -63,6 +65,10 @@ def setPower(value) {
 
 def setShadeLevel(value) {    
     sendEvent(name: "shadeLevel", value: "$value", unit: "%", descriptionText: "${device.displayName} shade level is ${value}%")
+}
+
+def setSupportedWindowShadeCommands(value) {
+    sendEvent(name: "supportedWindowShadeCommands", value: "$value", descriptionText: "${device.displayName} supported window shade command is $value")
 }
 
 def close() {
