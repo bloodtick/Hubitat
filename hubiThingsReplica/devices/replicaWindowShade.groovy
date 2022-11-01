@@ -25,7 +25,7 @@ metadata
         attribute "supportedWindowShadeCommands", "enum", ["close", "open", "pause"] // doesn't exist in Hubitat WindowShade
         attribute "shadeLevel", "number"        
         attribute "healthStatus", "enum", ["offline", "online"]
-        
+		        
         command "setEnergy", [[name: "number*", type: "NUMBER", description: "Energy level in kWh"]]
         command "setPower", [[name: "number*", type: "NUMBER", description: "Power level in W"]]
         command "setShadeLevel", [[name: "number*", type: "NUMBER", description: "Shade level in %"]]
