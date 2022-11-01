@@ -15,7 +15,7 @@ metadata
 {
     definition(name: "Replica Garage Door", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaGarageDoor.groovy",)
 	{
-	    capability "Actuator"
+        capability "Actuator"
         capability "Alarm"
         capability "Battery"
         capability "ContactSensor"
