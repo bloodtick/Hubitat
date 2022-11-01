@@ -16,22 +16,16 @@
 *  Date: 2022-10-01
 *
 *  1.0.0  2022-10-01 First pass.
-*  1.0.1  2022-10-25 Allow for more than one instance. UI modes. Turn off status refresh. Bug fixes.
-*  1.0.2  2022-10-25 Build refresh device method. Add 'Generic Component Dimmer' to test moving to Component types.
-*  1.0.3  2022-10-26 Log Info Mute function for chatty devices (like power)
-*  1.0.4  2022-10-26 Bug fixes, removed scheduled events, Added "events' to the main GUI that reset every new Token or 'Device List' button
-*  1.0.5  2022-10-27 GUI updates, getting ready to support mirror functions
-*  1.0.6  2022-10-28 GUI updates, bug fixes, SmartThings attribute change cache, more updates to support mirror functions
-*  1.0.7  2022-10-28 deviceTriggerHandlerCache now handles float to integer comparisons
-*  1.0.8  2022-10-29 Use cache for most getDataValue events (not complete yet). Bug fixes to install/uninstall. 30 min log timeout after leaving mainPage.
+*. .....  deleted
 *  1.0.9  2022-10-30 Replica Device Capabilities threading (clean up). Update cache directly and then store data in object.
 *  1.0.10 2022-10-31 Added Alarm, mute indicator on rules
 *  1.0.11 2022-10-31 Event and Status Info logging
-*. 1.0.12 2022-10-31 Fix for Capabilities on create page, temporary subscription update/logging/deletes
-*. 1.0.13 2022-11-01 windowShade Capabilities added
+*  1.0.12 2022-10-31 Fix for Capabilities on create page, temporary subscription update/logging/deletes
+*  1.0.13 2022-11-01 windowShade Capabilities added
+*  1.0.14 2022-11-01 Health status bug fixes and timeout if no ST cloud communication to offline devices
 */
 
-public static String version() {  return "v1.0.13"  }
+public static String version() {  return "v1.0.14"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -60,7 +54,7 @@ import groovy.transform.Field
 @Field volatile static Map<String,String> g_mReplicaDeviceCache = [:]
 
 def intialize() {
-    logInfo "intialize"
+    logInfo "intialize" 
 }
 
 definition(
@@ -275,7 +269,7 @@ def mainPage(){
                         devicesTable += "<td>${state?.install[smartDevice.deviceId]?.id?.join(', ')}</td>"
                         devicesTable += hubitatDevices[i] ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.label}</a></td>" : "<td></td>"
                         //devicesTable += "<td style='text-align:center;'><div><span id='${hubitatDevices[i]?.deviceNetworkId}' style='background:${deviceColor};' class='dot'></span></div></td>"
-                        devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${getSmartDeviceEventCount(hubitatDevices[i])}</td>"
+                        devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${getSmartDeviceEventsStatus(hubitatDevices[i])}</td>"
                         devicesTable += "</tr>"
                     }
 		        }                
@@ -877,8 +871,8 @@ def getSmartAttributeOptions(replicaDevice) {
     }
     // not sure why SmartThings treats health different. But everything reports healthStatus. So gonna make it look the same to the user configuration page. 'fancy'.
     if(smartAttributeOptions.size()) {
-        smartAttributeOptions["attribute: healthStatus.offline"] = new JsonSlurper().parseText("""{"schema":{"type":"object","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"offline","label":"attribute: healthStatus.offline "}""")
-        smartAttributeOptions["attribute: healthStatus.online"] =  new JsonSlurper().parseText("""{"schema":{"type":"object","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"online","label":"attribute: healthStatus.online "}""")
+        smartAttributeOptions["attribute: healthStatus.offline"] = new JsonSlurper().parseText("""{"schema":{"type":"object","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"offline","attribute":"healthStatus","label":"attribute: healthStatus.offline "}""")
+        smartAttributeOptions["attribute: healthStatus.online"] =  new JsonSlurper().parseText("""{"schema":{"type":"object","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"online","attribute":"healthStatus","label":"attribute: healthStatus.online "}""")
     }
     return smartAttributeOptions
 }
@@ -1017,7 +1011,7 @@ def smartTriggerHandler(replicaDevice, event) {
             replicaDeviceRules?.findAll{ it.type == "smartTrigger" }?.each { rule -> 
                 def trigger = rule?.trigger.values()?.getAt(0) ?: []
                 def command = rule?.command.values()?.getAt(0) ?: []
-                    
+
                 // simple enum case
                 if(attribute==trigger?.attribute && value?.value==trigger?.value ) {                 
                     if(!rule?.mute) logInfo "${app.getLabel()} executing Hubitat '${replicaDevice?.getLabel()}' enum trigger:$attribute => command:${command?.name}()"
@@ -1047,12 +1041,12 @@ def smartTriggerHandler(replicaDevice, event) {
     return [statusCode:response.statusCode]
 }
 
-def getSmartDeviceEventCount(replicaDevice) {    
+def getSmartDeviceEventsStatus(replicaDevice) {    
     def healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
     def deviceId = getReplicaDataValue(replicaDevice, "deviceId")
     
     def eventCount = getSmartDevices(true)?.items?.find{it.deviceId == deviceId}?.eventCount ?: 0
-    def value = (healthState=='offline' ? healthState : eventCount).toString().capitalize()
+    def value = (healthState=='offline' ? healthState : eventCount).toString()//.capitalize()
     if(replicaDevice) sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
     return value
 }
@@ -1072,7 +1066,7 @@ def smartStatusHandler(replicaDevice, statusEvent) {
         response.statusCode = smartTriggerHandler(replicaDevice, [ "$capability":attributes ]).statusCode
     }
     
-    getSmartDeviceEventCount(replicaDevice)
+    if( getSmartDeviceEventsStatus(replicaDevice) == 'offline' ) { getSmartDeviceHealth( getReplicaDataValue(replicaDevice, "deviceId") ) } 
     return [statusCode:response.statusCode]
 }
 
@@ -1095,7 +1089,7 @@ def smartEventHandler(replicaDevice, deviceEvent){
         logTrace JsonOutput.toJson(event)
         response.statusCode = smartTriggerHandler(replicaDevice, event).statusCode
         
-        getSmartDeviceEventCount(replicaDevice)
+        if( getSmartDeviceEventsStatus(replicaDevice) == 'offline' ) { getSmartDeviceHealth( getReplicaDataValue(replicaDevice, "deviceId") ) }
     } catch (e) {
         logWarn "${app.getLabel()} smartEventHandler error: $e : $deviceEvent"
     }
@@ -1103,7 +1097,7 @@ def smartEventHandler(replicaDevice, deviceEvent){
 }
 
 def smartHealthHandler(replicaDevice, healthEvent){
-    logDebug "${app.getLabel()} executing 'smartHealthHandler()' replicaDevice:'${replicaDevice.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartHealthHandler()' replicaDevice:'${replicaDevice?.getLabel()}'"
     def response = [statusCode:iHttpError]
 
     setReplicaDataJsonValue(replicaDevice, "health", healthEvent)
@@ -1114,7 +1108,7 @@ def smartHealthHandler(replicaDevice, healthEvent){
         logTrace JsonOutput.toJson(event)
         response.statusCode = smartTriggerHandler(replicaDevice, event).statusCode
         
-        getSmartDeviceEventCount(replicaDevice)            
+        getSmartDeviceEventsStatus(replicaDevice)            
     } catch (e) {
         logWarn "${app.getLabel()} smartHealthHandler error: $e : $healthEvent"
     }    
@@ -1289,6 +1283,10 @@ def test() {
     logInfo expirationDate.format("YYYY-MM-dd h:mm:ss a z")
 }
 
+def getTimestampSmartFormat() {
+    return ((new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")).toString())
+}
+
 def getCommonTimeFormat(time=null) {
     def response
     if (time) {
@@ -1332,19 +1330,26 @@ def getSmartCapabilities(data) {
     }
 }
 
-def allDeviceHealth(delay=1) { allSmartDeviceHealth(delay) } // remove at some point
-
 def allSmartDeviceHealth(delay=1) {
     logInfo "${app.getLabel()} refreshing all SmartThings device health"
     runIn(delay, getAllSmartDeviceHealth)
 }
 
 def getAllSmartDeviceHealth() {
-    logDebug "${app.getLabel()} executing 'getAllSmartDeviceHealth()'"
-    state?.install?.keySet().each { deviceId ->
-        if ( getReplicaDevices(deviceId) ) { //only ping devices mirrored
-            getSmartDeviceHealth(deviceId)
-            pauseExecution(250) // no need to hammer ST
+    logDebug "${app.getLabel()} executing 'getAllSmartDeviceHealth()'"    
+    runIn(60, setAllSmartDeviceHealthOffline) // if no reponse in 60 seconds, declare everything offline    
+    getAllReplicaDeviceIds()?.each { deviceId ->
+        getSmartDeviceHealth(deviceId)
+        pauseExecution(250) // no need to hammer ST
+    }
+}
+
+def setAllSmartDeviceHealthOffline() {
+    logDebug "${app.getLabel()} executing 'setAllSmartDeviceHealthOffline()'"
+    getAllReplicaDeviceIds()?.each { deviceId ->
+        getReplicaDevices(deviceId)?.each { replicaDevice ->
+            def healthEvent = ["deviceId":deviceId, "state":"OFFLINE","lastUpdatedDate":getTimestampSmartFormat()]
+            smartHealthHandler(replicaDevice, healthEvent)
         }
     }
 }
@@ -1475,7 +1480,8 @@ def asyncHttpGetCallback(resp, data) {
         switch(data?.method) {
             case "getSmartDeviceHealth":
                 def health = new JsonSlurper().parseText(resp.data)                
-                getReplicaDevices(data.deviceId)?.each { replicaDevice -> smartHealthHandler(replicaDevice, health)  }                          
+                getReplicaDevices(data.deviceId)?.each { replicaDevice -> smartHealthHandler(replicaDevice, health)  }
+                unschedule('setAllSmartDeviceHealthOffline')
                 break
             case "getSmartDeviceCapability":
                 def capability = new JsonSlurper().parseText(resp.data)            
@@ -1592,7 +1598,7 @@ def createSmartSubscriptions() {
         response = createSmartSubscription(deviceId)
         //temp location todo this
         getReplicaDevices(deviceId)?.each { replicaDevice -> 
-            setReplicaDataJsonValue(replicaDevice, "subscription", [subscriptionName:response.subscriptionName, statusCode:response.statusCode, timestamp:(new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")).toString()])
+            setReplicaDataJsonValue(replicaDevice, "subscription", [subscriptionName:response.subscriptionName, statusCode:response.statusCode, timestamp:getTimestampSmartFormat()])
             replicaDeviceSubscribe(replicaDevice)
         }
         pauseExecution(250) // no need to hammer ST        
