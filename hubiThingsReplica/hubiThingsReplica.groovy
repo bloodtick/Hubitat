@@ -28,9 +28,10 @@
 *  1.0.10 2022-10-31 Added Alarm, mute indicator on rules
 *  1.0.11 2022-10-31 Event and Status Info logging
 *. 1.0.12 2022-10-31 Fix for Capabilities on create page, temporary subscription update/logging/deletes
+*. 1.0.13 2022-11-01 windowShade Capabilities added
 */
 
-public static String version() {  return "v1.0.12"  }
+public static String version() {  return "v1.0.13"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -2022,6 +2023,21 @@ def getMainPage() {
                                 description:'Tap to set', 
                                 multiple:true, 
                                 capabilities:['alarm'], 
+                                permissions:['r', 'x']
+                            ]
+                        ]
+                    ],
+                    [
+                        //name:'Select Sensors',
+                        settings:[
+                            [
+                                id:'windowShade', 
+                                required:false, 
+                                type:'DEVICE',
+                                name:'Select Window Shade Devices',
+                                description:'Tap to set', 
+                                multiple:true, 
+                                capabilities:['windowShade'], 
                                 permissions:['r', 'x']
                             ]
                         ]
