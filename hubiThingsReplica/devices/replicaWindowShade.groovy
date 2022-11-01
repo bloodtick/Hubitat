@@ -104,15 +104,15 @@ def setWindowShadePartiallyOpen() {
     sendEvent(name: "windowShade", value: "partially open", descriptionText: "${device.displayName} window shade is partially open")
 }
 
-def setWindowClosed() {
+def setWindowShadeClosed() {
     sendEvent(name: "windowShade", value: "closed", descriptionText: "${device.displayName} window shade is closed")
 }
 
-def setWindowClosing() {
+def setWindowShadeClosing() {
     sendEvent(name: "windowShade", value: "closing", descriptionText: "${device.displayName} window shade is closing")
 }
 
-def setWindowUnknown() {
+def setWindowShadeUnknown() {
     sendEvent(name: "windowShade", value: "unknown", descriptionText: "${device.displayName} window shade is unknown")
 }
 
