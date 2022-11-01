@@ -13,10 +13,10 @@
 */
 metadata 
 {
-    definition(name: "Replica Envisalink", namespace: "hubitat", author: "bloodtick")
+    definition(name: "Replica Envisalink", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaEnvisalink.groovy",)
 	{
 		capability "Actuator"
-		capability "Alarm"
+        capability "Alarm"
         capability "Refresh"
         
         attribute "switch", "string"
