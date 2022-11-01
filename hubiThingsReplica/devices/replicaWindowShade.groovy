@@ -39,11 +39,11 @@ metadata
 }
 
 def installed() {
-	initialize()
+    initialize()
 }
 
 def updated() {
-	initialize()
+    initialize()
 }
 
 def initialize() {
