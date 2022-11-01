@@ -14,12 +14,12 @@
 metadata 
 {
     definition(name: "Replica Envisalink", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaEnvisalink.groovy",)
-    {
-        capability "Actuator"
+	{
+	    capability "Actuator"
         capability "Alarm"
         capability "Refresh"
         
-        attribute "switch", "string" // not the same as switch capability
+        attribute "switch", "string"
         attribute "selection", "string"
         attribute "securitySystem", "enum", ["armedAway", "armedStay", "disarmed" ]
         attribute "partitionCommand", "string"
@@ -27,15 +27,15 @@ metadata
         attribute "ledStatus", "string"
         attribute "healthStatus", "enum", ["offline", "online"]
         
-        command "setSwitch", [[name: "Set Switch*", type: "STRING", description: "Set switch value"]]
-        command "setSelection", [[name: "Set Selection*", type: "STRING", description: "Set selection value"]]
+        command "setSwitch", [[name: "string*", type: "STRING", description: "Set switch value"]]
+        command "setSelection", [[name: "string*", type: "STRING", description: "Set selection value"]]
         command "armedAway"
         command "armedStay"
         command "disarmed"
-        command "setPartitionCommand", [[name: "Set Partition Command*", type: "STRING", description: "Set partition command value"]]
-        command "setPartStatus", [[name: "Set Partition Status*", type: "STRING", description: "Set partition status value"]]
-        command "setLedStatus", [[name: "Set LED Status*", type: "STRING", description: "Set LED status value"]]
-        command "setAlarm", [[name: "Set Alarm*", type: "STRING", description: "Set Alarm value"]]
+        command "setPartitionCommand", [[name: "string*", type: "STRING", description: "Set partition command value"]]
+        command "setPartStatus", [[name: "string*", type: "STRING", description: "Set partition status value"]]
+        command "setLedStatus", [[name: "string*", type: "STRING", description: "Set LED status value"]]
+        command "setAlarm", [[name: "string*", type: "STRING", description: "Set Alarm value"]]
         command "offline"
         command "online"
     }
