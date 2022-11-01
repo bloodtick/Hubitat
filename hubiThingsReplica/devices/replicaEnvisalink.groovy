@@ -19,7 +19,7 @@ metadata
         capability "Alarm"
         capability "Refresh"
         
-        attribute "switch", "string"
+        attribute "switch", "enum", ["on", "off" ] //DTH does not have capability 'switch' with the 'alarm' overlap off() command
         attribute "selection", "string"
         attribute "securitySystem", "enum", ["armedAway", "armedStay", "disarmed" ]
         attribute "partitionCommand", "string"
