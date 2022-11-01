@@ -15,11 +15,11 @@ metadata
 {
     definition(name: "Replica Envisalink", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaEnvisalink.groovy",)
     {
-	capability "Actuator"
+        capability "Actuator"
         capability "Alarm"
         capability "Refresh"
         
-        attribute "switch", "string"
+        attribute "switch", "string" // not the same as switch capability
         attribute "selection", "string"
         attribute "securitySystem", "enum", ["armedAway", "armedStay", "disarmed" ]
         attribute "partitionCommand", "string"
@@ -47,6 +47,7 @@ def installed() {
 }
 
 def updated() {
+    log.info "${device.displayName} updated"
 	initialize()
 }
 
