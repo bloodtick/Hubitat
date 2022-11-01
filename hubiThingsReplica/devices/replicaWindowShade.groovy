@@ -32,9 +32,9 @@ metadata
         command "setSupportedWindowShadeCommands", [[name: "string*", type: "STRING", description: "Send Supported Commands"]]
         command "setWindowShadeOpening"
         command "setWindowShadePartiallyOpen"
-        command "setWindowClosed"
-        command "setWindowClosing"
-        command "setWindowUnknown"
+        command "setWindowShadeClosed"
+        command "setWindowShadeClosing"
+        command "setWindowShadeUnknown"
         command "offline"
         command "online"
     }
