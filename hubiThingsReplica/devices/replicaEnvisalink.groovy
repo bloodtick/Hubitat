@@ -10,16 +10,17 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
+*  version 1.0.0
 */
 metadata 
 {
-    definition(name: "Replica Envisalink", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaEnvisalink.groovy",)
-	{
-	    capability "Actuator"
+    definition(name: "Replica Envisalink", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaEnvisalink.groovy")
+    {
+        capability "Actuator"
         capability "Alarm"
         capability "Refresh"
+        capability "Switch"
         
-        attribute "switch", "enum", ["on", "off" ] //DTH does not have capability 'switch' with the 'alarm' overlap off() command
         attribute "selection", "string"
         attribute "securitySystem", "enum", ["armedAway", "armedStay", "disarmed" ]
         attribute "partitionCommand", "string"
@@ -27,6 +28,8 @@ metadata
         attribute "ledStatus", "string"
         attribute "healthStatus", "enum", ["offline", "online"]
         
+        command "setAlarmOff"
+        command "setSwitchOff"
         command "setSwitch", [[name: "string*", type: "STRING", description: "Set switch value"]]
         command "setSelection", [[name: "string*", type: "STRING", description: "Set selection value"]]
         command "armedAway"
@@ -36,19 +39,21 @@ metadata
         command "setPartStatus", [[name: "string*", type: "STRING", description: "Set partition status value"]]
         command "setLedStatus", [[name: "string*", type: "STRING", description: "Set LED status value"]]
         command "setAlarm", [[name: "string*", type: "STRING", description: "Set Alarm value"]]
-        command "offline"
-        command "online"
+        command "setHealthStatus", [[name: "healthStatus*", type: "ENUM", description: "Any Supported healthStatus Commands", constraints: ["offline","online"]]]
+    }
+    preferences {
+        input(name: "deviceOffCommand", type: "enum", title: "<b>Action from Off command:</b>", required: true, options: [0:"Both Switch and Alarm turn off",1:"Only Switch turns off",2:"Only Alarm turns off"], defaultValue:2)        
     }
 }
 
 def installed() {
     log.info "${device.displayName} installed"
-	initialize()
+    initialize()
 }
 
 def updated() {
     log.info "${device.displayName} updated"
-	initialize()
+    initialize()
 }
 
 def initialize() {
@@ -62,7 +67,7 @@ def both() {
     sendEvent(name: "alarm", value: "both", descriptionText: "${device.displayName} alarm set to both")
 }
 
-def off() {
+def setAlarmOff() {
     sendEvent(name: "alarm", value: "off", descriptionText: "${device.displayName} alarm set to off")
 }
 
@@ -110,12 +115,21 @@ def setAlarm(value) {
     sendEvent(name: "alarm", value: "$value", descriptionText: "${device.displayName} alarm is $value")
 }
 
-def offline() {
-    sendEvent(name: "healthStatus", value: "offline", descriptionText: "${device.displayName} healthStatus set to offline")
+def setSwitchOff() {
+    sendEvent(name: "switch", value: "off", descriptionText: "${device.displayName} switch set to off")
 }
 
-def online() {
-    sendEvent(name: "healthStatus", value: "online", descriptionText: "${device.displayName} healthStatus set to online")
+def off() { 
+    if(deviceOffCommand=='0' || deviceOffCommand=='1') { setSwitchOff() }
+    if(deviceOffCommand=='0' || deviceOffCommand=='2') { setAlarmOff() }
+}
+
+def on() {
+    sendEvent(name: "switch", value: "on", descriptionText: "${device.displayName} switch set to on")
+}
+
+def setHealthStatus(value) {    
+    sendEvent(name: "healthStatus", value: "$value", descriptionText: "${device.displayName} healthStatus set to $value")
 }
 
 void refresh() {
