@@ -10,11 +10,12 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
+*  version 1.0.0
 */
 metadata 
 {
-    definition(name: "Replica Garage Door", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaGarageDoor.groovy",)
-	{
+    definition(name: "Replica Garage Door", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaGarageDoor.groovy")
+    {
         capability "Actuator"
         capability "Alarm"
         capability "Battery"
@@ -28,6 +29,7 @@ metadata
         attribute "healthStatus", "enum", ["offline", "online"]
         
         command "setAlarmOff"
+        command "setSwitchOff"
         command "setBattery", [[name: "number*", type: "NUMBER", description: "Battery level in %"]]
         command "setContactClosed"
         command "setContactOpen"
@@ -35,10 +37,11 @@ metadata
         command "setDoorClosing"
         command "setDoorOpen"
         command "setDoorOpening"
-        command "setDoorUnknown"
-        command "setSwitchOff"
-        command "offline"
-        command "online"
+        command "setDoorUnknown"        
+        command "setHealthStatus", [[name: "healthStatus*", type: "ENUM", description: "Any Supported healthStatus Commands", constraints: ["offline","online"]]]
+    }
+    preferences {
+        input(name: "deviceOffCommand", type: "enum", title: "<b>Action from Off command:</b>", required: true, options: [0:"Both Switch and Alarm turn off",1:"Only Switch turns off",2:"Only Alarm turns off"], defaultValue:0)        
     }
 }
 
@@ -119,21 +122,17 @@ def setSwitchOff() {
     sendEvent(name: "switch", value: "off", descriptionText: "${device.displayName} switch set to off")
 }
 
-def off() {
-    setAlarmOff()
-    setSwitchOff()    
+def off() { 
+    if(deviceOffCommand=='0' || deviceOffCommand=='1') { setSwitchOff() }
+    if(deviceOffCommand=='0' || deviceOffCommand=='2') { setAlarmOff() }
 }
 
 def on() {
     sendEvent(name: "switch", value: "on", descriptionText: "${device.displayName} switch set to on")
 }
 
-def offline() {
-    sendEvent(name: "healthStatus", value: "offline", descriptionText: "${device.displayName} healthStatus set to offline")
-}
-
-def online() {
-    sendEvent(name: "healthStatus", value: "online", descriptionText: "${device.displayName} healthStatus set to online")
+def setHealthStatus(value) {    
+    sendEvent(name: "healthStatus", value: "$value", descriptionText: "${device.displayName} healthStatus set to $value")
 }
 
 void refresh() {
