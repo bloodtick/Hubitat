@@ -23,9 +23,10 @@
 *  1.0.12 2022-10-31 Fix for Capabilities on create page, temporary subscription update/logging/deletes
 *  1.0.13 2022-11-01 windowShade Capabilities added
 *  1.0.14 2022-11-01 Health status bug fixes and timeout if no ST cloud communication to offline devices
+*  1.0.15 2022-11-02 Allow for wildcard '*' attribute on enum capabilities to pass over to broker commands that have arguments to accept 
 */
 
-public static String version() {  return "v1.0.14"  }
+public static String version() {  return "v1.0.15"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -631,7 +632,8 @@ def updateRuleList(action, type) {
     def triggerKey = trigger?.keySet()?.getAt(0)
     def commandKey = command?.keySet()?.getAt(0)
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)    
-    logDebug "${app.getLabel()} executing 'updateRuleList()' hubitatDevice:'${replicaDevice}' trigger:'${triggerKey}' command:'${commandKey}' action:'${action}'" 
+    logInfo "${app.getLabel()} executing 'updateRuleList()' hubitatDevice:'${replicaDevice}' trigger:'${triggerKey}' command:'${commandKey}' action:'${action}'"
+    if(!triggerKey || !commandKey) return 
 
     def replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules") ?: []
     def allowDuplicateAttribute = pageConfigureDeviceAllowDuplicateAttribute
@@ -803,8 +805,12 @@ def getHubitatAttributeOptions(replicaDevice) {
         attributeJson.remove('version')
         attributeJson.remove('deviceTypeId')
         if(attributeJson?.dataType=="ENUM") {
+            def label = "attribute: ${attributeJson?.name}.*"
+            hubitatAttributeOptions[label] = attributeJson.clone()
+            hubitatAttributeOptions[label].label = label
+            //hubitatAttributeOptions[label].value = "*"            
             attributeJson?.values?.each{ enumValue ->
-                def label = "attribute: ${attributeJson?.name}.${enumValue}"
+                label = "attribute: ${attributeJson?.name}.${enumValue}"
                 hubitatAttributeOptions[label] = attributeJson.clone()
                 hubitatAttributeOptions[label].label = label
                 hubitatAttributeOptions[label].value = enumValue
@@ -855,8 +861,12 @@ def getSmartAttributeOptions(replicaDevice) {
             schema["attribute"] = attribute
             schema?.remove('type')
             if(schema?.properties?.value?.enum) {
+                def label = "attribute: ${attribute}.*"
+                smartAttributeOptions[label] = schema.clone()
+                smartAttributeOptions[label].label = label
+                //smartAttributeOptions[label].value = "*"
                 schema?.properties?.value?.enum?.each{ enumValue ->
-                    def label = "attribute: ${attribute}.${enumValue}"
+                    label = "attribute: ${attribute}.${enumValue}"
                     smartAttributeOptions[label] = schema.clone()
                     smartAttributeOptions[label].label = label
                     smartAttributeOptions[label].value = enumValue
@@ -871,8 +881,9 @@ def getSmartAttributeOptions(replicaDevice) {
     }
     // not sure why SmartThings treats health different. But everything reports healthStatus. So gonna make it look the same to the user configuration page. 'fancy'.
     if(smartAttributeOptions.size()) {
-        smartAttributeOptions["attribute: healthStatus.offline"] = new JsonSlurper().parseText("""{"schema":{"type":"object","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"offline","attribute":"healthStatus","label":"attribute: healthStatus.offline "}""")
-        smartAttributeOptions["attribute: healthStatus.online"] =  new JsonSlurper().parseText("""{"schema":{"type":"object","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"online","attribute":"healthStatus","label":"attribute: healthStatus.online "}""")
+        smartAttributeOptions["attribute: healthStatus.*"] = new JsonSlurper().parseText("""{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.* "}""")
+        smartAttributeOptions["attribute: healthStatus.offline"] = new JsonSlurper().parseText("""{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"offline","attribute":"healthStatus","label":"attribute: healthStatus.offline "}""")
+        smartAttributeOptions["attribute: healthStatus.online"] =  new JsonSlurper().parseText("""{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"online","attribute":"healthStatus","label":"attribute: healthStatus.online "}""")
     }
     return smartAttributeOptions
 }
@@ -917,7 +928,7 @@ def deviceTriggerHandler(event) {
         def command = rule?.command.values()?.getAt(0) ?: []          
            
         // simple enum case
-        if(event.name==trigger?.name && event.value==trigger?.value ) {
+        if(event.name==trigger?.name && event.value==trigger?.value) {
             // check if this was from ST and should not be sent back
             if(!deviceTriggerHandlerCache(replicaDevice, event.name, event.value)) {
                 if(!rule?.mute) logInfo "${app.getLabel()} sending SmartThings '${replicaDevice?.getLabel()}' enum trigger:${event.name} => command:${command?.name}()"                
@@ -933,7 +944,7 @@ def deviceTriggerHandler(event) {
                 if(!rule?.mute) logInfo "${app.getLabel()} sending SmartThings '${replicaDevice?.getLabel()}' $type trigger:${event.name} => command:${command?.name}(${event?.value})"                
                 switch(type) {
                     case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
-                        def value = event?.value.isFloat() ? (int)(Math.round(event?.value.toFloat())) : event?.value.toInteger()
+                        def value = event?.value.isNumber() ? (event?.value.isFloat() ? (int)(Math.round(event?.value.toFloat())) : event?.value.toInteger()) : null
                         commandSmartDevice(deviceId, command?.capability, command?.name, [ value ])
                         break
                     case 'number':  // A number that can have fractional values. Limits can be defined to constrain the range of possible values.
@@ -1013,7 +1024,7 @@ def smartTriggerHandler(replicaDevice, event) {
                 def command = rule?.command.values()?.getAt(0) ?: []
 
                 // simple enum case
-                if(attribute==trigger?.attribute && value?.value==trigger?.value ) {                 
+                if(attribute==trigger?.attribute && value?.value==trigger?.value) {                 
                     if(!rule?.mute) logInfo "${app.getLabel()} executing Hubitat '${replicaDevice?.getLabel()}' enum trigger:$attribute => command:${command?.name}()"
                     smartTriggerHandlerCache(replicaDevice, attribute, value?.value)
                     
