@@ -10,11 +10,12 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
+*  version 1.0.0
 */
 metadata 
 {
     definition(name: "Replica Power Outlet", namespace: "hubitat", author: "bloodtick", , importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaPowerOutlet.groovy")
-	{
+    {
         capability "Actuator"
         capability "Switch"
         capability "PowerMeter"
@@ -26,8 +27,7 @@ metadata
         command "setPower", [[name: "number*", type: "NUMBER", description: "Power level in Watts"]]
         command "setVoltage", [[name: "number*", type: "NUMBER", description: "Voltage level in Volts"]]
         command "setFrequency", [[name: "number*", type: "NUMBER", description: "Frequency in Hz"]]
-        command "offline"
-        command "online"
+        command "setHealthStatus", [[name: "healthStatus*", type: "ENUM", description: "Any Supported healthStatus Commands", constraints: ["offline","online"]]]
     }
 }
 
@@ -66,12 +66,8 @@ def setFrequency(voltage) {
     sendEvent(name: "frequency", value: "$frequency", unit: "Hz", descriptionText: "${device.displayName} frequency is $frequency Hz")
 }
 
-def offline() {
-    sendEvent(name: "healthStatus", value: "offline", descriptionText: "${device.displayName} healthStatus set to offline")
-}
-
-def online() {
-    sendEvent(name: "healthStatus", value: "online", descriptionText: "${device.displayName} healthStatus set to online")
+def setHealthStatus(value) {    
+    sendEvent(name: "healthStatus", value: "$value", descriptionText: "${device.displayName} healthStatus set to $value")
 }
 
 void refresh() {
