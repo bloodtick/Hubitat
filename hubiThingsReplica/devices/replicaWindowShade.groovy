@@ -10,10 +10,13 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
+*  version 1.0.0
 */
+import groovy.json.*
+    
 metadata 
 {
-    definition(name: "Replica Window Shade", namespace: "hubitat", author: "bloodtick", , importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaWindowShade.groovy")
+    definition(name: "Replica Window Shade", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaWindowShade.groovy")
 	{
         capability "Actuator"
         capability "EnergyMeter"
@@ -22,21 +25,23 @@ metadata
         capability "WindowShade"
         //capability "windowShadeLevel" // doesn't exist in Hubitat
         
-        attribute "supportedWindowShadeCommands", "enum", ["close", "open", "pause"] // doesn't exist in Hubitat WindowShade
+        attribute "supportedWindowShadeCommands", "JSON_OBJECT"
         attribute "shadeLevel", "number"        
         attribute "healthStatus", "enum", ["offline", "online"]
-		        
+		
+        command "pause" // doesn't exist in Hubitat capability "windowShade"
         command "setEnergy", [[name: "number*", type: "NUMBER", description: "Energy level in kWh"]]
         command "setPower", [[name: "number*", type: "NUMBER", description: "Power level in W"]]
         command "setShadeLevel", [[name: "number*", type: "NUMBER", description: "Shade level in %"]]
-        command "setSupportedWindowShadeCommands", [[name: "string*", type: "STRING", description: "Send Supported Commands"]]
+        command "setSupportedWindowShadeCommands", [[name: "JSON_OBJECT*", type: "JSON_OBJECT", description: "Define windowShade Supported Commands"]]
+        command "setWindowShade", [[name: "windowShade*", type: "STRING", description: "Any Supported windowShade Commands"]]
         command "setWindowShadeOpening"
         command "setWindowShadePartiallyOpen"
         command "setWindowShadeClosed"
+        command "setWindowShadeOpen"
         command "setWindowShadeClosing"
         command "setWindowShadeUnknown"
-        command "offline"
-        command "online"
+        command "setHealthStatus", [[name: "healthStatus*", type: "ENUM", description: "Any Supported healthStatus Commands", constraints: ["offline","online"]]]
     }
 }
 
@@ -67,20 +72,16 @@ def setShadeLevel(value) {
     sendEvent(name: "shadeLevel", value: "$value", unit: "%", descriptionText: "${device.displayName} shade level is ${value}%")
 }
 
-def setSupportedWindowShadeCommands(value) {
-    sendEvent(name: "supportedWindowShadeCommands", value: "$value", descriptionText: "${device.displayName} supported window shade command is $value")
-}
-
 def close() {
-    sendEvent(name: "supportedWindowShadeCommands", value: "close", descriptionText: "${device.displayName} supported window shade command is close")
+    setWindowShade("close")
 }
 
 def open() {
-    sendEvent(name: "supportedWindowShadeCommands", value: "open", descriptionText: "${device.displayName} supported window shade command is open")
+    setWindowShade("open")
 }
 
 def pause() {
-    sendEvent(name: "supportedWindowShadeCommands", value: "pause", descriptionText: "${device.displayName} supported window shade command is pause")
+    setWindowShade("pause")
 }
 
 def setPosition(value) {    
@@ -92,36 +93,56 @@ def startPositionChange(value) {
     if(value=="open") open()
 }
 
-def stopPositionChange() {    
+def stopPositionChange() {
     pause()
 }
 
+def setSupportedWindowShadeCommands(value) {
+    try {
+        List list = new JsonSlurper().parseText(value)
+        sendEvent(name: "supportedWindowShadeCommands", value: list, descriptionText: "${device.displayName} supported WindowShade Commands are ${list}")
+    }
+    catch(e) {
+        log.info """${device.displayName} recieved $value which is not valid JSON use ["close","pause","open"]"""
+    }
+}
+
+def setWindowShade(value) {
+    List list = ((device.currentValue("supportedWindowShadeCommands"))?.tokenize(',[]')?.collect{ it?.trim() })
+    if( list?.find{ it == value } != null ) {
+        sendEvent(name: "windowShade", value: "$value", descriptionText: "${device.displayName} window shade is $value")
+    }
+    else {
+        log.info "${device.displayName} does not support '$value' window shade command"
+    }
+}
+
 def setWindowShadeOpening() {
-    sendEvent(name: "windowShade", value: "opening", descriptionText: "${device.displayName} window shade is opening")
+    setWindowShade("opening")
 }
 
 def setWindowShadePartiallyOpen() {
-    sendEvent(name: "windowShade", value: "partially open", descriptionText: "${device.displayName} window shade is partially open")
+    setWindowShade("partially open")
 }
 
 def setWindowShadeClosed() {
-    sendEvent(name: "windowShade", value: "closed", descriptionText: "${device.displayName} window shade is closed")
+    setWindowShade("closed")
+}
+
+def setWindowShadeOpen() {
+    setWindowShade("open")
 }
 
 def setWindowShadeClosing() {
-    sendEvent(name: "windowShade", value: "closing", descriptionText: "${device.displayName} window shade is closing")
+    setWindowShade("closing")
 }
 
 def setWindowShadeUnknown() {
-    sendEvent(name: "windowShade", value: "unknown", descriptionText: "${device.displayName} window shade is unknown")
+    setWindowShade("unknown")
 }
 
-def offline() {
-    sendEvent(name: "healthStatus", value: "offline", descriptionText: "${device.displayName} healthStatus set to offline")
-}
-
-def online() {
-    sendEvent(name: "healthStatus", value: "online", descriptionText: "${device.displayName} healthStatus set to online")
+def setHealthStatus(value) {    
+    sendEvent(name: "healthStatus", value: "$value", descriptionText: "${device.displayName} healthStatus set to $value")
 }
 
 void refresh() {
