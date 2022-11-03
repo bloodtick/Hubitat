@@ -10,7 +10,7 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
-*  version 1.0.0
+*  version 1.0.1
 */
 import groovy.json.*
     
@@ -42,6 +42,9 @@ metadata
         command "setWindowShadeClosing"
         command "setWindowShadeUnknown"
         command "setHealthStatus", [[name: "healthStatus*", type: "ENUM", description: "Any Supported healthStatus Commands", constraints: ["offline","online"]]]
+    }
+    preferences {
+        input(name: "deviceIgnoreSupportCommands", type: "bool", title: "<b>Ignore Supported Window Shade Command Limits:</b>", required: true, defaultValue:true)        
     }
 }
 
@@ -109,7 +112,7 @@ def setSupportedWindowShadeCommands(value) {
 
 def setWindowShade(value) {
     List list = ((device.currentValue("supportedWindowShadeCommands"))?.tokenize(',[]')?.collect{ it?.trim() })
-    if( list?.find{ it == value } != null ) {
+    if( deviceIgnoreSupportCommands || list?.find{ it == value } != null ) {
         sendEvent(name: "windowShade", value: "$value", descriptionText: "${device.displayName} window shade is $value")
     }
     else {
