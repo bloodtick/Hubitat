@@ -17,16 +17,16 @@
 *
 *  1.0.0  2022-10-01 First pass.
 *. .....  deleted
-*  1.0.11 2022-10-31 Event and Status Info logging
 *  1.0.12 2022-10-31 Fix for Capabilities on create page, temporary subscription update/logging/deletes
 *  1.0.13 2022-11-01 windowShade Capabilities added
 *  1.0.14 2022-11-01 Health status bug fixes and timeout if no ST cloud communication to offline devices
 *  1.0.15 2022-11-02 Allow for wildcard '*' attribute on enum capabilities to pass over to broker commands that have arguments to accept
 *  1.0.16 2022-11-03 Virtual Shade DTH support, performance improvements, install bug fixes
 *  1.0.17 2022-11-04 Updates to ST SmartApp to contain to 20 device (subscription) guardrail (iSmartAppDeviceLimit can change that)
+*  1.0.18 2022-11-06 Cache the installed devices and clean up all the state.install messy code. component button support (this will be endless DTH development)
 */
 
-public static String version() {  return "v1.0.17"  }
+public static String version() {  return "v1.0.18"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -52,6 +52,7 @@ import groovy.transform.Field
 
 // IN-MEMORY VARIABLES (Cleared on HUB REBOOT or CODE UPDATES)
 @Field volatile static Map<String,Map>    g_mSmartDeviceCache = [:]
+@Field volatile static Map<String,Map>    g_mInstalledAppConfig = [:]
 @Field volatile static Map<String,String> g_mPageConfigureDevice = [:]
 @Field volatile static Map<String,String> g_mReplicaDeviceCache = [:]
 
@@ -110,17 +111,48 @@ String getCloudUri() {
     return "${getApiServerUrl()}/${hubUID}/apps/${app.id}/webhook?access_token=${state.accessToken}"
 }
 
-Map getSmartDevicesMap(doNotWait=false) {
+Map getSmartDevicesMap() {
     def appId = app.getId()
-    if (!doNotWait && !g_mSmartDeviceCache[appId]?.items) {
+    if (g_mSmartDeviceCache[appId]==null) {
         getSmartDeviceList()
         pauseExecution(2000)
         //logInfo JsonOutput.toJson(g_mSmartDeviceCache[appId])
     }
-    else if ( !g_mSmartDeviceCache[appId]?.items ) {
-        runIn(1, getSmartDevicesMap)
-    }
     return g_mSmartDeviceCache[appId]
+}
+
+Map getInstallSmartDevicesMap() {
+    def appId = app.getId()
+    if (g_mInstalledAppConfig[appId]==null) {
+        Map deviceMap = [:]
+        if(state?.installedAppConfig) {            
+            state.installedAppConfig?.each{ id, items ->
+                items.each { device ->            
+                    if ( device.valueType == "DEVICE" ) {
+                        if (deviceMap[device.deviceConfig.deviceId]) {
+                            logDebug "${app.getLabel()} SmartThings Automation SmartApp selected device:'${device.deviceConfig.deviceId}' more than once"
+                            deviceMap[device.deviceConfig.deviceId].id.add(id)                        
+                        } else {                    
+                            deviceMap[device.deviceConfig.deviceId] = [ id:[id], valueType:device.valueType, componentId:device.deviceConfig.componentId, eventCount:0, eventCache:[:] ]
+                        }            
+                    }
+                }
+            }
+            //state.remove('install') //Need to turn this on someday
+        }
+        else if(state?.install) {
+            logWarn "${app.getLabel()} requests you update your installed SmartThings Automation SmartApp selected devices"
+            state?.install?.each{ deviceId, deviceItems ->
+                deviceItems['eventCount'] = 0
+                deviceItems['eventCache'] = [:]                
+                deviceMap[deviceId] = deviceItems
+            } 
+        }
+        g_mInstalledAppConfig[appId]=deviceMap?.sort()
+        logInfo "${app.getLabel()} caching SmartThings installed devices"
+        //logInfo JsonOutput.toJson(g_mInstalledAppConfig[appId])
+    }
+    return g_mInstalledAppConfig[appId]
 }
 
 def mainPage(){
@@ -131,7 +163,8 @@ def mainPage(){
     //app.removeSetting("pageConfigureDeviceHubitatDevice")
     //state.remove("rule")
     
-    Map smartDevices = getSmartDevicesMap()    
+    Map smartDevices = getSmartDevicesMap()
+    Map installDevices = getInstallSmartDevicesMap()
     Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
     
     if(!pageMainPageAppLabel || !mainPageShowConfig) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
@@ -156,7 +189,7 @@ def mainPage(){
                 input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
                 input(name: "clientSecretUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client Secret from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
       
-                if(state.authTokenDate) {
+                if(state?.authTokenDate) {
                     paragraph( getFormat("text","$sSamsungIcon Token Expiration Date: ${state.authTokenDate}") )
                     input(name: "mainPage::refreshToken", type: "button", title: "Refresh Token", width: 3, style:"width:50%;", newLineAfter:true)
                 }                
@@ -176,8 +209,7 @@ def mainPage(){
             
         section(menuHeader("HubiThings Device List")){            
             
-            if (smartDevices && state?.install) {
-               
+            if (smartDevices && installDevices) {               
                 def devicesTable = "<table style='width:100%;'>"
                 devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sSamsungIcon Type</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
                 smartDevices?.items?.sort{ it.label }?.each { smartDevice -> 
@@ -187,8 +219,8 @@ def mainPage(){
                         //def deviceColor = hubitatDevices[i]?.getDataValue("statuscolor") ?: sColorLightGrey
                             
                         devicesTable += "<tr>"
-                        devicesTable += "<td>${smartDevice.label}</td>"                  
-                        devicesTable += "<td>${state?.install[smartDevice.deviceId]?.id?.join(', ')}</td>"
+                        devicesTable += "<td>${smartDevice?.label}</td>"                  
+                        devicesTable += "<td>${installDevices?.get(smartDevice.deviceId)?.id?.join(', ')}</td>"
                         devicesTable += hubitatDevices[i] ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.label}</a></td>" : "<td></td>"
                         //devicesTable += "<td style='text-align:center;'><div><span id='${hubitatDevices[i]?.deviceNetworkId}' style='background:${deviceColor};' class='dot'></span></div></td>"
                         devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${getSmartDeviceEventsStatus(hubitatDevices[i])}</td>"
@@ -301,7 +333,7 @@ def pageCreateDevice(){
         //smartStats += "Attributes: ${hubitatDevice?.getSupportedAttributes()?.sort()?.join(', ')}"
     }
     
-    def hubitatDeviceTypes = ["Generic Component Dimmer", "Virtual Switch", "Virtual Contact Sensor", "Virtual Motion Sensor", "Virtual Temperature Sensor", "Virtual Humidity Sensor", "Virtual Presence", "Virtual Shade"]
+    def hubitatDeviceTypes = ["Virtual Switch", "Virtual Contact Sensor", "Virtual Motion Sensor", "Virtual Temperature Sensor", "Virtual Humidity Sensor", "Virtual Presence", "Virtual Shade", "Generic Component Dimmer", "Generic Component Button Controller"]
     app.updateSetting( "pageCreateDeviceLabel", smartDevices?.items?.find{it.deviceId == smartDeviceId}?.label ?: "" )
 
     return dynamicPage(name: "pageCreateDevice", uninstall: false) {
@@ -918,7 +950,9 @@ void appButtonHandler(String btn) {
 void testButton() {
     
     
-    logInfo "2c80c1d7-d05e-430a-9ddb-1630ee457afb: ${hasSmartSubscription('2c80c1d7-d05e-430a-9ddb-1630ee457afb')}"
+    logInfo getInstallSmartDevicesMap()?.get('3c57f2d3-e800-4590-bebb-57e021becb1a')
+    
+    //logInfo "2c80c1d7-d05e-430a-9ddb-1630ee457afb: ${hasSmartSubscription('2c80c1d7-d05e-430a-9ddb-1630ee457afb')}"
     
     //logInfo "${Calendar.instance[ Calendar.HOUR ]}"
     //logInfo "${Calendar.instance[ Calendar.MINUTE ]}"
@@ -1002,12 +1036,11 @@ void deviceTriggerHandler(event) {
 Boolean deviceTriggerHandlerCache(replicaDevice, attribute, value) {
     logDebug "${app.getLabel()} executing 'deviceTriggerHandlerCache()' replicaDevice:'${replicaDevice?.getLabel()}'"
     Boolean response = false
-    
-    Map smartDevices = getSmartDevicesMap(true) // this will not block, but might return null
+
     String deviceId = getReplicaDataValue(replicaDevice, "deviceId")
-    Map device = smartDevices?.items?.find{it.deviceId == deviceId}
+    Map device = getInstallSmartDevicesMap()?.get(deviceId)
     if (device) {
-        String a = device.eventCache?.get(attribute).toString()
+        String a = device?.eventCache?.get(attribute).toString()
         String b = value.toString()
         
         if(a.isBigInteger() && b.isBigInteger()) {
@@ -1022,20 +1055,19 @@ Boolean deviceTriggerHandlerCache(replicaDevice, attribute, value) {
             response = a==b
             logTrace "a:$a == b:$b match string is $response"            
         }
-        logDebug "${app.getLabel()} cache <= ${device.eventCache} match string:$response"
+        logDebug "${app.getLabel()} cache <= ${device?.eventCache} match string:$response"
     }
     return response
 }
 
 void smartTriggerHandlerCache(replicaDevice, attribute, value) {
     logDebug "${app.getLabel()} executing 'smartTriggerHandlerCache()' replicaDevice:'${replicaDevice?.getLabel()}'"
-    
-    Map smartDevices = getSmartDevicesMap(true) // this will not block, but might return null
+
     String deviceId = getReplicaDataValue(replicaDevice, "deviceId")
-    Map device = smartDevices?.items?.find{it.deviceId == deviceId}
+    Map device = getInstallSmartDevicesMap()?.get(deviceId)
     if (device!=null) {
         device?.eventCache[attribute] = value
-        logDebug "${app.getLabel()} cache => ${device.eventCache}"
+        logDebug "${app.getLabel()} cache => ${device?.eventCache}"
     }    
 }
 
@@ -1081,13 +1113,16 @@ Map smartTriggerHandler(replicaDevice, event) {
     return [statusCode:response.statusCode]
 }
 
-String getSmartDeviceEventsStatus(replicaDevice) {    
-    String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
-    String deviceId = getReplicaDataValue(replicaDevice, "deviceId")
+String getSmartDeviceEventsStatus(replicaDevice) {
+    String value = "--"
+    if(replicaDevice) {
+        String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
+        String deviceId = getReplicaDataValue(replicaDevice, "deviceId")    
     
-    String eventCount = (getSmartDevicesMap(true)?.items?.find{it.deviceId == deviceId}?.eventCount ?: 0).toString()
-    String value = (healthState=='offline' ? healthState : eventCount)
-    if(replicaDevice!=null) sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
+        String eventCount = (getInstallSmartDevicesMap()?.get(deviceId)?.eventCount ?: 0).toString()
+        value = (healthState=='offline' ? healthState : eventCount)
+        sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
+    }
     return value
 }
 
@@ -1138,7 +1173,7 @@ Map smartHealthHandler(replicaDevice, healthEvent){
     try {
         //{"deviceId":"2c80c1d7-d05e-430a-9ddb-1630ee457afb","state":"ONLINE","lastUpdatedDate":"2022-09-07T16:47:06.859Z"}
         // status    {"switchLevel":{"level":       {"value":30,                             "unit":"","timestamp":"2022-09-07T21:16:59.576Z" }}}
-        def event = [ healthCheck: [ healthStatus: [ value:(healthEvent.state.toLowerCase()), timestamp: healthEvent?.lastUpdatedDate, reason:(healthEvent?.reason ?: 'poll') ]]]
+        def event = [ healthCheck: [ healthStatus: [ value:(healthEvent?.state?.toLowerCase()), timestamp: healthEvent?.lastUpdatedDate, reason:(healthEvent?.reason ?: 'poll') ]]]
         logTrace JsonOutput.toJson(event)
         response.statusCode = smartTriggerHandler(replicaDevice, event).statusCode
         
@@ -1289,7 +1324,7 @@ void allSmartDeviceDescription(delay=1) {
 
 void getAllDeviceDescription() {
     logDebug "${app.getLabel()} executing 'getAllDeviceDescription()'"
-    state?.install?.keySet()?.each{ deviceId ->
+    getInstallSmartDevicesMap()?.each{ deviceId, items ->
         if ( getReplicaDevices(deviceId) ) { //only ping devices mirrored
             getSmartDeviceDescription(deviceId)
             pauseExecution(250) // no need to hammer ST
@@ -1317,7 +1352,7 @@ void allSmartDeviceStatus(delay=1) {
 
 void getAllSmartDeviceStatus() {
     logDebug "${app.getLabel()} executing 'getAllSmartDeviceStatus()'"    
-    state?.install?.keySet()?.each{ deviceId ->
+    getInstallSmartDevicesMap()?.each{ deviceId, items ->
         if ( getReplicaDevices(deviceId) ) { //only ping devices mirrored
             getSmartDeviceStatus(deviceId)
             pauseExecution(250) // no need to hammer ST
@@ -1404,33 +1439,33 @@ Map asyncHttpGetCallback(resp, data) {
             case "getSmartDeviceList":            
                 //store in a volatile location 
                 Map list = new JsonSlurper().parseText(resp.data)            
-                // TEMP this is a mess right now. need to think about how to clean it up.
+                // With permissions:['r:devices:*'] set to SmartThings we will get all location devices.
                 Map smartDevices = [ items:[] ]
-                state?.install?.keySet()?.each{ key ->
-                     smartDevices.items.add( list?.items?.find{ it.deviceId==key } )
-                }
-                smartDevices?.items?.each{ device -> 
-                    device['eventCount'] = 0
-                    device['eventCache'] = [:]
-                }         
-                g_mSmartDeviceCache[app.getId()] = smartDevices.clone()
-                list = null                
+                getInstallSmartDevicesMap()?.each{ deviceId, items ->
+                     smartDevices.items.add( list?.items?.find{ it.deviceId==deviceId } )
+                }    
+                g_mSmartDeviceCache[app.getId()] = smartDevices
+                list = null
+                logInfo "${app.getLabel()} caching SmartThings location device list"
+            
+                /*
                 
                 // TEMP this is a work in progress. need to move away from the deviceId that is not json in each DTH. again..think about it.
                 getAllReplicaDeviceIds()?.each { deviceId ->
                     getReplicaDevices(deviceId)?.each { replicaDevice ->
                         replicaDevice?.removeDataValue('event')
-                    //logInfo "Update $replicaDevice : $deviceId"
-                    def replica = [ deviceId:deviceId, appId:(app.getId()), values:[ "replica" ] ]
-                    //logInfo replica   
-                    //setReplicaDataJsonValue(replicaDevice, "replica", replica)
+                        //logInfo "Update $replicaDevice : $deviceId"
+                        def replica = [ deviceId:deviceId, appId:(app.getId()), values:[ "replica" ] ]
+                        //logInfo replica   
+                        //setReplicaDataJsonValue(replicaDevice, "replica", replica)
                     }
                 }
-                logInfo "${app.getLabel()} retrieved SmartThings device list"
+                */
+                
                 break
             default:
                 logWarn "${app.getLabel()} asyncHttpGetCallback ${data?.method} not supported"
-                if (resp?.data) logInfo resp.data
+            if (resp?.data) { logInfo resp.data }
         }
     }
     else {
@@ -1509,7 +1544,7 @@ Map createSmartSubscriptions() {
     deleteSmartSubscriptions() //clears all device subscriptions for both hubitat and smartthings
     pauseExecution(250) // no need to hammer ST
     // TEMP: Need to not subscrib to everyone. Waste.
-    state?.install?.keySet()?.each{ deviceId ->
+    getInstallSmartDevicesMap().each{ deviceId, items ->
         response = createSmartSubscription(deviceId)
         //temp location todo this
         getReplicaDevices(deviceId)?.each { replicaDevice -> 
@@ -1623,30 +1658,12 @@ Map hasSmartSubscription(subscriptionId) {
 
 Map installSmartDevices(data) {
     logDebug "${app.getLabel()} executing 'installSmartDevices()'"
-    Map response = [statusCode:iHttpError]    
+    Map response = [statusCode:iHttpSuccess]    
     
-    try {
-        Map deviceList = [:]
-        data.installedApp.config.keySet().each { id ->
-            data.installedApp.config[id].each { device ->            
-                if ( device.valueType == "DEVICE" ) {
-                    if (deviceList[device.deviceConfig.deviceId]) {
-                        logInfo "${app.getLabel()} installSmartDevices device:${device.deviceConfig.deviceId} was selected more than once"
-                        deviceList[device.deviceConfig.deviceId].id.add(id)                        
-                    } else {                    
-                        deviceList[device.deviceConfig.deviceId] = [ id:[id], valueType:device.valueType, componentId:device.deviceConfig.componentId ]
-                    }
-                }
-            }
-        }
-
-        state.installedAppConfig = data.installedApp.config  //I want to move to this structure. Should of never done that ^^
-        state.install = deviceList
-        logInfo "${app.getLabel()} installed ${deviceList.size()} SmartThings devices"
-        response.statusCode = iHttpSuccess
-    } catch (e) {
-        logWarn "${app.getLabel()} installSmartDevices error: $e"
-    }
+    state.installedAppConfig = data.installedApp.config
+    g_mInstalledAppConfig[app.getId()]=null       
+    logInfo "${app.getLabel()} installed ${getInstallSmartDevicesMap().size()} SmartThings devices"
+        
     return [statusCode:response.statusCode]
 }
 
@@ -1755,10 +1772,9 @@ Map handleEvent(eventData) {
     
     eventData?.events?.each { event ->        
         String deviceId = ((event?.eventType=="DEVICE_EVENT") ? event?.deviceEvent?.deviceId : event?.deviceHealthEvent?.deviceId)        
-        // count each event for t/s purposes. should probably thottle/block someday.
-        Map smartDevices = getSmartDevicesMap(true) // this will not block, but might return null
-        def device = smartDevices?.items?.find{it.deviceId == deviceId}
-        if (device) device.eventCount += 1        
+        // count each event for t/s purposes 
+        Map device = getInstallSmartDevicesMap()?.get(deviceId) 
+        if(device?.eventCount!=null) device.eventCount += 1        
         
         getReplicaDevices(deviceId)?.each { replicaDevice ->
             if(event?.eventType=="DEVICE_EVENT") {
@@ -1930,6 +1946,7 @@ Map getMainPage() {
                 sections:[
                     [ settings:[[ id:'dimmer', required:false, type:'DEVICE', name:'Select Dimmers', description:'Tap to set', multiple:true, capabilities:['switchLevel'], permissions:['r', 'x']]]],
                     [ settings:[[ id:'switch', required:false, type:'DEVICE', name:'Select Switches', description:'Tap to set', multiple:true, capabilities:['switch'], permissions:['r', 'x']]]],
+                    [ settings:[[ id:'button', required:false, type:'DEVICE', name:'Select Button Devices', description:'Tap to set', multiple:true, capabilities:['button'], permissions:['r', 'x']]]],
                     [ settings:[[ id:'contactSensor', required:false, type:'DEVICE', name:'Select Contact Sensors', description:'Tap to set', multiple:true, capabilities:['contactSensor'], permissions:['r', 'x']]]],
                     [ settings:[[ id:'motionSensor', required:false, type:'DEVICE', name:'Select Motion Sensors', description:'Tap to set', multiple:true, capabilities:['motionSensor'], permissions:['r', 'x']]]],
                     [ settings:[[ id:'temperatureMeasurement', required:false, type:'DEVICE', name:'Select Temperature Sensors', description:'Tap to set', multiple:true, capabilities:['temperatureMeasurement'], permissions:['r', 'x']]]],
@@ -2186,5 +2203,26 @@ void componentStopLevelChange(device) {
 void componentRefresh(device) {
     logDebug "componentRefresh device:$device"
     replicaDeviceRefresh(device)
+}
+
+void componentPush(device, buttonNumber) {
+    logDebug "componentPush device:$device buttonNumber:$buttonNumber"
+    getChildDevice(device.deviceNetworkId).parse([[name:"pushed", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was pushed", isStateChange:true, data:[appId:app.getId()]]])
+}
+
+void componentDoubleTap(device, buttonNumber) {
+    logDebug "componentDoubleTap device:$device buttonNumber:$buttonNumber"
+    getChildDevice(device.deviceNetworkId).parse([[name:"doubleTapped", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was double tapped", isStateChange:true, data:[appId:app.getId()]]])
+}
+
+
+void componentHold(device, buttonNumber) {
+    logDebug "componentHold device:$device buttonNumber:$buttonNumber"
+    getChildDevice(device.deviceNetworkId).parse([[name:"held", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was held", isStateChange:true, data:[appId:app.getId()]]])
+}
+
+void componentRelease(device, buttonNumber) {
+    logDebug "componentRelease device:$device buttonNumber:$buttonNumber"
+    getChildDevice(device.deviceNetworkId).parse([[name:"released", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was released", isStateChange:true, data:[appId:app.getId()]]])
 }
 // ******** Child Device Component Handlers - End ********
