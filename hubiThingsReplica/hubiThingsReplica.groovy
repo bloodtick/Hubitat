@@ -17,16 +17,16 @@
 *
 *  1.0.0  2022-10-01 First pass.
 *  ...    Deleted
-*  1.0.14 2022-11-01 Health status bug fixes and timeout if no ST cloud communication to offline devices
 *  1.0.15 2022-11-02 Allow for wildcard '*' attribute on enum capabilities to pass over to broker commands that have arguments to accept
 *  1.0.16 2022-11-03 Virtual Shade DTH support, performance improvements, install bug fixes
 *  1.0.17 2022-11-04 Updates to ST SmartApp to contain to 20 device (subscription) guardrail (iSmartAppDeviceLimit can change that)
 *  1.0.18 2022-11-06 Cache the installed devices and clean up all the state.install messy code. component button support (this will be endless DTH development)
 *  1.0.19 2022-11-08 Beginning Mode Replica support (need PAT right now), command delay measurement in logs, moved SmartThings command to async post
-*  1.0.20 2022-11-09 Added r:hubs:*, Moved all subscription(s) to async post, additional logic for smarter subscriptions handling...more to come. 
+*  1.0.20 2022-11-09 Added r:hubs:*, Moved all subscription(s) to async post, additional logic for smarter subscriptions handling...more to come
+*  1.0.21 2022-11-10 Bug fix on device creation: capabilityVersion, introduction of 'replica' data type for mirror function 
 */
 
-public static String version() {  return "v1.0.20"  }
+public static String version() {  return "v1.0.21"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -439,6 +439,10 @@ def createChildDevices(){
         def replicaDevice = addChildDevice(nameSpace, pageCreateDeviceType, deviceNetworkId, null, [name: name, label: label, completedSetup: true])
         // the deviceId makes this a hubiThing
         setReplicaDataValue(replicaDevice, "deviceId", deviceId)
+        // REPLACEMENT FOR ^^. Needed for mirror function to prevent two SmartApps talking to same device.
+        def replica = [ deviceId:deviceId, replicaId:(app.getId())]
+        setReplicaDataJsonValue(replicaDevice, "replica", replica)
+        
         replicaDeviceRefresh(replicaDevice)
 
         logInfo "${app.getLabel()} created device '${replicaDevice.label}' with network id: ${replicaDevice.deviceNetworkId}"            
@@ -715,7 +719,7 @@ def pageConfigureDevice() {
 
                 paragraph( hubitatDescription )              
             }
-            input(name: "pageConfigureDevice::refreshDevice",  type: "button", title: "Refresh Device", width: 2, style:"width:75%;")
+            input(name: "pageConfigureDevice::refreshDevice",  type: "button", title: "Refresh", width: 2, style:"width:75%;")
             input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;") 
             paragraph( getFormat("line"))
             
@@ -1257,7 +1261,7 @@ String getTimestampSmartFormat() {
     return ((new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")).toString())
 }
 
-Map replicaHasSmartCapability(replicaDevice, capabilityId, capabilityVersion="1") {
+Map replicaHasSmartCapability(replicaDevice, String capabilityId, Integer capabilityVersion=1) {
     Map response = [:]
     def capability = getReplicaDataJsonValue(replicaDevice, "capabilities")
     if (capability?.components?.find { components -> components?.id == capabilityId && components?.version == capabilityVersion  }) {
@@ -1293,7 +1297,7 @@ void getReplicaCapabilities(replicaDevice) {
     }
 }
 
-Map getSmartDeviceCapability(String deviceId, String capabilityId, String capabilityVersion="1") {
+Map getSmartDeviceCapability(String deviceId, String capabilityId, Integer capabilityVersion=1) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceCapability()'"
     Map response = [statusCode:iHttpError]    
 	Map data = [ uri: sURI, path: "/capabilities/${capabilityId}/${capabilityVersion}", deviceId: deviceId, method: "getSmartDeviceCapability", authToken: state?.authToken	]
@@ -1475,19 +1479,17 @@ void asyncHttpGetCallback(resp, data) {
                 g_mSmartDeviceListCache[app.getId()] = smartDevices          
                 logInfo "${app.getLabel()} caching SmartThings detailed device list"
             
-                /*
-                
-                // TEMP this is a work in progress. need to move away from the deviceId that is not json in each DTH. again..think about it.
+                // TEMP this is a work in progress. need to move away from the deviceId to allow for device mirror
                 getAllReplicaDeviceIds()?.each { deviceId ->
                     getReplicaDevices(deviceId)?.each { replicaDevice ->
-                        replicaDevice?.removeDataValue('event')
-                        //logInfo "Update $replicaDevice : $deviceId"
-                        def replica = [ deviceId:deviceId, appId:(app.getId()), values:[ "replica" ] ]
-                        //logInfo replica   
-                        //setReplicaDataJsonValue(replicaDevice, "replica", replica)
+                        if(getReplicaDataJsonValue(replicaDevice, "replica")==null) {
+                            def replica = [ deviceId:deviceId, replicaId:(app.getId())]
+                            logInfo "${app.getLabel()} '$replicaDevice' updating replica:$replica" 
+                            setReplicaDataJsonValue(replicaDevice, "replica", replica)
+                        }
                     }
                 }
-                */
+                // *** END TEMP
                 
                 break
             default:
