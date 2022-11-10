@@ -23,10 +23,11 @@
 *  1.0.18 2022-11-06 Cache the installed devices and clean up all the state.install messy code. component button support (this will be endless DTH development)
 *  1.0.19 2022-11-08 Beginning Mode Replica support (need PAT right now), command delay measurement in logs, moved SmartThings command to async post
 *  1.0.20 2022-11-09 Added r:hubs:*, Moved all subscription(s) to async post, additional logic for smarter subscriptions handling...more to come
-*  1.0.21 2022-11-10 Bug fix on device creation: capabilityVersion, introduction of 'replica' data type for mirror function 
+*  1.0.21 2022-11-10 Bug fix on device creation: capabilityVersion, introduction of 'replica' data type for mirror function
+*  1.0.22 2022-11-10 Initial Check-in with Mirror support. Its buggy. I know. 
 */
 
-public static String version() {  return "v1.0.21"  }
+public static String version() {  return "v1.0.22"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -130,6 +131,12 @@ Map getSmartDevicesMap() {
     }
     return g_mSmartDeviceListCache[appId]
 }
+void setSmartDevicesMap(Map smartDevices) {
+    def appId = app.getId()
+    g_mSmartDeviceListCache[appId] = smartDevices
+    clearReplicaDataCache() // lets clear the cache of any stale devices
+    logInfo "${app.getLabel()} caching SmartThings device list"
+}
 
 Map getInstallSmartDevicesMap() {
     def appId = app.getId()
@@ -185,7 +192,7 @@ def mainPage(){
         section(menuHeader("${app.getLabel()} Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
             
             input(name: "mainPageShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: false, submitOnChange: true)
-            paragraph( getFormat("line"))
+            paragraph( getFormat("line") )
             
             if(mainPageShowConfig) {
                 
@@ -194,7 +201,7 @@ def mainPage(){
                     paragraph("<ul><strong>External</strong>: ${getFormat("hyperlink", getCloudUri(), getCloudUri())}</ul>")                
                }                       
             
-                paragraph( getFormat("line"))
+                paragraph( getFormat("line") )
                 // required for authToken refresh
                 input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
                 input(name: "clientSecretUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client Secret from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
@@ -203,7 +210,7 @@ def mainPage(){
                     paragraph( getFormat("text","$sSamsungIcon Token Expiration Date: ${state.authTokenDate}") )
                     input(name: "mainPage::refreshToken", type: "button", title: "Refresh Token", width: 3, style:"width:50%;", newLineAfter:true)
                 }
-                paragraph( getFormat("line"))
+                paragraph( getFormat("line") )
                
                 def deviceText = (deviceAuthCount<1 ? ": (Select to Authorize Devices to Mirror)" : (deviceAuthCount==1 ?  ": ($deviceAuthCount Device Authorized)" : ": ($deviceAuthCount Devices Authorized)"))
                 href "pageAuthDevice", title: getFormat("text","$sHubitatIcon Authorize Hubitat Devices $deviceText"), description: "Click to show"
@@ -244,7 +251,7 @@ def mainPage(){
                         devicesTable += "<tr>"
                         devicesTable += "<td>${smartDevice?.label}</td>"                  
                         devicesTable += "<td>${installDevices?.get(smartDevice.deviceId)?.id?.join(', ')}</td>"
-                        devicesTable += hubitatDevices[i] ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.label}</a></td>" : "<td></td>"
+                        devicesTable += hubitatDevices[i] ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.getDisplayName()}</a></td>" : "<td></td>"
                         //devicesTable += "<td style='text-align:center;'><div><span id='healthStatus' style='background:${sColorDarkGrey};' class='dot'></span></div></td>"
                         devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${getSmartDeviceEventsStatus(hubitatDevices[i])}</td>"
                         devicesTable += "</tr>"
@@ -325,7 +332,7 @@ def pageAuthDevice(){
         section(menuHeader("Authorize Hubitat Devices $sHubitatIconStatic $sSamsungIconStatic")) {
           input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, submitOnChange: true)
             if(deviceAuthCount>0) {
-                paragraph( getFormat("line"))
+                paragraph( getFormat("line") )
                 href "pageMirrorDevice", title: "Mirror HubiThings Device", description: "Click to show"
             }    
         }
@@ -367,40 +374,42 @@ def pageCreateDevice(){
  
             input(name: "pageCreateDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
             paragraph( smartStats )
-            paragraph( getFormat("line"))
+            paragraph( getFormat("line") )
             
             input(name: "pageCreateDeviceType", type: "enum", title: "$sHubitatIcon Create Hubitat Device Type:", description: "Choose a Hubitat device type", options: hubitatDeviceTypes, required: false, submitOnChange:true, width: 6, newLineAfter:true)
             input(name: "pageCreateDeviceLabel", type: "text", title: "$sHubitatIcon Create Hubitat Device Label:", submitOnChange: false, width: 6)
-            paragraph( getFormat("line"))
+            paragraph( getFormat("line") )
             
             if (pageCreateDeviceSmartDevice && pageCreateDeviceType) {
                 href "pageCreateDevice2", title: "Click to create  $sHubitatIcon Hubitat device", description: "Device will be created based on the parameters above"            
-                paragraph( getFormat("line"))
+                paragraph( getFormat("line") )
             }
             
             href "pageConfigureDevice", title: "Configure HubiThings Rules", description: "Click to show"
             href "pageDeleteDevice", title: "Delete HubiThings Device", description: "Click to show"
         }
 
-        childDevicesSection()
+        replicaDevicesSection()
     }
 }
 
-def childDevicesSection(){
+def replicaDevicesSection(){
     
     def childDeviceList = "<span><table style='width:100%;'>"
-    childDeviceList += "<tr><th>$sHubitatIcon Hubitat Device</th><th>$sHubitatIcon Hubitat Type</th></tr>"
-    getChildDevices()?.sort{ it.getDisplayName() }.each {
+    childDeviceList += "<tr><th>$sHubitatIcon Hubitat Device</th><th>$sHubitatIcon Hubitat Type</th><th>Configuration</th></tr>"
+    getAllReplicaDevices()?.sort{ it.getDisplayName() }.each { replicaDevice ->
+        Boolean isChildDevice = (getChildDevice( replicaDevice?.deviceNetworkId ) != null)
         //example: "http://192.168.1.160/device/edit/1430"
-        def deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${it.getId()}"
-        childDeviceList += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${it.label}</a></td><td>${it.typeName}</td></tr>"
+        def deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
+        childDeviceList += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
+        childDeviceList += "<td>${replicaDevice.typeName}</td><td>${isChildDevice?'Child':'Mirror'}</td></tr>"
     }
     childDeviceList +="</table>"
     
-    if (getChildDevices().size){        
-        section(menuHeader("Hubitat Devices")) {
+    if (getAllReplicaDevices().size){        
+        section(menuHeader("HubiThings Devices")) {
             paragraph( childDeviceList )
-            paragraph("<style>th,td{border-bottom:3px solid #ddd;}</style>")            
+            paragraph("<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>")            
         }
     }
 }
@@ -413,7 +422,7 @@ def pageCreateDevice2() {
         def label  = pageCreateDeviceLabel
 
         def response = ""
-        if (getChildDevices()?.find{it.label == label}){
+        if (getChildDevices()?.find{it.getDisplayName() == label}){
             response = "There is already a device labled '${label}'. Go back and change the label name."
         }
         else {
@@ -438,19 +447,16 @@ def createChildDevices(){
     try {
         def replicaDevice = addChildDevice(nameSpace, pageCreateDeviceType, deviceNetworkId, null, [name: name, label: label, completedSetup: true])
         // the deviceId makes this a hubiThing
-        setReplicaDataValue(replicaDevice, "deviceId", deviceId)
-        // REPLACEMENT FOR ^^. Needed for mirror function to prevent two SmartApps talking to same device.
+        // setReplicaDataValue(replicaDevice, "deviceId", deviceId)
+        // Needed for mirror function to prevent two SmartApps talking to same device.
         def replica = [ deviceId:deviceId, replicaId:(app.getId())]
-        setReplicaDataJsonValue(replicaDevice, "replica", replica)
-        
+        setReplicaDataJsonValue(replicaDevice, "replica", replica)        
         replicaDeviceRefresh(replicaDevice)
 
-        logInfo "${app.getLabel()} created device '${replicaDevice.label}' with network id: ${replicaDevice.deviceNetworkId}"            
+        logInfo "${app.getLabel()} created device '${replicaDevice.getDisplayName()}' with network id: ${replicaDevice.deviceNetworkId}"            
         
-        response  = "A '${pageCreateDeviceType}' named '${replicaDevice.label}' has been created.\n\n"
-        response += "Commands: ${replicaDevice.getSupportedCommands()?.sort()?.join(', ')}\n"
-        response += "Capabilities: ${replicaDevice.getCapabilities()?.sort()?.join(', ')}\n"
-        response += "Attributes: ${replicaDevice.getSupportedAttributes()?.sort()?.join(', ')}"
+        response  = "A '${pageCreateDeviceType}' named '${replicaDevice.getDisplayName()}' has been created.\n\n"
+        response += getHubitatDeviceStats(replicaDevice)
         
         app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
 
@@ -459,6 +465,17 @@ def createChildDevices(){
         logWarn "Error creating device: ${e}"        
     }
     return response   
+}
+
+String getHubitatDeviceStats(hubitatDevice) {
+    String hubitatStats =  ""
+    if(hubitatDevice) {
+        hubitatStats += "Device Type: ${hubitatDevice?.getTypeName()}\n"
+        hubitatStats += "Capabilities: ${hubitatDevice?.getCapabilities()?.sort{it.toString()}?.unique()?.join(', ')}\n"
+        hubitatStats += "Commands: ${hubitatDevice?.getSupportedCommands()?.sort{it.toString()}?.unique()?.join(', ')}\n"
+        hubitatStats += "Attributes: ${hubitatDevice?.getSupportedAttributes()?.sort{it.toString()}?.unique()?.join(', ')}"
+    }
+    return hubitatStats
 }
 
 void replicaDeviceRefresh(replicaDevice, delay=1) {
@@ -474,7 +491,7 @@ void replicaDeviceRefreshHelper(data) {
 void getReplicaDeviceRefresh(replicaDevice) {
     logDebug "${app.getLabel()} executing 'getReplicaDeviceRefresh($replicaDevice)'"    
     
-    String deviceId = getReplicaDataValue(replicaDevice, "deviceId")    
+    String deviceId = getReplicaDeviceId(replicaDevice)    
     if(deviceId) {
         // first unsubscribe and then get ST status. This will prevent any reflection back to ST
         unsubscribe(replicaDevice)
@@ -525,23 +542,17 @@ def pageMirrorDevice(){
         smartStats += "Device Type: ${smartDevices?.items?.find{it.deviceId == smartDeviceId}?.deviceTypeName ?: (smartDevices?.items?.find{it.deviceId == smartDeviceId}?.name ?: "UNKNOWN")}\n"
         //smartStats += "Commands: ${hubitatDevice?.getSupportedCommands()?.sort()?.join(', ')}\n"
         smartStats += "Capabilities: ${smartCapabilities?.sort()?.join(', ')}\n"
-        //smartStats += "Attributes: ${hubitatDevice?.getSupportedAttributes()?.sort()?.join(', ')}"
+        //smartStats += "Attributes: ${hubitatDevice?.getSupportedAttributes()?.sort{it.toString()}?.join(', ')}"
     }
     
     def hubitatDevicesSelect = []
-    getMirrorDevices()?.sort{ it.getDisplayName() }?.each {
+    getMirrorDevices(pageMirrorDeviceShowAllDevices?false:true)?.sort{ it.getDisplayName() }?.each {
         def device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
         hubitatDevicesSelect.add(device)   
     }
 
     def hubitatDevice = getDevice( pageMirrorDeviceHubitatDevice )
-    def hubitatStats =  ""
-    if(hubitatDevice) {
-        hubitatStats += "Device Type: ${hubitatDevice?.getTypeName()}\n"
-        hubitatStats += "Commands: ${hubitatDevice?.getSupportedCommands()?.sort()?.join(', ')}\n"
-        hubitatStats += "Capabilities: ${hubitatDevice?.getCapabilities()?.sort()?.join(', ')}\n"
-        hubitatStats += "Attributes: ${hubitatDevice?.getSupportedAttributes()?.sort()?.join(', ')}"
-    }
+    def hubitatStats =  getHubitatDeviceStats(hubitatDevice)
 
     return dynamicPage(name: "pageMirrorDevice", uninstall: false) {
         displayHeader()        
@@ -550,15 +561,16 @@ def pageMirrorDevice(){
  
             input(name: "pageMirrorDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
             paragraph( smartStats )
-            paragraph( getFormat("line"))
+            paragraph( getFormat("line") )
             
             input(name: "pageMirrorDeviceHubitatDevice", type: "enum", title: "$sHubitatIcon Select Hubitat Device:", description: "Choose a Hubitat device", options: hubitatDevicesSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
             paragraph( hubitatStats )
-            paragraph( getFormat("line"))
+            input(name: "pageMirrorDeviceShowAllDevices", type: "bool", title: "Show All Authroized Devices", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
+            paragraph( getFormat("line") )
             
             if (pageMirrorDeviceSmartDevice && pageMirrorDeviceHubitatDevice) {
                 href "pageMirrorDevice2", title: "Click to mirror $sSamsungIcon SmartThings and $sHubitatIcon Hubitat device", description: "Devices will be mirrored based on the parameters above"            
-                paragraph( getFormat("line"))
+                paragraph( getFormat("line") )
             }
             
             href "pageConfigureDevice", title: "Configure HubiThings Rules", description: "Click to show"
@@ -567,17 +579,33 @@ def pageMirrorDevice(){
             input( name: "mainPage::testButton",         type: "button", width: 2, title: "Test Button" ) 
         }
 
-        childDevicesSection()
+        replicaDevicesSection()
     }
 }
 
 def pageMirrorDevice2() {
     
+    Map smartDevices = getSmartDevicesMap()
+    def deviceId = pageMirrorDeviceSmartDevice
+    
     return dynamicPage(name: "pageMirrorDevice2", uninstall: false) {
         displayHeader()
         
         section (menuHeader("Mirror Devices")) {
-            paragraph( "Not Completed: $pageMirrorDeviceSmartDevice <=> $pageMirrorDeviceHubitatDevice" )
+            def replicaDevice = getDevice(pageMirrorDeviceHubitatDevice)
+            String smartLabel = smartDevices?.items?.find{ it.deviceId == deviceId }?.label 
+            
+            def replica = [ deviceId:deviceId, replicaId:(app.getId())]
+            setReplicaDataJsonValue(replicaDevice, "replica", replica)
+            replicaDeviceRefresh(replicaDevice)
+            
+            logInfo "${app.getLabel()} mirrored a device SmartThings '$smartLabel' with Hubitat '${replicaDevice.getDisplayName()}'"                    
+            String response  = "SmartThings '$smartLabel' and '${replicaDevice.getDisplayName()}' have been mirrored.\n\n"
+            response += getHubitatDeviceStats(replicaDevice)
+            paragraph( response )
+        
+            app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
+            
         }
     }
 }
@@ -585,7 +613,7 @@ def pageMirrorDevice2() {
 def pageDeleteDevice(){
     
     def hubitatDevicesSelect = []
-    getChildDevices()?.sort{ it.getDisplayName() }?.each {
+    getAllReplicaDevices()?.sort{ it.getDisplayName() }?.each {
         def device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
         hubitatDevicesSelect.add(device)   
     }
@@ -599,23 +627,31 @@ def pageDeleteDevice(){
            if (hubitatDevice) href "pageDeleteDevice2", title: "Click to delete device", description: "Device '$hubitatDevice' will be deleted"            
         }
         
-        childDevicesSection()
+        replicaDevicesSection()
     }
 }
 
 def pageDeleteDevice2() {
     
-    def hubitatDevice = getDevice( pageDeleteDeviceHubitatDevice )
+    def replicaDevice = getDevice( pageDeleteDeviceHubitatDevice )
     
-    def response = "Error attempting to delete '${hubitatDevice?.getDisplayName()}'."
-    if(hubitatDevice) {
+    def response = "Error attempting to delete '${replicaDevice?.getDisplayName()}'."
+    if(replicaDevice) {
         try {
-            deleteChildDevice(hubitatDevice?.deviceNetworkId)
+            clearReplicaDataCache(replicaDevice, "capabilities", true)
+            clearReplicaDataCache(replicaDevice, "description", true)
+            clearReplicaDataCache(replicaDevice, "health", true)
+            clearReplicaDataCache(replicaDevice, "replica", true)
+            clearReplicaDataCache(replicaDevice, "rules", true)
+            clearReplicaDataCache(replicaDevice, "status", true)
+            clearReplicaDataCache(replicaDevice, "subscription", true)
+            
+            deleteChildDevice(replicaDevice?.deviceNetworkId)
             app.removeSetting("pageDeleteDeviceHubitatDevice")
-            logInfo "${app.getLabel()} deleted '${hubitatDevice?.getDisplayName()}' with network id: ${hubitatDevice?.deviceNetworkId}"
-            response = "The device '${hubitatDevice?.getDisplayName()}' was deleted."
+            logInfo "${app.getLabel()} deleted '${replicaDevice?.getDisplayName()}' with network id: ${replicaDevice?.deviceNetworkId}"
+            response = "The device '${replicaDevice?.getDisplayName()}' was deleted."
         } catch (e) {
-            logWarn "Error deleting $hubitatDevice: ${e}"
+            logWarn "Error deleting $replicaDevice: ${e}"
         }
     }
     
@@ -711,17 +747,12 @@ def pageConfigureDevice() {
             def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
            
             if(pageConfigureDeviceShowDetail && replicaDevice) {
-                def hubitatDescription = ""
-                hubitatDescription += "Device Type: ${replicaDevice?.getTypeName() ?: ""}\n"
-                hubitatDescription += "Capabilities: ${replicaDevice?.getCapabilities()?.sort()?.join(', ')}\n"
-                hubitatDescription += "Attributes: ${replicaDevice?.getSupportedAttributes()?.collect { it.toString() }?.sort()?.join(', ')}\n"
-                hubitatDescription += "Commands: ${replicaDevice?.getSupportedCommands()?.sort()?.join(', ')}"
-
-                paragraph( hubitatDescription )              
+                def hubitatStats =  getHubitatDeviceStats(replicaDevice)
+                paragraph( hubitatStats )              
             }
             input(name: "pageConfigureDevice::refreshDevice",  type: "button", title: "Refresh", width: 2, style:"width:75%;")
             input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;") 
-            paragraph( getFormat("line"))
+            paragraph( getFormat("line") )
             
             def hubitatAttributeOptions = getHubitatAttributeOptions(replicaDevice)                      
             def smartCommandOptions = getSmartCommandOptions(replicaDevice)
@@ -736,7 +767,7 @@ def pageConfigureDevice() {
                 paragraph( hubitatAttribute ? "$sHubitatIcon $hubitatAttribute : ${JsonOutput.toJson(hubitatAttributeOptions?.find{ key,value -> key==hubitatAttribute }?.value)}" : "$sHubitatIcon No Selection" )
                 paragraph( smartCommand ? "$sSamsungIcon $smartCommand : ${JsonOutput.toJson(smartCommandOptions?.find{ key,value -> key==smartCommand }?.value)}" : "$sSamsungIcon No Selection" )
             }
-            paragraph( getFormat("line"))
+            paragraph( getFormat("line") )
             
             def smartAttributeOptions = getSmartAttributeOptions(replicaDevice)         
             def hubitatCommandOptions = getHubitatCommandOptions(replicaDevice)
@@ -751,15 +782,13 @@ def pageConfigureDevice() {
                 paragraph( smartAttribute ? "$sSamsungIcon $smartAttribute : ${JsonOutput.toJson(smartAttributeOptions?.find{ key,value -> key==smartAttribute }?.value)}" : "$sSamsungIcon No Selection" )
                 paragraph( hubitatCommand ? "$sHubitatIcon $hubitatCommand : ${JsonOutput.toJson(hubitatCommandOptions?.find{ key,value -> key==hubitatCommand }?.value)}" : "$sHubitatIcon No Selection" )
             }
-            paragraph( getFormat("line"))     
+            paragraph( getFormat("line") )     
             
             input(name: "pageConfigureDeviceAllowDuplicateAttribute", type: "bool", title: "Allow duplicate Attribute <b>TRIGGER</b>", defaultValue: false, submitOnChange: true, width: 3)
             input(name: "pageConfigureDeviceMuteTriggerRuleInfo", type: "bool", title: "Mute <b>TRIGGER</b> rule Info output", defaultValue: false, submitOnChange: true, width: 3)
             //input(name: "pageConfigureDeviceAllowActionAttribute", type: "bool", title: "Allow <b>ACTION</b> to update Hubitat Attributes", defaultValue: false, submitOnChange: true, width: 3)
             app.updateSetting("pageConfigureDeviceAllowActionAttribute", false)
             input(name: "pageConfigureDeviceShowDetail", type: "bool", title: "Show detail for attributes and commands", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
-
-
             
             // gather these all up so when user presses store - it uses this structure.
             g_mPageConfigureDevice['hubitatAttribute'] = ["$hubitatAttribute": hubitatAttributeOptions?.get(hubitatAttribute)] ?: null
@@ -801,9 +830,6 @@ Map getHubitatAttributeOptions(replicaDevice) {
 
     Map hubitatAttributeOptions = [:]
     replicaDevice?.getSupportedAttributes()?.each{ attribute ->
-        //{"dataType":"NUMBER","values":null,"possibleValueJson":"null","capability":true,"id":12,"version":1,"possibleValues":null,"deviceTypeId":60,"name":"level"}
-        //{"dataType":"ENUM","values":["on","off"],"possibleValueJson":"[\"on\",\"off\"]","capability":true,"id":4,"version":1,"possibleValues":["on","off"],"deviceTypeId":60,"name":"switch"}   
-        //{"dataType":"NUMBER","values":null,"possibleValueJson":"null","capability":true,"id":2,"version":1,"possibleValues":null,"deviceTypeId":68,"name":"temperature"}
         def attributeJson = new JsonSlurper().parseText(JsonOutput.toJson(attribute))
         attributeJson.remove('possibleValueJson')
         attributeJson.remove('possibleValues')
@@ -837,9 +863,6 @@ Map getSmartCommandOptions(replicaDevice) {
     def capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
     capabilities?.components?.each{ capability -> 
         capability?.commands?.each{ command, value ->
-            //{"name":"setLevel","arguments":[{"name":"level","optional":false,"schema":{"type":"integer","minimum":0,"maximum":100}},{"name":"rate","optional":true,"schema":{"title":"PositiveInteger","type":"integer","minimum":0}}],"capability":"switchLevel"}
-            //{"name":"on","arguments":[],"capability":"switch"}
-            //{"name":"setvTemp","arguments":[{"name":"temp","optional":false,"schema":{"type":"number","minimum":-460,"maximum":10000}}],"capability":"partyvoice23922.vtempset"}
             def parameterText = "("
             value?.arguments?.eachWithIndex{ parameter, index ->
                 def parameterName = parameter?.optional ? "${parameter?.name?.uncapitalize()}" : "${parameter?.name?.uncapitalize()}*"
@@ -860,10 +883,7 @@ Map getSmartAttributeOptions(replicaDevice) {
     def capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
     capabilities?.components?.each{ capability ->
         capability?.attributes?.each{ attribute, value -> def schema = value?.schema ?: [:]
-            //{"schema":{"title":"IntegerPercent","type":"object","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"]},"setter":"setLevel","enumCommands":[],"capability":"switchLevel"}
-            //{"schema":{"type":"object","properties":{"value":{"title":"SwitchState","type":"string","enum":["on","off"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[{"command":"on","value":"on"},{"command":"off","value":"off"}],"capability":"switch"}
-            //{"schema":{"type":"object","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"]},"enumCommands":[],"capability":"temperatureMeasurement"}
-            schema["capability"] = capability.id
+           schema["capability"] = capability.id
             schema["attribute"] = attribute
             schema?.remove('type')
             if(schema?.properties?.value?.enum) {
@@ -973,48 +993,12 @@ void appButtonHandler(String btn) {
     }    
 }
 
-void testButton() {
-    
-    logInfo getSmartSubscription('a3053aae-ecba-455e-9ba8-6d34ef72b428')
-    logInfo getSmartSubscriptionList()
-    logInfo getSmartModeList()
-    return
-    //logInfo "setSmartMode ${JsonOutput.toJson(setSmartMode('1181870c-78e0-4ca6-98b5-ca8c048c0273'))}"
-    logInfo "getSmartCurrentMode: ${JsonOutput.toJson(getSmartCurrentMode())}"    
-    logInfo "getSmartModes: ${JsonOutput.toJson(getSmartModes())}"     
-    logInfo "getSmartSubscriptions: ${JsonOutput.toJson(getSmartSubscriptions())}"
-    
-    
-    
-    //logInfo "${Calendar.instance[ Calendar.HOUR ]}"
-    //logInfo "${Calendar.instance[ Calendar.MINUTE ]}"
-    //logInfo "${Calendar.instance[ Calendar.SECOND ]}"
-    
-    // 7 28 1/3 * * ?
-    //String crontab = "${Calendar.instance[ Calendar.SECOND ]} ${Calendar.instance[ Calendar.MINUTE ]} */8 * * ?"
-    //logInfo crontab
-
-    //31 39 2/3 * * ?
-    //33 27 10/8 * * ?
-    //logInfo "g_mReplicaDeviceCache:"    
-    //logInfo g_mReplicaDeviceCache[app.getId()]//JsonOutput.toJson( g_mReplicaDeviceCache[app.getId()] )
-    
-    //logInfo "getAllReplicaDeviceIds:"
-    //logInfo JsonOutput.toJson( getAllReplicaDeviceIds() )
-    
-    //createHealthSubscription()       
-   
-    //def addthis = "86399".toInteger()
-    //Date expirationDate = new Date(new Date().toInstant().toEpochMilli() + (addthis * 1000))
-    //logInfo expirationDate.format("YYYY-MM-dd h:mm:ss a z")
-}
-
 void deviceTriggerHandler(event) {
     Long eventPostTime =  now()
     logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' displayName:'${event?.getDisplayName()}' name:'${event?.name}' value:'${event?.value}' unit:'${event?.unit}'"
     //event.properties.each { logInfo "$it.key -> $it.value" }
     def replicaDevice = event?.getDevice()
-    String deviceId = getReplicaDataValue(replicaDevice, "deviceId")
+    String deviceId = getReplicaDeviceId(replicaDevice)
 
     List replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")
     replicaDeviceRules?.findAll{ it.type == "hubitatTrigger" }?.each { rule ->            
@@ -1026,7 +1010,7 @@ void deviceTriggerHandler(event) {
             // check if this was from ST and should not be sent back
             if(!deviceTriggerHandlerCache(replicaDevice, event.name, event.value)) { 
                 setSmartDeviceCommand(deviceId, command?.capability, command?.name)
-                if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getLabel()}' ● trigger:${event.name} ➣ command:enum:${command?.name} ● delay:${now() - eventPostTime}ms"
+                if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ● trigger:${event.name} ➣ command:enum:${command?.name} ● delay:${now() - eventPostTime}ms"
             }
         }
         // non-enum case https://developer-preview.smartthings.com/docs/devices/capabilities/capabilities
@@ -1058,17 +1042,17 @@ void deviceTriggerHandler(event) {
                         setSmartDeviceCommand(deviceId, command?.capability, command?.name, [ event?.value ])
                         break
                 }
-                if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getLabel()}' $type ● trigger:${event.name} ➣ command:${command?.name}:${event?.value} ● delay:${now() - eventPostTime}ms"
+                if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' $type ● trigger:${event.name} ➣ command:${command?.name}:${event?.value} ● delay:${now() - eventPostTime}ms"
             }
         }      
     }            
 }
 
 Boolean deviceTriggerHandlerCache(replicaDevice, attribute, value) {
-    logDebug "${app.getLabel()} executing 'deviceTriggerHandlerCache()' replicaDevice:'${replicaDevice?.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'deviceTriggerHandlerCache()' replicaDevice:'${replicaDevice?.getDisplayName()}'"
     Boolean response = false
 
-    String deviceId = getReplicaDataValue(replicaDevice, "deviceId")
+    String deviceId = getReplicaDeviceId(replicaDevice)
     Map device = getInstallSmartDevicesMap()?.get(deviceId)
     if (device) {
         String a = device?.eventCache?.get(attribute).toString()
@@ -1092,9 +1076,9 @@ Boolean deviceTriggerHandlerCache(replicaDevice, attribute, value) {
 }
 
 void smartTriggerHandlerCache(replicaDevice, attribute, value) {
-    logDebug "${app.getLabel()} executing 'smartTriggerHandlerCache()' replicaDevice:'${replicaDevice?.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartTriggerHandlerCache()' replicaDevice:'${replicaDevice?.getDisplayName()}'"
 
-    String deviceId = getReplicaDataValue(replicaDevice, "deviceId")
+    String deviceId = getReplicaDeviceId(replicaDevice)
     Map device = getInstallSmartDevicesMap()?.get(deviceId)
     if (device!=null) {
         device?.eventCache[attribute] = value
@@ -1103,7 +1087,7 @@ void smartTriggerHandlerCache(replicaDevice, attribute, value) {
 }
 
 Map smartTriggerHandler(replicaDevice, Map event, Long eventPostTime=null) {
-    logDebug "${app.getLabel()} executing 'smartTriggerHandler()' replicaDevice:'${replicaDevice?.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartTriggerHandler()' replicaDevice:'${replicaDevice?.getDisplayName()}'"
     Map response = [statusCode:iHttpError]    
     //logInfo JsonOutput.toJson(event)
     
@@ -1124,7 +1108,7 @@ Map smartTriggerHandler(replicaDevice, Map event, Long eventPostTime=null) {
                     if(replicaDevice.hasCommand(method)) {
                         replicaDevice."$method"(*args)
                     }
-                    if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getLabel()}' event ○ trigger:$attribute ➢ command:enum:${command?.name} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
+                    if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getDisplayName()}' event ○ trigger:$attribute ➢ command:enum:${command?.name} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
                 }
                 // non-enum case
                 else if(attribute==trigger?.attribute && !trigger?.value) {                    
@@ -1135,7 +1119,7 @@ Map smartTriggerHandler(replicaDevice, Map event, Long eventPostTime=null) {
                     if(replicaDevice.hasCommand(method)) {
                         replicaDevice."$method"(*args)
                     }
-                    if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getLabel()}' event ○ trigger:$attribute ➢ command:${command?.name}:${value?.value} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
+                    if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getDisplayName()}' event ○ trigger:$attribute ➢ command:${command?.name}:${value?.value} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
                 }
             }
         }
@@ -1148,7 +1132,7 @@ String getSmartDeviceEventsStatus(replicaDevice) {
     String value = "--"
     if(replicaDevice) {
         String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
-        String deviceId = getReplicaDataValue(replicaDevice, "deviceId")    
+        String deviceId = getReplicaDeviceId(replicaDevice)    
     
         String eventCount = (getInstallSmartDevicesMap()?.get(deviceId)?.eventCount ?: 0).toString()
         value = (healthState=='offline' ? healthState : eventCount)
@@ -1158,7 +1142,7 @@ String getSmartDeviceEventsStatus(replicaDevice) {
 }
 
 Map smartStatusHandler(replicaDevice, Map statusEvent, Long eventPostTime=null) {
-    logDebug "${app.getLabel()} executing 'smartStatusHandler()' replicaDevice:'${replicaDevice?.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartStatusHandler()' replicaDevice:'${replicaDevice?.getDisplayName()}'"
     Map response = [statusCode:iHttpError]
     
     if(appLogEventEnable && statusEvent) {
@@ -1169,12 +1153,12 @@ Map smartStatusHandler(replicaDevice, Map statusEvent, Long eventPostTime=null) 
         response.statusCode = smartTriggerHandler(replicaDevice, [ "$capability":attributes ], eventPostTime).statusCode
     }
     
-    if( getSmartDeviceEventsStatus(replicaDevice) == 'offline' ) { getSmartDeviceHealth( getReplicaDataValue(replicaDevice, "deviceId") ) } 
+    if( getSmartDeviceEventsStatus(replicaDevice) == 'offline' ) { getSmartDeviceHealth( getReplicaDeviceId(replicaDevice) ) } 
     return [statusCode:response.statusCode]
 }
 
 Map smartEventHandler(replicaDevice, Map deviceEvent, Long eventPostTime=null){
-    logDebug "${app.getLabel()} executing 'smartEventHandler()' replicaDevice:'${replicaDevice.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartEventHandler()' replicaDevice:'${replicaDevice.getDisplayName()}'"
     Map response = [statusCode:iHttpSuccess]
     
     if(appLogEventEnable && deviceEvent) {
@@ -1188,7 +1172,7 @@ Map smartEventHandler(replicaDevice, Map deviceEvent, Long eventPostTime=null){
         Map event = [ (deviceEvent.capability): [ (deviceEvent.attribute): [ value:(deviceEvent.value), unit:(deviceEvent?.unit ?: unit), timestamp: getTimestampSmartFormat() ]]]
         response.statusCode = smartTriggerHandler(replicaDevice, event, eventPostTime).statusCode
         
-        if( getSmartDeviceEventsStatus(replicaDevice) == 'offline' ) { getSmartDeviceHealth( getReplicaDataValue(replicaDevice, "deviceId") ) }
+        if( getSmartDeviceEventsStatus(replicaDevice) == 'offline' ) { getSmartDeviceHealth( getReplicaDeviceId(replicaDevice) ) }
     } catch (e) {
         logWarn "${app.getLabel()} smartEventHandler error: $e : $deviceEvent"
     }
@@ -1196,7 +1180,7 @@ Map smartEventHandler(replicaDevice, Map deviceEvent, Long eventPostTime=null){
 }
 
 Map smartHealthHandler(replicaDevice, Map healthEvent, Long eventPostTime=null){
-    logDebug "${app.getLabel()} executing 'smartHealthHandler()' replicaDevice:'${replicaDevice?.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartHealthHandler()' replicaDevice:'${replicaDevice?.getDisplayName()}'"
     Map response = [statusCode:iHttpError]
 
     setReplicaDataJsonValue(replicaDevice, "health", healthEvent)
@@ -1215,7 +1199,7 @@ Map smartHealthHandler(replicaDevice, Map healthEvent, Long eventPostTime=null){
 }
 
 Map smartDescriptionHandler(replicaDevice, Map descriptionEvent){
-    logDebug "${app.getLabel()} executing 'smartDescriptionHandler()' replicaDevice:'${replicaDevice.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartDescriptionHandler()' replicaDevice:'${replicaDevice.getDisplayName()}'"
     Map response = [statusCode:iHttpError]
 
     setReplicaDataJsonValue(replicaDevice, "description", descriptionEvent)
@@ -1229,7 +1213,7 @@ Map smartDescriptionHandler(replicaDevice, Map descriptionEvent){
 }
 
 Map smartCapabilityHandler(replicaDevice, Map capabilityEvent){
-    logDebug "${app.getLabel()} executing 'smartCapabilityHandler()' replicaDevice:'${replicaDevice.getLabel()}'"
+    logDebug "${app.getLabel()} executing 'smartCapabilityHandler()' replicaDevice:'${replicaDevice.getDisplayName()}'"
     Map response = [statusCode:iHttpError]
     
     Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
@@ -1284,7 +1268,7 @@ void getAllReplicaCapabilitiesHelper(Map data) {
 void getReplicaCapabilities(replicaDevice) {
     logDebug "${app.getLabel()} executing 'getReplicaCapabilities($replicaDevice)'"
 
-    String deviceId = getReplicaDataValue(replicaDevice, "deviceId")
+    String deviceId = getReplicaDeviceId(replicaDevice)
     Map descriptionEvent = getReplicaDataJsonValue(replicaDevice, "description")    
  
     descriptionEvent?.components.each { components ->
@@ -1475,9 +1459,7 @@ void asyncHttpGetCallback(resp, data) {
                 getInstallSmartDevicesMap()?.each{ deviceId, items ->
                      smartDevices.items.add( deviceList?.items?.find{ it.deviceId==deviceId } )
                 }
-                clearReplicaDataCache()
-                g_mSmartDeviceListCache[app.getId()] = smartDevices          
-                logInfo "${app.getLabel()} caching SmartThings detailed device list"
+                setSmartDevicesMap(smartDevices)
             
                 // TEMP this is a work in progress. need to move away from the deviceId to allow for device mirror
                 getAllReplicaDeviceIds()?.each { deviceId ->
@@ -1486,6 +1468,9 @@ void asyncHttpGetCallback(resp, data) {
                             def replica = [ deviceId:deviceId, replicaId:(app.getId())]
                             logInfo "${app.getLabel()} '$replicaDevice' updating replica:$replica" 
                             setReplicaDataJsonValue(replicaDevice, "replica", replica)
+                        } else {
+                            //logInfo "${app.getLabel()} '$replicaDevice' clearing deviceId"
+                            clearReplicaDataCache(replicaDevice, "deviceId", true)
                         }
                     }
                 }
@@ -2152,13 +2137,13 @@ def getFormat(type, myText="", myHyperlink=""){
 def displayHeader() { 
     section (getFormat("title", "${app.getLabel()}${sCodeRelease?.size() ? " : $sCodeRelease" : ""}"  )) { 
         paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: ${version()} -  ${copyright()}</div>"
-        paragraph getFormat("line") 
+        paragraph( getFormat("line") ) 
     }
 }
 
 def displayFooter(){
 	section() {
-		paragraph getFormat("line")
+		paragraph( getFormat("line") )
 		paragraph "<div style='color:{sColorDarkBlue};text-align:center;font-weight:small;font-size:11px;'>${app.getLabel()}<br><br><a href='${paypal()}' target='_blank'><img src='https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg' border='0' alt='PayPal Logo'></a><br><br>Please consider donating. This application took a lot of work to make.<br>If you find it valuable, I'd certainly appreciate it!</div>"
 	}       
 }
@@ -2190,10 +2175,12 @@ List<com.hubitat.app.DeviceWrapper> getAuthorizedDevices() {
     return devices?.sort{ it.getDisplayName() }
 }
 
-List<com.hubitat.app.DeviceWrapper> getMirrorDevices() {    
+List<com.hubitat.app.DeviceWrapper> getMirrorDevices(hideInUse=true) {    
     List<ChildDeviceWrapper> devices = getAuthorizedDevices()   
     getAuthorizedDevices()?.each{ userAuthorizedDevice ->
-    if( getChildDevices()?.find{ it.deviceNetworkId == userAuthorizedDevice.deviceNetworkId } ) devices.remove(userAuthorizedDevice)
+        if( getReplicaDeviceId(userAuthorizedDevice, hideInUse)!=null ) {
+            devices.remove(userAuthorizedDevice)
+        }            
     }           
     return devices?.sort{ it.getDisplayName() }
 }
@@ -2203,19 +2190,31 @@ com.hubitat.app.DeviceWrapper getDevice(deviceNetworkId) {
 }
 
 List<com.hubitat.app.DeviceWrapper> getAllReplicaDevices() {
-    return getAllDevices()?.findAll{ getReplicaDataValue(it, "deviceId") }  // more than one  
+    return getAllDevices()?.findAll{ getReplicaDeviceId(it) }  // more than one  
 }
 
 List<com.hubitat.app.DeviceWrapper> getReplicaDevices(deviceId) {
-    return getAllDevices()?.findAll{ getReplicaDataValue(it, "deviceId") == deviceId } // could be more than one
+    return getAllDevices()?.findAll{ getReplicaDeviceId(it) == deviceId } // could be more than one
 }
 
 List getAllReplicaDeviceIds() {
-    return getAllReplicaDevices()?.collect{ getReplicaDataValue(it, "deviceId") }?.unique()
+    return getAllReplicaDevices()?.collect{ getReplicaDeviceId(it) }?.unique()
 }
 // ******** Child and Mirror Device get Functions - End ********
 
 // ******** Volatile Memory Device Cache - Start ********
+private String getReplicaDeviceId(replicaDevice, overrideAppId=false) {
+    String deviceId = null
+    Map replica = getReplicaDataJsonValue(replicaDevice, "replica")
+    if(replica==null) { 
+        deviceId = getReplicaDataValue(replicaDevice, "deviceId")
+    }
+    else if(overrideAppId || replica?.replicaId==app.getId()) { // this is for mirror devices
+        deviceId = replica?.deviceId
+    }
+    return deviceId        
+}
+
 private void setReplicaDataJsonValue(replicaDevice, dataKey, dataValue) {
     setReplicaDataValue(replicaDevice, dataKey, JsonOutput.toJson(dataValue))
 }
@@ -2266,7 +2265,7 @@ private getReplicaDataValue(replicaDevice, dataKey, setDataValue=null) { // setD
     return dataValue
 }
 
-private void clearReplicaDataCache() { g_mReplicaDeviceCache[app.getId()] = null; g_mReplicaDeviceCache[app.getId()] = [:] }
+private void clearReplicaDataCache() { g_mReplicaDeviceCache[app.getId()] = [:] }
 private void clearReplicaDataCache(replicaDevice) { 
     if(g_mReplicaDeviceCache[app.getId()] && replicaDevice?.deviceNetworkId ) { 
         g_mReplicaDeviceCache[app.getId()][replicaDevice?.deviceNetworkId] = null 
@@ -2333,3 +2332,15 @@ void componentRelease(device, buttonNumber) {
     getChildDevice(device.deviceNetworkId).parse([[name:"released", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was released", isStateChange:true, data:[appId:app.getId()]]])
 }
 // ******** Child Device Component Handlers - End ********
+
+void testButton() {
+    
+    logInfo getSmartSubscription('a3053aae-ecba-455e-9ba8-6d34ef72b428')
+    logInfo getSmartSubscriptionList()
+    logInfo getSmartModeList()
+    return
+    //logInfo "setSmartMode ${JsonOutput.toJson(setSmartMode('1181870c-78e0-4ca6-98b5-ca8c048c0273'))}"
+    logInfo "getSmartCurrentMode: ${JsonOutput.toJson(getSmartCurrentMode())}"    
+    logInfo "getSmartModes: ${JsonOutput.toJson(getSmartModes())}"     
+    logInfo "getSmartSubscriptions: ${JsonOutput.toJson(getSmartSubscriptions())}"
+}
