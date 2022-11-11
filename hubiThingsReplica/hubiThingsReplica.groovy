@@ -17,17 +17,16 @@
 *
 *  1.0.0  2022-10-01 First pass.
 *  ...    Deleted
-*  1.0.16 2022-11-03 Virtual Shade DTH support, performance improvements, install bug fixes
-*  1.0.17 2022-11-04 Updates to ST SmartApp to contain to 20 device (subscription) guardrail (iSmartAppDeviceLimit can change that)
 *  1.0.18 2022-11-06 Cache the installed devices and clean up all the state.install messy code. component button support (this will be endless DTH development)
 *  1.0.19 2022-11-08 Beginning Mode Replica support (need PAT right now), command delay measurement in logs, moved SmartThings command to async post
 *  1.0.20 2022-11-09 Added r:hubs:*, Moved all subscription(s) to async post, additional logic for smarter subscriptions handling...more to come
 *  1.0.21 2022-11-10 Bug fix on device creation: capabilityVersion, introduction of 'replica' data type for mirror function
 *  1.0.22 2022-11-10 Initial Check-in with Mirror support. Its buggy. I know.
 *  1.0.23 2022-11-11 Bug fix on device deletion crashing the UI.
+*  1.0.24 2022-11-11 Bug fixes on Mirror. Ignore devices that are not configured.
 */
 
-public static String version() {  return "v1.0.23"  }
+public static String version() {  return "v1.0.24"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -436,7 +435,7 @@ def createChildDevices(){
         // the deviceId makes this a hubiThing
         // setReplicaDataValue(replicaDevice, "deviceId", deviceId)
         // Needed for mirror function to prevent two SmartApps talking to same device.
-        def replica = [ deviceId:deviceId, replicaId:(app.getId())]
+        def replica = [ deviceId:deviceId, replicaId:(app.getId()), type:'child']
         setReplicaDataJsonValue(replicaDevice, "replica", replica)        
         replicaDeviceRefresh(replicaDevice)
 
@@ -585,7 +584,7 @@ def pageMirrorDevice2() {
             def replicaDevice = getDevice(pageMirrorDeviceHubitatDevice)
             String smartLabel = smartDevices?.items?.find{ it.deviceId == deviceId }?.label 
             
-            def replica = [ deviceId:deviceId, replicaId:(app.getId())]
+            def replica = [ deviceId:deviceId, replicaId:(app.getId()), type:( getChildDevice( replicaDevice?.deviceNetworkId )!=null ? 'child' : 'mirror')]
             setReplicaDataJsonValue(replicaDevice, "replica", replica)
             replicaDeviceRefresh(replicaDevice)
             
@@ -792,9 +791,6 @@ Map getHubitatCommandOptions(replicaDevice) {
             
     Map hubitatCommandOptions = [:]
     replicaDevice?.getSupportedCommands()?.each{ command ->
-        //{"arguments":["NUMBER","NUMBER"],"parameters":[{"name":"Level*","description":"Level to set (0 to 100)","type":"NUMBER","constraints":["NUMBER"]},{"name":"Duration","description":"Transition duration in seconds","type":"NUMBER","constraints":["NUMBER"]}],"capability":true,"id":10,"version":1,"name":"setLevel"}
-        //{"arguments":null,"parameters":null,"capability":true,"id":1,"version":1,"name":"on"}
-        //{"arguments":["NUMBER"],"parameters":[{"type":"NUMBER"}],"capability":false,"id":234,"version":1,"name":"setTemperature"}
         def commandJson = new JsonSlurper().parseText(JsonOutput.toJson(command)) //could not figure out how to convert command object to json. this works.
         commandJson.remove('id')
         commandJson.remove('version')
@@ -1451,8 +1447,9 @@ void asyncHttpGetCallback(resp, data) {
                 // TEMP this is a work in progress. need to move away from the deviceId to allow for device mirror
                 getAllReplicaDeviceIds()?.each { deviceId ->
                     getReplicaDevices(deviceId)?.each { replicaDevice ->
-                        if(getReplicaDataJsonValue(replicaDevice, "replica")==null) {
-                            def replica = [ deviceId:deviceId, replicaId:(app.getId())]
+                        if(getReplicaDataJsonValue(replicaDevice, "replica")?.type == null) {
+                            def replica = [ deviceId:deviceId, replicaId:(app.getId()), type:( getChildDevice( replicaDevice?.deviceNetworkId )!=null ? 'child' : 'mirror')]
+                            //def replica = [ deviceId:deviceId, replicaId:(app.getId())]
                             logInfo "${app.getLabel()} '$replicaDevice' updating replica:$replica" 
                             setReplicaDataJsonValue(replicaDevice, "replica", replica)
                         } else {
@@ -2211,7 +2208,7 @@ private void setReplicaDataValue(replicaDevice, dataKey, dataValue) {
     replicaDevice?.updateDataValue(dataKey, dataValue) // STORE IT to device object
 }
 
-private getReplicaDataJsonValue(replicaDevice, dataKey) {
+private def getReplicaDataJsonValue(replicaDevice, dataKey) {
     def response = null
     try {
         def value = getReplicaDataValue(replicaDevice, dataKey)
@@ -2224,7 +2221,7 @@ private getReplicaDataJsonValue(replicaDevice, dataKey) {
     return response
 }
 
-private getReplicaDataValue(replicaDevice, dataKey, setDataValue=null) { // setDataValue will directly update the cache without fetching from the object.
+private def getReplicaDataValue(replicaDevice, dataKey, setDataValue=null) { // setDataValue will directly update the cache without fetching from the object.
     def appId = app.getId()    
     if(g_mReplicaDeviceCache[appId]==null) {
         clearReplicaDataCache()
@@ -2235,7 +2232,7 @@ private getReplicaDataValue(replicaDevice, dataKey, setDataValue=null) { // setD
         cacheDevice = g_mReplicaDeviceCache[appId][replicaDevice?.deviceNetworkId] = [:]
     }
     
-    def dataValue = setDataValue!=null ? null : cacheDevice?.get(dataKey) // this could be a setter, so don't grab cache if dataValue is present
+    String dataValue = setDataValue!=null ? null : cacheDevice?.get(dataKey) // this could be a setter, so don't grab cache if dataValue is present
     if(dataValue==null && replicaDevice?.deviceNetworkId) {        
         dataValue = setDataValue ?: replicaDevice?.getDataValue(dataKey) // Use setter value if present or FETCH IT from device object
         if(dataValue) {
@@ -2246,10 +2243,11 @@ private getReplicaDataValue(replicaDevice, dataKey, setDataValue=null) { // setD
                 logDebug "${app.getLabel()} '${replicaDevice?.getDisplayName()}' cached '$dataKey'"
         }
         else {
-            logDebug "${app.getLabel()} '${replicaDevice?.getDisplayName()}' did not find '$dataKey'"
+            logInfo "${app.getLabel()} '${replicaDevice?.getDisplayName()}' can not find '$dataKey' <b>setting to ignore</b>"
+            cacheDevice[dataKey] = "ignore"
         }            
     }
-    return dataValue
+    return (dataValue=="ignore" ? null : dataValue) 
 }
 
 private void clearReplicaDataCache() { g_mReplicaDeviceCache[app.getId()] = [:] }
