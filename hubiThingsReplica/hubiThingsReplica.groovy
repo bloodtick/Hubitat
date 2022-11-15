@@ -17,16 +17,16 @@
 *
 *  1.0.0  2022-10-01 First pass.
 *  ...    Deleted
-*  1.0.20 2022-11-09 Added r:hubs:*, Moved all subscription(s) to async post, additional logic for smarter subscriptions handling...more to come
 *  1.0.21 2022-11-10 Bug fix on device creation: capabilityVersion, introduction of 'replica' data type for mirror function
 *  1.0.22 2022-11-10 Initial Check-in with Mirror support. Its buggy. I know.
 *  1.0.23 2022-11-11 Bug fix on device deletion crashing the UI.
 *  1.0.24 2022-11-11 Bug fixes on Mirror. Ignore devices that are not configured.
 *  1.0.25 2022-11-13 Bug fixes. Commented out temp code. First install checks to prevent bad install (OAUTH and Done).
 *  1.0.26 2022-11-14 Starting work on Subscription & Mode status. Starting moving Rules to a MAP and not LIST. Selecting event captures.
+*  1.0.27 2022-11-14 Event, Status & Command logging to help t/s by deviceId
 */
 
-public static String version() {  return "v1.0.26"  }
+public static String version() {  return "v1.0.27"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -1554,6 +1554,9 @@ Map setSmartDeviceCommand(deviceId, capability, command, arguments = []) {
         method: "setSmartDeviceCommand",
         authToken: state?.authToken        
     ]
+    if(appLogEventEnable && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
+        logInfo "Command deviceId:$deviceId data:${JsonOutput.toJson(commands)}"
+    }
     response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", data).statusCode
     return response
 }
