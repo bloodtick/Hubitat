@@ -10,7 +10,7 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
-*  version 1.0.0
+*  version 1.1.0
 */
 metadata 
 {
@@ -26,22 +26,28 @@ metadata
         capability "Sensor"
         capability "Switch"
         
+        attribute "command", "enum", ["both", "siren", "strobe", "close", "open", "off", "on", "refresh"]
         attribute "healthStatus", "enum", ["offline", "online"]
         
+        command "setAlarmValue", [[name: "alarm*", type: "ENUM", description: "Any supported alarm attribute", constraints: ["off","both","siren","strobe"]]]
         command "setAlarmOff"
-        command "setSwitchOff"
-        command "setBattery", [[name: "number*", type: "NUMBER", description: "Battery level in %"]]
+        command "setAlarmBoth"
+        command "setAlarmSiren"
+        command "setAlarmStrobe"
+        command "setBatteryValue", [[name: "number*", type: "NUMBER", description: "Battery level in %"]]
+        command "setContactValue", [[name: "contact*", type: "ENUM", description: "Any supported contact attribute", constraints: ["closed","open"]]]
         command "setContactClosed"
         command "setContactOpen"
+        command "setDoorValue", [[name: "door*", type: "ENUM", description: "Any supported door attribute", constraints: ["closed","closing","open","opening","unknown"]]]
         command "setDoorClosed"
         command "setDoorClosing"
         command "setDoorOpen"
         command "setDoorOpening"
-        command "setDoorUnknown"        
-        command "setHealthStatus", [[name: "healthStatus*", type: "ENUM", description: "Any Supported healthStatus Commands", constraints: ["offline","online"]]]
-    }
-    preferences {
-        input(name: "deviceOffCommand", type: "enum", title: "<b>Action from Off command:</b>", required: true, options: [0:"Both Switch and Alarm turn off",1:"Only Switch turns off",2:"Only Alarm turns off"], defaultValue:0)        
+        command "setDoorUnknown"
+        command "setSwitchValue", [[name: "switch*", type: "ENUM", description: "Any supported switch attribute", constraints: ["off","on"]]]
+        command "setSwitchOff"
+        command "setSwitchOn"
+        command "setHealthStatusValue", [[name: "healthStatus*", type: "ENUM", description: "Any supported healthStatus attribute", constraints: ["offline","online"]]]
     }
 }
 
@@ -62,79 +68,114 @@ def parse(String description) {
     log.info "${device.displayName} parse"
 }
 
-def both() {
-    sendEvent(name: "alarm", value: "both", descriptionText: "${device.displayName} alarm set to both")
+def setAlarmValue(String value) {
+    sendEvent(name: "alarm", value: value, descriptionText: "${device.displayName} alarm set to $value")
 }
 
 def setAlarmOff() {
-    sendEvent(name: "alarm", value: "off", descriptionText: "${device.displayName} alarm set to off")
+    setAlarmValue("off")
 }
 
-def siren() {
-    sendEvent(name: "alarm", value: "siren", descriptionText: "${device.displayName} alarm set to siren")
+def setAlarmBoth() {
+    setAlarmValue("both")
 }
 
-def strobe() {
-    sendEvent(name: "alarm", value: "strobe", descriptionText: "${device.displayName} alarm set to strobe")
+def setAlarmSiren() {
+    setAlarmValue("siren")
 }
 
-def setBattery(value) {    
+def setAlarmStrobe() {
+    setAlarmValue("strobe")
+}
+
+def setBatteryValue(value) {    
     sendEvent(name: "battery", value: "$value", unit: "%", descriptionText: "${device.displayName} battery is ${value}%")
 }
 
+def setContactValue(String value) {
+    sendEvent(name: "contact", value: value, descriptionText: "${device.displayName} contact set to $value")
+}
+
 def setContactClosed() {
-    sendEvent(name: "contact", value: "closed", descriptionText: "${device.displayName} contact set to closed")
+    setContactValue("closed")
 }
 
 def setContactOpen() {
-    sendEvent(name: "contact", value: "open", descriptionText: "${device.displayName} contact set to open")
+    setContactValue("open")
 }
 
-def close() {
-    setDoorClosed()
-}
-
-def open() {
-    setDoorOpen()    
+def setDoorValue(String value) {
+    sendEvent(name: "door", value: value, descriptionText: "${device.displayName} door set to $value")
 }
 
 def setDoorClosed() {
-    sendEvent(name: "door", value: "closed", descriptionText: "${device.displayName} door set to closed")
+    setDoorValue("closed")
 }
 
 def setDoorClosing() {
-    sendEvent(name: "door", value: "closing", descriptionText: "${device.displayName} door set to closing")
+    setDoorValue("closing")
 }
 
 def setDoorOpen() {
-    sendEvent(name: "door", value: "open", descriptionText: "${device.displayName} door set to open")
+    setDoorValue("open")
 }
 
 def setDoorOpening() {
-    sendEvent(name: "door", value: "opening", descriptionText: "${device.displayName} door set to opening")
+    setDoorValue("opening")
 }
 
 def setDoorUnknown() {
-    sendEvent(name: "door", value: "unknown", descriptionText: "${device.displayName} door set to unknown")
+    setDoorValue("unknown")
+}
+
+def setSwitchValue(String value) {
+    sendEvent(name: "switch", value: value, descriptionText: "${device.displayName} switch set to $value")
 }
 
 def setSwitchOff() {
-    sendEvent(name: "switch", value: "off", descriptionText: "${device.displayName} switch set to off")
+    setSwtichValue("off")
+}
+
+def setSwitchOn() {
+    setSwtichValue("on")    
+}
+
+def setHealthStatusValue(String value) {    
+    sendEvent(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
+}
+
+private def sendCommand(String value) {
+    sendEvent(name: "command", value: value, descriptionText: "${device.displayName} sending command $value")
+}    
+
+def both() {
+    sendCommand("both")
+}
+
+def siren() {
+    sendCommand("siren")
+}
+
+def strobe() {
+    sendCommand("strobe")
 }
 
 def off() { 
-    if(deviceOffCommand=='0' || deviceOffCommand=='1') { setSwitchOff() }
-    if(deviceOffCommand=='0' || deviceOffCommand=='2') { setAlarmOff() }
+    sendCommand("off")
 }
 
 def on() {
-    sendEvent(name: "switch", value: "on", descriptionText: "${device.displayName} switch set to on")
+    sendCommand("on")
 }
 
-def setHealthStatus(value) {    
-    sendEvent(name: "healthStatus", value: "$value", descriptionText: "${device.displayName} healthStatus set to $value")
+def close() {
+    sendCommand("close")
+}
+
+def open() {
+    sendCommand("open")    
 }
 
 void refresh() {
-    parent?.componentRefresh(this.device)
+    sendCommand("refresh")
 }
