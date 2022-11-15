@@ -133,11 +133,11 @@ def setSwitchValue(String value) {
 }
 
 def setSwitchOff() {
-    setSwtichValue("off")
+    setSwitchValue("off")
 }
 
 def setSwitchOn() {
-    setSwtichValue("on")    
+    setSwitchValue("on")    
 }
 
 def setHealthStatusValue(String value) {    
