@@ -10,11 +10,11 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
-*  version 1.1.0
+*  version 1.1.1
 */
 metadata 
 {
-    definition(name: "Replica Garage Door", namespace: "hubitat", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaGarageDoor.groovy")
+    definition(name: "Replica Garage Door", namespace: "replica", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaGarageDoor.groovy")
     {
         capability "Actuator"
         capability "Alarm"
@@ -53,12 +53,12 @@ metadata
 
 def installed() {
     log.info "${device.displayName} installed"
-	initialize()
+    initialize()
 }
 
 def updated() {
     log.info "${device.displayName} updated"
-	initialize()
+    initialize()
 }
 
 def initialize() {
@@ -145,7 +145,7 @@ def setHealthStatusValue(String value) {
 }
 
 private def sendCommand(String value) {
-    sendEvent(name: "command", value: value, descriptionText: "${device.displayName} sending command $value")
+    sendEvent(name: "command", value: value, descriptionText: "${device.displayName} sending command $value", isStateChange: true)
 }    
 
 def both() {
