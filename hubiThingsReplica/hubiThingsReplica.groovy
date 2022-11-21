@@ -17,17 +17,16 @@
 *
 *  1.0.0  2022-10-01 First pass.
 *  ...    Deleted
-*  1.0.21 2022-11-10 Bug fix on device creation: capabilityVersion, introduction of 'replica' data type for mirror function
-*  1.0.22 2022-11-10 Initial Check-in with Mirror support. Its buggy. I know.
 *  1.0.23 2022-11-11 Bug fix on device deletion crashing the UI.
 *  1.0.24 2022-11-11 Bug fixes on Mirror. Ignore devices that are not configured.
 *  1.0.25 2022-11-13 Bug fixes. Commented out temp code. First install checks to prevent bad install (OAUTH and Done).
 *  1.0.26 2022-11-14 Starting work on Subscription & Mode status. Starting moving Rules to a MAP and not LIST. Selecting event captures.
 *  1.0.27 2022-11-14 Event, Status & Command logging to help t/s by deviceId
 *  1.0.28 2022-11-18 Allow disabling status updates, display replica namespace handlers, work on replica handler auto rules
+*  1.0.29 2022-11-21 Update rules to version 1. Prepare for parent->child replica device handlers. Capability fix for mult-device support. 
 */
 
-public static String version() {  return "1.0.28"  }
+public static String version() {  return "1.0.29"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -52,16 +51,18 @@ import groovy.transform.Field
 @Field static final String  sCodeRelease="Alpha"
 
 // IN-MEMORY VARIABLES (Cleared on HUB REBOOT or CODE UPDATES)
-@Field volatile static Map<String,Map>    g_mSmartDeviceListCache = [:]
-@Field volatile static Map<String,Map>    g_mSmartSubscriptionListCache = [:]
-@Field volatile static Map<String,Map>    g_mSmartModeListCache = [:]
-@Field volatile static Map<String,Map>    g_mInstalledAppConfig = [:]
-@Field volatile static Map<String,String> g_mPageConfigureDevice = [:]
-@Field volatile static Map<String,String> g_mReplicaDeviceCache = [:]
+@Field volatile static Map<Long,Map>   g_mSmartDeviceListCache = [:]
+@Field volatile static Map<Long,Map>   g_mSmartSubscriptionListCache = [:]
+@Field volatile static Map<Long,Map>   g_mSmartModeListCache = [:]
+@Field volatile static Map<Long,Map>   g_mInstalledAppConfig = [:]
+@Field volatile static Map<String,Map> g_mPageConfigureDevice = [:]
+@Field volatile static Map<Long,Map>   g_mReplicaDeviceCache = [:]
 
 void clearAllVolatileCache() {
     Long appId = app.getId()
     g_mSmartDeviceListCache[appId]=null
+    g_mSmartSubscriptionListCache[appId]=null
+    g_mSmartModeListCache[appId]=null
     g_mInstalledAppConfig[appId]=null
     g_mPageConfigureDevice[appId]=null
     g_mReplicaDeviceCache[appId]=null
@@ -380,8 +381,8 @@ Map getDeviceHandlers() {
         [id:"5", name:"Virtual Humidity Sensor",    namespace:"hubitat" ],
         [id:"6", name:"Virtual Presence",           namespace:"hubitat" ],
         [id:"7", name:"Virtual Shade",              namespace:"hubitat" ],
-        [id:"8", name:"Generic Component Dimmer",   namespace:"hubitat" ],
-        [id:"9", name:"Generic Component Button Controller", namespace:"hubitat" ]
+        //[id:"8", name:"Generic Component Dimmer",   namespace:"hubitat" ],
+        //[id:"9", name:"Generic Component Button Controller", namespace:"hubitat" ]
     ]]
     getDriverList()?.items?.each{ if(it?.namespace=='replica') handlers.items.add(it) }    
     return handlers
@@ -569,8 +570,9 @@ void getReplicaDeviceRefresh(replicaDevice) {
 
 void replicaDeviceSubscribe(replicaDevice) {
     if(replicaDevice) {
-        Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules")
-        List<String> ruleAttributes = replicaDeviceRules?.components?.findAll{ it.type == "hubitatTrigger" }?.collect{ rule -> rule?.trigger.values()?.getAt(0)?.name }?.unique()
+        Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules") //FIXED
+        //List<String> ruleAttributes = replicaDeviceRules?.components?.findAll{ it.type == "hubitatTrigger" }?.collect{ rule -> rule?.trigger.values()?.getAt(0)?.name }?.unique()
+        List<String> ruleAttributes = replicaDeviceRules?.components?.findAll{ it.type == "hubitatTrigger" }?.collect{ rule -> rule?.trigger?.name }?.unique()
         List<String> appSubscriptions = app.getSubscriptions()?.findAll{ it?.deviceId.toInteger() == replicaDevice?.id.toInteger() }?.collect{ it?.data }?.unique()
         
         if(ruleAttributes) { appSubscriptions?.intersect(ruleAttributes)?.each{ appSubscriptions?.remove(it); ruleAttributes?.remove(it) } }        
@@ -729,14 +731,13 @@ void updateRuleList(action, type) {
         trigger = g_mPageConfigureDevice?.smartAttribute
         command = g_mPageConfigureDevice?.hubitatCommand
     }
-    def triggerKey = trigger?.keySet()?.getAt(0)
-    def commandKey = command?.keySet()?.getAt(0)
+    String triggerKey = trigger?.label?.trim()//trigger?.keySet()?.getAt(0)
+    String commandKey = command?.label?.trim()//command?.keySet()?.getAt(0)
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)    
     logDebug "${app.getLabel()} executing 'updateRuleList()' hubitatDevice:'${replicaDevice}' trigger:'${triggerKey}' command:'${commandKey}' action:'${action}'"
-    //quick checks. weirdness on the null I just didn't want to figure out.
-    if(triggerKey==null || commandKey==null || triggerKey?.toString()=='null'  || commandKey?.toString()=='null') return
+    if(triggerKey==null || commandKey==null) return// || triggerKey?.toString()=='null'  || commandKey?.toString()=='null') return
 
-    Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules") ?: [components:[]]
+    Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules") ?: [components:[],version:1] //FIXED
     Boolean allowDuplicateAttribute = pageConfigureDeviceAllowDuplicateAttribute
     Boolean muteTriggerRuleInfo = pageConfigureDeviceMuteTriggerRuleInfo
     Boolean disableStatusUpdate = pageConfigureDeviceDisableStatusUpdate
@@ -745,33 +746,39 @@ void updateRuleList(action, type) {
     app.updateSetting("pageConfigureDeviceDisableStatusUpdate", false)
   
     if(action=='delete') {
-        replicaDeviceRules?.components?.removeAll{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey && it?.command?.keySet()?.getAt(0)==commandKey }       
+        //replicaDeviceRules?.components?.removeAll{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey && it?.command?.keySet()?.getAt(0)==commandKey }
+        replicaDeviceRules?.components?.removeAll{ it?.type==type && it?.trigger?.label?.trim()==triggerKey && it?.command?.label?.trim()==commandKey }
     }
-    else if(triggerKey && commandKey && !replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey && it?.command?.keySet()?.getAt(0)==commandKey }) {
-        Map newRule = [ trigger:trigger, command:command, type:type]
+    //else if(triggerKey && commandKey && !replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey && it?.command?.keySet()?.getAt(0)==commandKey }) {
+    else if(triggerKey && commandKey && !replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.label?.trim()==triggerKey && it?.command?.label?.trim()==commandKey }) {
+        Map newRule = [ trigger:trigger, command:command, type:type]  
+        newRule?.command?.parameters?.each{ parameter -> if(parameter?.description) {  parameter.remove('description') } } //junk
+        if(newRule?.trigger?.properties?.value?.enum) newRule.trigger.properties.value.remove('enum') //junk
         if(muteTriggerRuleInfo) newRule['mute'] = true
         if(disableStatusUpdate) newRule['disableStatus'] = true
        
-        if(action=='store' && (!replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey } || allowDuplicateAttribute)) {
+        //if(action=='store' && (!replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.keySet()?.getAt(0)==triggerKey } || allowDuplicateAttribute)) {
+        if(action=='store' && (!replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.label?.trim()==triggerKey } || allowDuplicateAttribute)) {
             replicaDeviceRules.components.add(newRule)
         }
     }
-  
+    //logInfo replicaDeviceRules
     setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
     if(type=='hubitatTrigger') replicaDeviceSubscribe(replicaDevice)
 }
 
 void replicaDevicesRuleSection(){
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
-    Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules" )
+    Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules" ) //FIXED
     
     String replicaDeviceRulesList = "<span><table style='width:100%;'>"
     replicaDeviceRulesList += "<tr><th>Trigger</th><th>Action</th></tr>"
-    replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.keySet()?.getAt(0) <=> b?.trigger?.keySet()?.getAt(0) ?: a?.command?.keySet()?.getAt(0) <=> b?.command?.keySet()?.getAt(0) }?.each { rule ->
-        def muteflag = rule?.mute ? "[muted]" : ""
-        def disableStatusFlag = rule?.disableStatus ? "[no status]" : ""
-        def trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.keySet()?.getAt(0)}"
-        def command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.keySet()?.getAt(0)} $muteflag $disableStatusFlag"
+    //replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.keySet()?.getAt(0) <=> b?.trigger?.keySet()?.getAt(0) ?: a?.command?.keySet()?.getAt(0) <=> b?.command?.keySet()?.getAt(0) }?.each { rule ->
+    replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.label <=> b?.trigger?.label ?: a?.command?.label <=> b?.command?.label }?.each { rule ->    
+        String muteflag = rule?.mute ? "$sLogMuteIcon" : ""
+        String disableStatusFlag = rule?.disableStatus ? "$sNoStatusIcon" : ""
+        String trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.label}"
+        String command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.label} $muteflag $disableStatusFlag"
         replicaDeviceRulesList += "<tr><td>$trigger</td><td>$command</td></tr>"
     }
     replicaDeviceRulesList +="</table>"
@@ -814,8 +821,8 @@ def pageConfigureDevice() {
             if(replicaDevice?.hasCommand('replicaRules')) input(name: "pageConfigureDevice::fetchDeviceRules",  type: "button", title: "Fetch Rules", width: 2, style:"width:75%;")
             paragraph( getFormat("line") )
             
-            def hubitatAttributeOptions = getHubitatAttributeOptions(replicaDevice)                      
-            def smartCommandOptions = getSmartCommandOptions(replicaDevice)
+            Map hubitatAttributeOptions = getHubitatAttributeOptions(replicaDevice)                      
+            Map smartCommandOptions = getSmartCommandOptions(replicaDevice)
             
             input(name: "hubitatAttribute", type: "enum", title: "$sHubitatIcon If Hubitat Attribute <b>TRIGGER</b> changes:", description: "Choose a Hubitat Attribute", options: hubitatAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4)
             input(name: "smartCommand", type: "enum", title: "$sSamsungIcon Then <b>ACTION</b> SmartThings Command:", description: "Choose a SmartThings Command", options: smartCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter:true)
@@ -823,13 +830,13 @@ def pageConfigureDevice() {
             input(name: "pageConfigureDevice::hubitatAttributeDelete",  type: "button", title: "Delete Rule", width: 2, style:"width:75%;")
 
             if(pageConfigureDeviceShowDetail) {
-                paragraph( hubitatAttribute ? "$sHubitatIcon $hubitatAttribute : ${JsonOutput.toJson(hubitatAttributeOptions?.find{ key,value -> key==hubitatAttribute }?.value)}" : "$sHubitatIcon No Selection" )
-                paragraph( smartCommand ? "$sSamsungIcon $smartCommand : ${JsonOutput.toJson(smartCommandOptions?.find{ key,value -> key==smartCommand }?.value)}" : "$sSamsungIcon No Selection" )
+                paragraph( hubitatAttribute ? "$sHubitatIcon $hubitatAttribute : ${JsonOutput.toJson(hubitatAttributeOptions?.get(hubitatAttribute))}" : "$sHubitatIcon No Selection" )
+                paragraph( smartCommand ? "$sSamsungIcon $smartCommand : ${JsonOutput.toJson(smartCommandOptions?.get(smartCommand))}" : "$sSamsungIcon No Selection" )
             }
             paragraph( getFormat("line") )
             
-            def smartAttributeOptions = getSmartAttributeOptions(replicaDevice)         
-            def hubitatCommandOptions = getHubitatCommandOptions(replicaDevice)
+            Map smartAttributeOptions = getSmartAttributeOptions(replicaDevice)         
+            Map hubitatCommandOptions = getHubitatCommandOptions(replicaDevice)
             
             input(name: "smartAttribute", type: "enum", title: "$sSamsungIcon If SmartThings Attribute <b>TRIGGER</b> changes:", description: "Choose a SmartThings Attribute", options: smartAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4)
             input(name: "hubitatCommand", type: "enum", title: "$sHubitatIcon Then <b>ACTION</b> Hubitat Command${pageConfigureDeviceAllowActionAttribute?'/Attribute':''}:", description: "Choose a Hubitat Command", options: hubitatCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter:true)
@@ -837,22 +844,23 @@ def pageConfigureDevice() {
             input(name: "pageConfigureDevice::smartAttributeDelete",  type: "button", title: "Delete Rule", width: 2, style:"width:75%;")
             
             if(pageConfigureDeviceShowDetail) {
-                paragraph( smartAttribute ? "$sSamsungIcon $smartAttribute : ${JsonOutput.toJson(smartAttributeOptions?.find{ key,value -> key==smartAttribute }?.value)}" : "$sSamsungIcon No Selection" )
-                paragraph( hubitatCommand ? "$sHubitatIcon $hubitatCommand : ${JsonOutput.toJson(hubitatCommandOptions?.find{ key,value -> key==hubitatCommand }?.value)}" : "$sHubitatIcon No Selection" )
+                paragraph( smartAttribute ? "$sSamsungIcon $smartAttribute : ${JsonOutput.toJson(smartAttributeOptions?.get(smartAttribute))}" : "$sSamsungIcon No Selection" )
+                paragraph( hubitatCommand ? "$sHubitatIcon $hubitatCommand : ${JsonOutput.toJson(hubitatCommandOptions?.get(hubitatCommand))}" : "$sHubitatIcon No Selection" )
             }
             paragraph( getFormat("line") )     
             
             input(name: "pageConfigureDeviceAllowDuplicateAttribute", type: "bool", title: "Allow duplicate Attribute <b>TRIGGER</b>", defaultValue: false, submitOnChange: true, width: 3)
-            input(name: "pageConfigureDeviceMuteTriggerRuleInfo", type: "bool", title: "Mute <b>TRIGGER</b> rule Logging", defaultValue: false, submitOnChange: true, width: 3)
-            input(name: "pageConfigureDeviceDisableStatusUpdate", type: "bool", title: "Disable periodic status updates", defaultValue: false, submitOnChange: true, width: 3)
+            input(name: "pageConfigureDeviceMuteTriggerRuleInfo", type: "bool", title: "Mute $sLogMuteIcon <b>TRIGGER</b> rule Logging", defaultValue: false, submitOnChange: true, width: 3)
+            input(name: "pageConfigureDeviceDisableStatusUpdate", type: "bool", title: "Disable $sNoStatusIcon periodic device refresh", defaultValue: false, submitOnChange: true, width: 3)
             app.updateSetting("pageConfigureDeviceAllowActionAttribute", false)
             input(name: "pageConfigureDeviceShowDetail", type: "bool", title: "Show detail for attributes and commands", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
             
-            // gather these all up so when user presses store - it uses this structure.
-            g_mPageConfigureDevice['hubitatAttribute'] = ["$hubitatAttribute": hubitatAttributeOptions?.get(hubitatAttribute)] ?: null
-            g_mPageConfigureDevice['smartAttribute']   = ["$smartAttribute": smartAttributeOptions?.get(smartAttribute)] ?: null
-            g_mPageConfigureDevice['smartCommand']     = ["$smartCommand": smartCommandOptions?.get(smartCommand)] ?: null
-            g_mPageConfigureDevice['hubitatCommand']   = ["$hubitatCommand": hubitatCommandOptions?.get(hubitatCommand)] ?: null
+            // gather these all up so when user presses store - it uses this structure.           
+            g_mPageConfigureDevice['hubitatAttribute'] = hubitatAttributeOptions?.get(hubitatAttribute) ?: null
+            g_mPageConfigureDevice['smartAttribute']   = smartAttributeOptions?.get(smartAttribute) ?: null
+            g_mPageConfigureDevice['smartCommand']     = smartCommandOptions?.get(smartCommand) ?: null
+            g_mPageConfigureDevice['hubitatCommand']   = hubitatCommandOptions?.get(hubitatCommand) ?: null
+            
         }
         
         replicaDevicesRuleSection()
@@ -863,10 +871,11 @@ Map getHubitatCommandOptions(replicaDevice) {
             
     Map hubitatCommandOptions = [:]
     replicaDevice?.getSupportedCommands()?.each{ command ->
-        def commandJson = new JsonSlurper().parseText(JsonOutput.toJson(command)) //could not figure out how to convert command object to json. this works.
+        Map commandJson = new JsonSlurper().parseText(JsonOutput.toJson(command)) //could not figure out how to convert command object to json. this works.
         commandJson.remove('id')
         commandJson.remove('version')
         commandJson.remove('capability')
+        commandJson["type"] = "command"
         def parameterText = "("
         commandJson?.parameters?.eachWithIndex{ parameter, index ->
             def parameterName = parameter?.name ? "${parameter?.name?.uncapitalize()}" : "${parameter?.type?.toLowerCase()}*"
@@ -876,6 +885,7 @@ Map getHubitatCommandOptions(replicaDevice) {
         commandJson['label'] = "command: ${command?.name}$parameterText"
         if(commandJson?.arguments==null) commandJson.remove('arguments')
         if(commandJson?.parameters==null) commandJson.remove('parameters')
+        if(commandJson?.values==null) commandJson.remove('values')
         hubitatCommandOptions[commandJson.label] = commandJson 
     }
     if(pageConfigureDeviceAllowActionAttribute) {
@@ -888,13 +898,14 @@ Map getHubitatAttributeOptions(replicaDevice) {
 
     Map hubitatAttributeOptions = [:]
     replicaDevice?.getSupportedAttributes()?.each{ attribute ->
-        def attributeJson = new JsonSlurper().parseText(JsonOutput.toJson(attribute))
+        Map attributeJson = new JsonSlurper().parseText(JsonOutput.toJson(attribute))
         attributeJson.remove('possibleValueJson')
         attributeJson.remove('possibleValues')
         attributeJson.remove('id')
         attributeJson.remove('version')
         attributeJson.remove('deviceTypeId')
         attributeJson.remove('capability')
+        attributeJson["type"] = "attribute"
         if(attributeJson?.dataType=="ENUM") {
             def label = "attribute: ${attributeJson?.name}.*"
             hubitatAttributeOptions[label] = attributeJson.clone()
@@ -912,7 +923,8 @@ Map getHubitatAttributeOptions(replicaDevice) {
         else {
             //attributeJson['label'] = "attribute: ${attributeJson?.name}.[${attributeJson?.dataType.toLowerCase()}]"
             attributeJson['label'] = "attribute: ${attributeJson?.name}.*"
-            hubitatAttributeOptions[attributeJson.label] = attributeJson 
+            hubitatAttributeOptions[attributeJson.label] = attributeJson
+            hubitatAttributeOptions[attributeJson.label].remove('values')
         }
     }
 
@@ -922,7 +934,7 @@ Map getHubitatAttributeOptions(replicaDevice) {
 Map getSmartCommandOptions(replicaDevice) {
             
     Map smartCommandOptions = [:]
-    def capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
+    Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
     capabilities?.components?.each{ capability -> 
         capability?.commands?.each{ command, value ->
             def parameterText = "("
@@ -931,6 +943,7 @@ Map getSmartCommandOptions(replicaDevice) {
                 parameterText += (index ? ", $parameterName" : "$parameterName")
             }
             parameterText +=")"
+            value["type"] = "command"
             value["capability"] = capability.id
             value["label"] = "command: ${command}$parameterText"
             if(value?.arguments==[]) value.remove('arguments')
@@ -943,12 +956,12 @@ Map getSmartCommandOptions(replicaDevice) {
 Map getSmartAttributeOptions(replicaDevice) {
 
     Map smartAttributeOptions = [:]
-    def capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
+    Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
     capabilities?.components?.each{ capability ->
         capability?.attributes?.each{ attribute, value -> Map schema = value?.schema ?: [:]
             schema["capability"] = capability.id
             schema["attribute"] = attribute
-            schema?.remove('type')
+            schema["type"] = "attribute"
             if(schema?.properties?.value?.enum) {
                 def label = "attribute: ${attribute}.*"
                 smartAttributeOptions[label] = schema.clone()
@@ -959,6 +972,7 @@ Map getSmartAttributeOptions(replicaDevice) {
                     smartAttributeOptions[label] = schema.clone()
                     smartAttributeOptions[label].label = label
                     smartAttributeOptions[label].value = enumValue
+                    smartAttributeOptions[label].dataType = "ENUM" //match hubitat
                 }
             }
             else {
@@ -969,11 +983,11 @@ Map getSmartAttributeOptions(replicaDevice) {
             }            
         }
     }
-    // not sure why SmartThings treats health different. But everything reports healthStatus. So gonna make it look the same to the user configuration page. 'fancy'.
+    // not sure why SmartThings treats health different. But everything reports healthStatus. So gonna make it look the same to the user configuration page.
     if(smartAttributeOptions.size()) {
-        smartAttributeOptions["attribute: healthStatus.*"] = new JsonSlurper().parseText("""{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.* "}""")
-        smartAttributeOptions["attribute: healthStatus.offline"] = new JsonSlurper().parseText("""{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"offline","attribute":"healthStatus","label":"attribute: healthStatus.offline "}""")
-        smartAttributeOptions["attribute: healthStatus.online"] =  new JsonSlurper().parseText("""{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","value":"online","attribute":"healthStatus","label":"attribute: healthStatus.online "}""")
+        smartAttributeOptions["attribute: healthStatus.*"] = new JsonSlurper().parseText("""{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"}""")
+        smartAttributeOptions["attribute: healthStatus.offline"] = new JsonSlurper().parseText("""{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","value":"offline","attribute":"healthStatus","dataType":"ENUM","label":"attribute: healthStatus.offline"}""")
+        smartAttributeOptions["attribute: healthStatus.online"] =  new JsonSlurper().parseText("""{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","value":"online","attribute":"healthStatus","dataType":"ENUM","label":"attribute: healthStatus.online"}""")
     }
     return smartAttributeOptions
 }
@@ -1058,64 +1072,69 @@ void appButtonHandler(String btn) {
     }    
 }
 
-void deviceTriggerHandler(event) {
-    Long eventPostTime =  now()
-    logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' displayName:'${event?.getDisplayName()}' name:'${event?.name}' value:'${event?.value}' unit:'${event?.unit}'"
+void deviceTriggerHandler(def event) {
     //event.properties.each { logInfo "$it.key -> $it.value" }
-    def replicaDevice = event?.getDevice()
+    deviceTriggerHandler(event?.getDevice(), event?.name, event?.value, event?.unit, event?.getJsonData())
+}
+           
+void deviceTriggerHandler(def replicaDevice, String eventName, String eventValue, String eventUnit, Map eventJsonData) {
+    Long eventPostTime =  now()
+    logInfo "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' name:'$eventName' value:'$eventValue' unit:'$eventUnit'"
     String deviceId = getReplicaDeviceId(replicaDevice)
+    Map special = eventJsonData?.get(eventValue)
 
-    Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules")
+    Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules") //FIXED
     replicaDeviceRules?.components?.findAll{ it?.type == "hubitatTrigger" }?.each { rule ->            
-        Map trigger = rule?.trigger.values()?.getAt(0)
-        Map command = rule?.command.values()?.getAt(0)       
-        Map special = event?.getJsonData()?.get(event?.value)              
-
-        // simple enum case
-        if(event.name==trigger?.name && event.value==trigger?.value && special==null) {
-            // check if this was from ST and should not be sent back
-            if(!deviceTriggerHandlerCache(replicaDevice, event.name, event.value)) { 
-                setSmartDeviceCommand(deviceId, command?.capability, command?.name)
-                if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ● trigger:${event.name}:${event.value} ➣ command:${command?.name} ● delay:${now() - eventPostTime}ms"
+        Map trigger = rule?.trigger //rule?.trigger.values()?.getAt(0)
+        Map command = rule?.command //rule?.command.values()?.getAt(0)
+        
+        if(eventName==trigger?.name) {
+            // simple enum case
+            if(eventValue==trigger?.value && special==null) {
+                // check if this was from ST and should not be sent back
+                if(!deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) { 
+                    setSmartDeviceCommand(deviceId, command?.capability, command?.name)
+                    if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ● trigger:${eventName}:${eventValue} ➣ command:${command?.name} ● delay:${now() - eventPostTime}ms"
+                }
+            }
+            // non-enum case https://developer-preview.smartthings.com/docs/devices/capabilities/capabilities
+            else if((!trigger?.value || (eventValue==trigger?.value && special))) {
+                String evtName = eventName
+                String evtValue = eventValue            
+                special?.each{ key, value -> evtName = key; evtValue = value.toString() }
+                logTrace "evtName:${evtName} evtValue:${evtValue}"
+                // check if this was from ST and should not be sent back
+                if(!deviceTriggerHandlerCache(replicaDevice, evtName, evtValue)) {
+                    String type = command?.arguments?.getAt(0)?.schema?.type?.toLowerCase()
+                    def arguments = null
+               
+                    switch(type) {
+                        case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
+                            arguments = [ (evtValue?.isNumber() ? (evtValue?.isFloat() ? (int)(Math.round(evtValue?.toFloat())) : evtValue?.toInteger()) : null) ]
+                            break
+                        case 'number':  // A number that can have fractional values. Limits can be defined to constrain the range of possible values.
+                            arguments = [ evtValue?.toFloat() ]
+                            break
+                        case 'boolean': // Either true or false
+                            arguments = [ evtValue?.toBoolean() ]
+                            break
+                        case 'object':  // A map of name value pairs, where the values can be of different types.
+                            Map map = new JsonSlurper().parseText(evtValue)
+                            arguments = map
+                            break
+                        case 'array':   // A list of values of a single type.
+                            List list = new JsonSlurper().parseText(evtValue)
+                            arguments = list
+                            break
+                        default:
+                            arguments = [ evtValue ]
+                            break
+                    }
+                    setSmartDeviceCommand(deviceId, command?.capability, command?.name, arguments)
+                    if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' $type ● trigger:${evtName} ➣ command:${command?.name}:${arguments?.join(', ')} ● delay:${now() - eventPostTime}ms"
+                }
             }
         }
-        // non-enum case https://developer-preview.smartthings.com/docs/devices/capabilities/capabilities
-        else if(event.name==trigger?.name && (!trigger?.value || (event.value==trigger?.value && special))) {
-            def eventName = event.name
-            def eventValue = event.value            
-            special?.each{ key, value -> eventName = key; eventValue = value.toString() }
-            logTrace "eventName:${eventName} eventValue:${eventValue}"
-            // check if this was from ST and should not be sent back
-            if(!deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) {
-                String type = command?.arguments?.getAt(0)?.schema?.type?.toLowerCase()
-                def arguments = null
-               
-                switch(type) {
-                    case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
-                        arguments = [ (eventValue?.isNumber() ? (eventValue?.isFloat() ? (int)(Math.round(eventValue?.toFloat())) : eventValue?.toInteger()) : null) ]
-                        break
-                    case 'number':  // A number that can have fractional values. Limits can be defined to constrain the range of possible values.
-                        arguments = [ eventValue?.toFloat() ]
-                        break
-                    case 'boolean': // Either true or false
-                        arguments = [ eventValue?.toBoolean() ]
-                        break
-                    case 'object':  // A map of name value pairs, where the values can be of different types.
-                        Map map = new JsonSlurper().parseText(eventValue)
-                        arguments = map
-                        break
-                    case 'array':   // A list of values of a single type.
-                        List list = new JsonSlurper().parseText(eventValue)
-                        arguments = list
-                        break
-                    default:
-                        arguments = [ eventValue ]
-                        break
-                }
-                setSmartDeviceCommand(deviceId, command?.capability, command?.name, arguments)
-                if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' $type ● trigger:${eventName} ➣ command:${command?.name}:${arguments?.join(', ')} ● delay:${now() - eventPostTime}ms"
-            }
-        }      
     }            
 }
 
@@ -1162,13 +1181,13 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
     Map response = [statusCode:iHttpError]    
     //logInfo JsonOutput.toJson(event)
     
-    Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules")
+    Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules") //FIXED
     event?.each { capability, attributes ->
         attributes?.each{ attribute, value ->
             logTrace "smartEvent: capability:'$capability' attribute:'$attribute' value:'$value'" 
             replicaDeviceRules?.components?.findAll{ it?.type == "smartTrigger" }?.each { rule -> 
-                Map trigger = rule?.trigger?.values()?.getAt(0)
-                Map command = rule?.command?.values()?.getAt(0)
+                Map trigger = rule?.trigger //rule?.trigger?.values()?.getAt(0)
+                Map command = rule?.command //rule?.command?.values()?.getAt(0)
 
                 // simple enum case
                 if(attribute==trigger?.attribute && value?.value==trigger?.value) {                   
@@ -1275,7 +1294,7 @@ Map smartDescriptionHandler(replicaDevice, Map descriptionEvent){
 
     setReplicaDataJsonValue(replicaDevice, "description", descriptionEvent)
     try {
-        getAllReplicaCapabilities(replicaDevice)
+        getReplicaCapabilities(replicaDevice) // This should probably be threaded since it could be a large amount of calls.
         response.statusCode = iHttpSuccess       
     } catch (e) {
         logWarn "${app.getLabel()} smartDescriptionHandler error: $e : $descriptionEvent"
@@ -1506,7 +1525,7 @@ void asyncHttpGetCallback(resp, data) {
                 break
             case "getSmartDeviceDescription":
                 def description = new JsonSlurper().parseText(resp.data)
-                getReplicaDevices(data.deviceId)?.each { replicaDevice -> smartDescriptionHandler(replicaDevice, description) }
+                getReplicaDevices(data.deviceId)?.each { replicaDevice -> smartDescriptionHandler(replicaDevice, description); }
                 description = null
                 break
             case "getSmartDeviceStatus":
@@ -2169,6 +2188,10 @@ def getHtmlResponse(Boolean success=false) {
 """
 }
 
+// https://fontawesomeicons.com/svg/icons
+@Field static final String sLogMuteIcon="""<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"> <polygon points="1.75 5.75 1.75 10.25 4.25 10.25 8.25 13.25 8.25 2.75 4.25 5.75"/> <path d="m14.25 5.75-3.5 4.5m0-4.5 3.5 4.5"/> </svg>"""
+@Field static final String sNoStatusIcon="""<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-exclamation-triangle" viewBox="0 0 16 16"> <path d="M7.938 2.016A.13.13 0 0 1 8.002 2a.13.13 0 0 1 .063.016.146.146 0 0 1 .054.057l6.857 11.667c.036.06.035.124.002.183a.163.163 0 0 1-.054.06.116.116 0 0 1-.066.017H1.146a.115.115 0 0 1-.066-.017.163.163 0 0 1-.054-.06.176.176 0 0 1 .002-.183L7.884 2.073a.147.147 0 0 1 .054-.057zm1.044-.45a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566z"/> <path d="M7.002 12a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 5.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995z"/> </svg>"""
+
 @Field static final String sSamsungIconStatic="""<svg style="display:none" version="2.0"><defs><symbol id="samsung-svg" viewbox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
 <path fill="currentColor" d="m24.016 0.19927c-6.549 0-13.371 1.1088-18.203 5.5609-4.5279 5.1206-5.5614 11.913-5.5614 18.234v1.9451c0 6.5338 1.1094 13.417 5.5614 18.248 5.1509 4.5586 11.973 5.5614 18.324 5.5614h1.7622c6.5641 0 13.478-1.0942 18.34-5.5614 4.5586-5.1509 5.5614-11.988 5.5614-18.339v-1.7632c0-6.5638-1.0942-13.478-5.5614-18.324-5.1202-4.5431-11.897-5.5609-18.218-5.5609zm1.0077 7.2347c2.5689 0 4.6591 2.0435 4.6591 4.5553 0 2.1999-1.4161 4.0808-3.5398 4.5041v3.2794c3.0529 0.44309 5.2173 2.9536 5.2173 6.0591 0 3.416-2.8427 6.1945-6.3366 6.1945-3.4939 0-6.336-2.7785-6.336-6.1945 0-0.35031 0.03655-0.69134 0.09405-1.0258l-3.1724-1.0072c-0.81421 1.41-2.344 2.3115-4.0494 2.3115-0.4886 0-0.97399-0.0758-1.4418-0.22428-2.4433-0.77611-3.7851-3.3512-2.991-5.7402 0.62583-1.8828 2.406-3.1481 4.4302-3.1481 0.48824 0 0.97279 0.0754 1.4402 0.22427 1.1836 0.37606 2.1472 1.1805 2.712 2.265 0.42122 0.80821 0.58276 1.6995 0.47904 2.5797l3.1698 1.0072c0.90699-1.7734 2.8428-2.9998 4.9206-3.3011v-3.2794c-2.1237-0.42334-3.9145-2.3042-3.9145-4.5041 0-2.5118 2.0899-4.5553 4.6591-4.5553zm0 1.8221c-1.5413 0-2.7952 1.2261-2.7952 2.7332s1.2539 2.7326 2.7952 2.7326c1.5416 0 2.7957-1.2256 2.7957-2.7326s-1.2541-2.7332-2.7957-2.7332zm13.467 7.7417c2.0235 0 3.804 1.2655 4.4302 3.1486 0.38418 1.1568 0.28436 2.3906-0.28008 3.4747-0.5655 1.0844-1.5286 1.8889-2.7125 2.265-0.46708 0.14852-0.95146 0.22376-1.4397 0.22376-1.7053 0-3.2355-0.90075-4.0504-2.3104l-1.309 0.41651-0.57619-1.7332 1.3064-0.41496c-0.24412-2.1061 1.0506-4.1659 3.1905-4.8457 0.46814-0.14887 0.95285-0.22427 1.4407-0.22427zm-26.933 1.8221c-1.2143 0-2.2825 0.75934-2.6582 1.8893-0.47625 1.4333 0.32893 2.9781 1.7947 3.4437 0.28152 0.0896 0.57278 0.13539 0.86558 0.13539 1.2139 0 2.2818-0.75986 2.6572-1.8898 0.23107-0.69391 0.17072-1.4341-0.16795-2.0846-0.33937-0.65087-0.91663-1.1333-1.6268-1.3591-0.28152-0.0892-0.57209-0.13487-0.86455-0.13487zm26.933 0c-0.29245 0-0.58355 0.0456-0.86506 0.13487-1.4658 0.46567-2.2715 2.0109-1.7952 3.4442 0.37571 1.13 1.444 1.8888 2.6582 1.8888 0.2921 0 0.58287-0.0456 0.86403-0.13487 0.71085-0.22542 1.2883-0.7077 1.6273-1.3586 0.33867-0.65052 0.39867-1.3911 0.16795-2.0846-0.37571-1.1303-1.4436-1.8898-2.6572-1.8898zm-13.467 3.0034c-2.261 0-4.1 1.7982-4.1 4.008 0 2.2105 1.8391 4.0085 4.1 4.0085 2.2606 0 4.1-1.798 4.1-4.0085 0-2.2098-1.8394-4.008-4.1-4.008zm-5.5805 9.9746 1.509 1.0712-0.8077 1.0873c1.4651 1.5642 1.6559 3.9761 0.33228 5.7573-0.87489 1.1769-2.2862 1.879-3.775 1.879-0.98884 0-1.9356-0.30066-2.7378-0.87075-2.0796-1.4774-2.5419-4.3338-1.0309-6.3665 0.87418-1.1769 2.2852-1.8795 3.775-1.8795 0.67275 0 1.3247 0.14236 1.9265 0.41083zm11.166 0 0.80822 1.0878c0.60148-0.26846 1.2527-0.41135 1.9255-0.41135 1.488 0 2.8985 0.70228 3.7724 1.8784 1.5099 2.0327 1.0474 4.8869-1.0304 6.3629-0.80116 0.56903-1.7473 0.86972-2.7358 0.86972-1.4891 0-2.8986-0.70212-3.7724-1.8779-1.3222-1.7787-1.1316-4.1886 0.33176-5.7521l-0.80719-1.0862zm2.7337 2.4986c-0.59196 0-1.1587 0.18096-1.6402 0.52245-1.2467 0.88618-1.524 2.599-0.61805 3.8179 0.52388 0.70556 1.3702 1.1265 2.2645 1.1265 0.59196 0 1.1597-0.18063 1.6402-0.52141 1.2471-0.88583 1.5241-2.5992 0.61857-3.8184-0.52458-0.7059-1.3714-1.1271-2.265-1.1271zm-16.635 3e-3c-0.89464 0-1.7419 0.42116-2.2665 1.1271-0.90629 1.2203-0.62869 2.9339 0.61908 3.8204 0.48119 0.3422 1.0489 0.52245 1.6412 0.52245 0.89394 0 1.7414-0.42132 2.266-1.1276 0.90664-1.2203 0.62956-2.9339-0.61857-3.8204-0.48084-0.34184-1.0482-0.52193-1.6412-0.52193z">
 </path></symbol></defs><use href="#samsung-svg"/></svg>"""
@@ -2259,10 +2282,7 @@ List getAllReplicaDeviceIds() {
 private String getReplicaDeviceId(def replicaDevice, Boolean overrideAppId=false) {
     String deviceId = null
     Map replica = getReplicaDataJsonValue(replicaDevice, "replica")
-    /*if(replica==null) { 
-        deviceId = getReplicaDataValue(replicaDevice, "deviceId")
-    }
-    else*/ if(overrideAppId || replica?.replicaId==app.getId()) { // this is for mirror devices
+    if(overrideAppId || replica?.replicaId==app.getId()) { // this is for mirror devices. just get MY app devices.
         deviceId = replica?.deviceId
     }
     return deviceId        
@@ -2277,11 +2297,47 @@ private void setReplicaDataValue(def replicaDevice, String dataKey, String dataV
     replicaDevice?.updateDataValue(dataKey, dataValue) // STORE IT to device object
 }
 
-private Map getReplicaDataJsonValueRules(def replicaDevice, String dataKey) { //TEMP: This function is temp to convert rules from List to a Map. Didn't like this being the only List.
+private Map getReplicaDataJsonValueRules(def replicaDevice, String dataKey) {
+    return getReplicaDataJsonValueRulesV1(replicaDevice, dataKey)
+}
+
+private Map getReplicaDataJsonValueRulesV1(def replicaDevice, String dataKey) { //TEMP: Get ride of the maps between commands (flatten) and make to lists
+    Map replicaDeviceRules = getReplicaDataJsonValueRulesV0( replicaDevice, dataKey )
+    //logInfo "replicaDeviceRules: $replicaDeviceRules"
+    Boolean update = false
+    Map replicaDeviceRulesNew = [components:[],version:1]
+    if(replicaDeviceRules && replicaDeviceRules?.version!=1) {
+        update = true
+        replicaDeviceRules?.components?.each{ rule ->
+            Map items = [:]
+            rule?.each{ key, value ->            
+                if((value instanceof Map)) {  
+                    value?.each{ key2, value2 -> 
+                        //logInfo "$key : $value2"
+                        if(key=='trigger' && value2?.type==null) value2['type']='attribute'
+                        if(key=='command' && value2?.type==null) value2['type']='command'
+                        items[key] = value2
+                        //items[key].remove('label')
+                    }                
+                } else {
+                    items[key] = value
+                }
+            }
+            replicaDeviceRulesNew.components.add(items)        
+        }
+    }
+    if(update) {
+        //logInfo JsonOutput.toJson(replicaDeviceRulesNew)
+        logTrace "${app.getLabel()} '${replicaDevice?.getDisplayName()}' updating '$dataKey' to version 1"
+        //setReplicaDataJsonValue(replicaDevice, dataKey, replicaDeviceRulesNew)
+    }
+    return (update ? replicaDeviceRulesNew : replicaDeviceRules)
+}
+
+private Map getReplicaDataJsonValueRulesV0(def replicaDevice, String dataKey) { //TEMP: This function is temp to convert rules from List to a Map. Didn't like this being the only List.
     def replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, dataKey)
     if(replicaDeviceRules!=null && (replicaDeviceRules instanceof List)) {
-        //logInfo "${app.getLabel()} '${replicaDevice?.getDisplayName()}' updating '$dataKey' from list to map" 
-        //setReplicaDataJsonValue(replicaDevice, dataKey, [ components:replicaDeviceRules ])
+        logTrace "${app.getLabel()} '${replicaDevice?.getDisplayName()}' updating '$dataKey' to version 0" 
         return  [ components:replicaDeviceRules ]
     }
     else {
@@ -2433,34 +2489,6 @@ Map getDriverList() {
 		}
 	} catch (e) {
 		logWarn "Error retrieving installed drivers: ${e}"
-	}
-	return result
-}
-
-// Thanks to gavincampbell for the code below!
-Map getAppList() {
-	def params = [
-		uri: "http://127.0.0.1:8080/app/list",
-		textParser: true,
-		headers: [
-			Cookie: state.cookie
-		]
-	  ]
-	
-	Map result = [items:[]]
-	try {
-		httpGet(params) { resp ->     
-			def matcherText = resp.data.text.replace("\n","").replace("\r","")
-			def matcher = matcherText.findAll(/(<tr class="app-row" data-app-id="[^<>]+">.*?<\/tr>)/).each {
-				def allFields = it.findAll(/(<td .*?<\/td>)/) // { match,f -> return f } 
-				def id = it.find(/data-app-id="([^"]+)"/) { match,i -> return i.trim() }
-				def title = allFields[0].find(/title="([^"]+)/) { match,t -> return t.trim() }
-				def namespace = allFields[1].find(/>([^"]+)</) { match,ns -> return ns.trim() }
-				result.items.add([id:id,title:title,namespace:namespace])
-			}
-		}
-	} catch (e) {
-		log.error "Error retrieving installed apps: ${e}"
 	}
 	return result
 }
