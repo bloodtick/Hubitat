@@ -1079,7 +1079,7 @@ void deviceTriggerHandler(def event) {
            
 void deviceTriggerHandler(def replicaDevice, String eventName, String eventValue, String eventUnit, Map eventJsonData) {
     Long eventPostTime =  now()
-    logInfo "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' name:'$eventName' value:'$eventValue' unit:'$eventUnit'"
+    logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' name:'$eventName' value:'$eventValue' unit:'$eventUnit'"
     String deviceId = getReplicaDeviceId(replicaDevice)
     Map special = eventJsonData?.get(eventValue)
 
