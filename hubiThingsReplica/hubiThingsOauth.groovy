@@ -15,10 +15,11 @@
 *  Update: Bloodtick Jones
 *  Date: 2022-10-01
 *
-*  1.0.0  2022-12-04 First pass.
+*  1.0.00  2022-12-04 First pass.
+*  1.0.01  2022-12-04 Updated to hide PAT as a password
 */
 
-public static String version() {  return "1.0.00"  }
+public static String version() {  return "1.0.01"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -152,7 +153,7 @@ def mainPage(){
         displayHeader()
         
         section(menuHeader("${app.getLabel()} Configuration ${refreshInterval?"[Auto Refresh]":""} $sHubitatIconStatic $sSamsungIconStatic")) {
-            input(name: "clientSecretPAT", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), width: 6, submitOnChange: true, newLineAfter:true)
+            input(name: "clientSecretPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings Token UUID", width: 6, submitOnChange: true, newLineAfter:true)
             if(state.user=="bloodtick") { input(name: "mainPage::test", type: "button", width: 2, title: "Test", style:"width:75%;") }
         }
         
@@ -754,6 +755,7 @@ void testButton() {
     listApps()
     //listInstalledApps()
     
+    logInfo clientSecretPAT
     return
 }
 
@@ -761,9 +763,10 @@ def createApp() {
     logInfo "${app.getLabel()} creating SmartThings API"
     def response = [statusCode:iHttpError]
     
+    String displayName = app.getLabel()
     def app = [
         appName: "hubithings-${UUID.randomUUID().toString()}",
-        displayName: "HubiThings Replica",
+        displayName: displayName,
         description: "SmartThings Service to connect with Hubitat",
         iconImage: [ url:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/icon/replica.png" ],
         appType: "API_ONLY",
