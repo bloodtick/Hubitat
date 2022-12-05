@@ -12,29 +12,22 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.1.2"}
+public static String version() {return "1.2.0"}
 
 metadata 
 {
     definition(name: "Replica Power Outlet", namespace: "replica", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaPowerOutlet.groovy")
     {
         capability "Actuator"
+        capability "Configuration"
         capability "Switch"
         capability "PowerMeter"
         capability "VoltageMeasurement"
         capability "Refresh"
-        
-        attribute "command", "enum", ["off", "on", "refresh"]
+
         attribute "healthStatus", "enum", ["offline", "online"]
-        
-        command "setPowerValue", [[name: "power*", type: "NUMBER", description: "Power level in Watts"]]
-        command "setVoltageValue", [[name: "voltage*", type: "NUMBER", description: "Voltage level in Volts"]]
-        command "setFrequencyValue", [[name: "frequency*", type: "NUMBER", description: "Frequency level in Hz"]]
-        command "setSwitchValue", [[name: "switch*", type: "ENUM", description: "Any supported switch attribute", constraints: ["off","on"]]]
-        command "setSwitchOff"
-        command "setSwitchOn"
-        command "setHealthStatusValue", [[name: "healthStatus*", type: "ENUM", description: "Any supported healthStatus attribute", constraints: ["offline","online"]]]
-        command "replicaRules" // indicates getReplicaRules is available
+    }
+    preferences {   
     }
 }
 
@@ -43,30 +36,50 @@ def installed() {
 }
 
 def updated() {
-	initialize()
+	initialize()    
 }
 
 def initialize() {
+    updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers()))
+    updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands()))
 }
 
-def parse(String description) {
-    log.info "${device.displayName} parse"
+def configure() {
+    log.info "${device.displayName} configured default rules"
+    initialize()
+    updateDataValue("rules", getReplicaRules())
+    sendCommand("configure")
 }
 
-def setPowerValue(value) {    
-    sendEvent(name: "power", value: value, unit: "W", descriptionText: "${device.displayName} power is $value W")
+// Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
+Map getReplicaCommands() {
+    return ([ "setPowerValue":[[name:"power*",type:"NUMBER"]], "setVoltageValue":[[name:"voltage*",type:"NUMBER"]], "setFrequencyValue":[[name:"frequency*",type:"NUMBER"]], 
+              "setSwitchValue":[[name:"switch*",type:"ENUM"]], "setSwitchOff":[], "setSwitchOn":[], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]
+            ])
 }
 
-def setVoltageValue(value) {    
-    sendEvent(name: "voltage", value: value, unit: "V", descriptionText: "${device.displayName} voltage is $value V")
+def setPowerValue(value) {
+    String descriptionText = "${device.displayName} power is $value W"
+    sendEvent(name: "power", value: value, unit: "W", descriptionText: descriptionText)
+    log.info descriptionText
 }
 
-def setFrequencyValue(value) {    
-    sendEvent(name: "frequency", value: value, unit: "Hz", descriptionText: "${device.displayName} frequency is $value Hz")
+def setVoltageValue(value) {
+    String descriptionText = "${device.displayName} voltage is $value V"
+    sendEvent(name: "voltage", value: value, unit: "V", descriptionText: descriptionText)
+    log.info descriptionText
+}
+
+def setFrequencyValue(value) {
+    String descriptionText = "${device.displayName} frequency is $value Hz"
+    sendEvent(name: "frequency", value: value, unit: "Hz", descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setSwitchValue(value) {
-    sendEvent(name: "switch", value: value, descriptionText: "${device.displayName} switch set to $value")
+    String descriptionText = "${device.displayName} switch is $value"
+    sendEvent(name: "switch", value: value, descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setSwitchOff() {
@@ -81,9 +94,14 @@ def setHealthStatusValue(value) {
     sendEvent(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
 }
 
-private def sendCommand(String value, Map data=null, Boolean isStateChange=true) {
-    sendEvent(name: "command", value: value, descriptionText: "${device.displayName} sending command ${data ? data : value }", data: data, isStateChange: isStateChange, displayed: false)
-}    
+// Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
+Map getReplicaTriggers() {
+    return ([ "off":[] , "on":[], "refresh":[]])
+}
+
+private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
+}
 
 def off() { 
     sendCommand("off")
@@ -97,10 +115,6 @@ void refresh() {
     sendCommand("refresh")
 }
 
-void replicaRules() {
-    log.info getReplicaRules()
-}
-
 String getReplicaRules() {
-    return """{"components":[{"trigger":{"attribute: command.off":{"dataType":"ENUM","name":"command","label":"attribute: command.off","value":"off"}},"command":{"command: off()":{"name":"off","capability":"switch","label":"command: off()"}},"type":"hubitatTrigger"},{"trigger":{"attribute: command.on":{"dataType":"ENUM","name":"command","label":"attribute: command.on","value":"on"}},"command":{"command: on()":{"name":"on","capability":"switch","label":"command: on()"}},"type":"hubitatTrigger"},{"trigger":{"attribute: command.refresh":{"dataType":"ENUM","name":"command","label":"attribute: command.refresh","value":"refresh"}},"command":{"command: refresh()":{"name":"refresh","capability":"refresh","label":"command: refresh()"}},"type":"hubitatTrigger"},{"trigger":{"attribute: healthStatus.*":{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.* "}},"command":{"command: setHealthStatusValue(healthStatus*)":{"arguments":["ENUM"],"parameters":[{"name":"healthStatus*","description":"Any supported healthStatus attribute","type":"ENUM","constraints":["offline","online"]}],"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)"}},"type":"smartTrigger","mute":true},{"trigger":{"attribute: power.*":{"properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["W"],"default":"W"}},"additionalProperties":false,"required":["value"],"capability":"powerMeter","attribute":"power","label":"attribute: power.*"}},"command":{"command: setPowerValue(power*)":{"arguments":["NUMBER"],"parameters":[{"name":"power*","description":"Power level in Watts","type":"NUMBER"}],"name":"setPowerValue","label":"command: setPowerValue(power*)"}},"type":"smartTrigger","mute":true},{"trigger":{"attribute: switch.*":{"properties":{"value":{"title":"SwitchState","type":"string","enum":["on","off"]}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"}},"command":{"command: setSwitchValue(switch*)":{"arguments":["ENUM"],"parameters":[{"name":"switch*","description":"Any supported switch attribute","type":"ENUM","constraints":["off","on"]}],"name":"setSwitchValue","label":"command: setSwitchValue(switch*)"}},"type":"smartTrigger"}]}"""
+    return """{"version":1,"components":[{"trigger":{"name":"off","label":"command: off()","type":"command"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"name":"on","label":"command: on()","type":"command"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"},"command":{"name":"setSwitchValue","label":"command: setSwitchValue(switch*)","type":"command","parameters":[{"name":"switch*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["W"],"default":"W"}},"additionalProperties":false,"required":["value"],"capability":"powerMeter","attribute":"power","label":"attribute: power.*"},"command":{"name":"setPowerValue","label":"command: setPowerValue(power*)","type":"command","parameters":[{"name":"power*","type":"NUMBER"}]},"type":"smartTrigger","mute":true}]}"""
 }
