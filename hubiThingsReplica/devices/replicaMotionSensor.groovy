@@ -12,29 +12,25 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.1.2"}
+public static String version() {return "1.2.0"}
 
 metadata 
 {
     definition(name: "Replica Motion Sensor", namespace: "replica", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaMotionSensor.groovy")
     {
         capability "Actuator"
+        capability "Configuration"
         capability "Battery"
         capability "MotionSensor"
+        capability "Refresh"
         capability "TemperatureMeasurement"
-        
-        attribute "command", "enum", ["active", "inactive"]
+
         attribute "healthStatus", "enum", ["offline", "online"]
-        
-        command "setBatteryValue", [[name: "battery*", type: "NUMBER", description: "Battery level in %"]]
-        command "setMotionValue", [[name: "motion*", type: "ENUM", description: "Any supported motion attribute", constraints: ["active","inactive"]]]
-        command "setMotionActive"
-        command "setMotionInactive"
-        command "setTemperatureValue", [[name: "temperature*", type: "NUMBER", description: "Temperature level in F or C"]]
-        command "setHealthStatusValue", [[name: "healthStatus*", type: "ENUM", description: "Any supported healthStatus attribute", constraints: ["offline","online"]]]
+
         command "inactive"
         command "active"
-        command "replicaRules" // indicates getReplicaRules is available
+    }
+    preferences {   
     }
 }
 
@@ -43,22 +39,38 @@ def installed() {
 }
 
 def updated() {
-	initialize()
+	initialize()    
 }
 
 def initialize() {
+    updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers()))
+    updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands()))
 }
 
-def parse(String description) {
-    log.info "${device.displayName} parse"
+def configure() {
+    log.info "${device.displayName} configured default rules"
+    initialize()
+    updateDataValue("rules", getReplicaRules())
+    sendCommand("configure")
+}
+
+// Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
+Map getReplicaCommands() {
+    return ([ "setBatteryValue":[[name:"battery*",type:"NUMBER"]], "setMotionValue":[[name:"motion*",type:"ENUM"]], "setMotionActive":[], "setMotionInactive":[],             
+              "setTemperatureValue":[[name:"temperature*",type:"NUMBER"]], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]
+            ])
 }
 
 def setBatteryValue(value) {
-    sendEvent(name: "battery", value: value, unit: "%", descriptionText: "${device.displayName} battery level is $value %")
+    String descriptionText = "${device.displayName} battery level is $value %"
+    sendEvent(name: "battery", value: value, unit: "%", descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setMotionValue(value) {
-    sendEvent(name: "motion", value: value, descriptionText: "${device.displayName} motion set to $value")
+    String descriptionText = "${device.displayName} motion is $value"
+    sendEvent(name: "motion", value: value, descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setMotionActive() {
@@ -71,15 +83,22 @@ def setMotionInactive() {
 
 def setTemperatureValue(value) {
     String unit = "°${getTemperatureScale()}"
-    sendEvent(name: "temperature", value: value, unit: unit, descriptionText: "${device.displayName} temperature is $value $unit")
+    String descriptionText = "${device.displayName} temperature is $value $unit"
+    sendEvent(name: "temperature", value: value, unit: unit, descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setHealthStatusValue(value) {    
     sendEvent(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
 }
 
-private def sendCommand(String value, Map data=null, Boolean isStateChange=true) {
-    sendEvent(name: "command", value: value, descriptionText: "${device.displayName} sending command ${data ? data : value }", data: data, isStateChange: isStateChange, displayed: false)
+// Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
+Map getReplicaTriggers() {
+    return ([ "inactive":[] , "active":[], "refresh":[]])
+}
+
+private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
 }
 
 def inactive() {
@@ -90,10 +109,11 @@ def active() {
     sendCommand("active")    
 }
 
-void replicaRules() {
-    log.info getReplicaRules()
+void refresh() {
+    sendCommand("refresh")
 }
 
 String getReplicaRules() {
-    return """{"components":[{"trigger":{"attribute: battery.*":{"title":"IntegerPercent","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"}},"command":{"command: setBatteryValue(battery*)":{"arguments":["NUMBER"],"parameters":[{"name":"battery*","description":"Battery level in %","type":"NUMBER"}],"name":"setBatteryValue","label":"command: setBatteryValue(battery*)"}},"type":"smartTrigger","mute":true},{"trigger":{"attribute: healthStatus.*":{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.* "}},"command":{"command: setHealthStatusValue(healthStatus*)":{"arguments":["ENUM"],"parameters":[{"name":"healthStatus*","description":"Any supported healthStatus attribute","type":"ENUM","constraints":["offline","online"]}],"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)"}},"type":"smartTrigger","mute":true},{"trigger":{"attribute: motion.*":{"properties":{"value":{"title":"ActivityState","type":"string","enum":["active","inactive"]}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.*"}},"command":{"command: setMotionValue(motion*)":{"arguments":["ENUM"],"parameters":[{"name":"motion*","description":"Any supported motion attribute","type":"ENUM","constraints":["active","inactive"]}],"name":"setMotionValue","label":"command: setMotionValue(motion*)"}},"type":"smartTrigger"},{"trigger":{"attribute: temperature.*":{"properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"}},"command":{"command: setTemperatureValue(temperature*)":{"arguments":["NUMBER"],"parameters":[{"name":"temperature*","description":"Temperature level in F or C","type":"NUMBER"}],"name":"setTemperatureValue","label":"command: setTemperatureValue(temperature*)"}},"type":"smartTrigger","mute":true}]}"""
+    return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"OpenableState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"windowShade","attribute":"windowShade","label":"attribute: windowShade.*"},"command":{"name":"setWindowShadeValue","label":"command: setWindowShadeValue(windowShade*)","type":"command","parameters":[{"name":"windowShade*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"windowShadeLevel","attribute":"shadeLevel","label":"attribute: shadeLevel.*"},"command":{"name":"setShadeLevelValue","label":"command: setShadeLevelValue(shadeLevel*)","type":"command","parameters":[{"name":"shadeLevel*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"name":"close","label":"command: close()","type":"command"},"command":{"name":"close","type":"command","capability":"windowShade","label":"command: close()"},"type":"hubitatTrigger"},{"trigger":{"name":"open","label":"command: open()","type":"command"},"command":{"name":"open","type":"command","capability":"windowShade","label":"command: open()"},"type":"hubitatTrigger"},{"trigger":{"name":"pause","label":"command: pause()","type":"command"},"command":{"name":"pause","type":"command","capability":"windowShade","label":"command: pause()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"array","items":{"type":"string","enum":["open","close","pause"]}}},"additionalProperties":false,"required":[],"capability":"windowShade","attribute":"supportedWindowShadeCommands","label":"attribute: supportedWindowShadeCommands.*"},"command":{"name":"setSupportedWindowShadeCommandsValue","label":"command: setSupportedWindowShadeCommandsValue(supportedWindowShadeCommands*)","type":"command","parameters":[{"name":"supportedWindowShadeCommands*","type":"JSON_OBJECT"}]},"type":"smartTrigger"},{"trigger":{"name":"setShadeLevel","label":"command: setShadeLevel(shadeLevel*)","type":"command","parameters":[{"name":"shadeLevel*","type":"NUMBER"}]},"command":{"name":"setShadeLevel","arguments":[{"name":"shadeLevel","optional":false,"schema":{"type":"integer","minimum":0,"maximum":100}}],"type":"command","capability":"windowShadeLevel","label":"command: setShadeLevel(shadeLevel*)"},"type":"hubitatTrigger"}]}
+status: {"components":{"main":{"contactSensor":{"contact":{"value":"closed","timestamp":"2022-12-05T14:46:32.409Z"}},"windowShadeLevel":{"shadeLevel":{"value":50,"unit":"%","timestamp":"2022-12-05T16:09:20.462Z"}},"windowShade":{"supportedWindowShadeCommands":{"value":["open","close"],"timestamp":"2022-12-05T14:46:32.347Z"},"windowShade":{"value":"partially open","timestamp":"2022-12-05T16:09:20.461Z"}}}}}"""
 }
