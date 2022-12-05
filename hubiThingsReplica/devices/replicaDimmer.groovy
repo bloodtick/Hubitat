@@ -12,26 +12,25 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.1.2"}
+public static String version() {return "1.2.0"}
+
+import groovy.transform.CompileStatic
+import groovy.transform.Field
+@Field volatile static Map<String,Long> g_mEventSendTime = [:]
 
 metadata 
 {
     definition(name: "Replica Dimmer", namespace: "replica", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaDimmer.groovy")
     {
         capability "Actuator"
+        capability "Configuration"
         capability "Switch"
         capability "SwitchLevel"
         capability "Refresh"
         
-        attribute "command", "enum", ["off", "on", "level.*", "refresh"]
         attribute "healthStatus", "enum", ["offline", "online"]
-        
-        command "setLevelValue", [[name: "level*", type: "NUMBER", description: "Dimmer level in %"]]        
-        command "setSwitchValue", [[name: "switch*", type: "ENUM", description: "Any supported switch attribute", constraints: ["off","on"]]]
-        command "setSwitchOff"
-        command "setSwitchOn"
-        command "setHealthStatusValue", [[name: "healthStatus*", type: "ENUM", description: "Any supported healthStatus attribute", constraints: ["offline","online"]]]
-        command "replicaRules" // indicates getReplicaRules is available
+    }
+    preferences {   
     }
 }
 
@@ -40,22 +39,36 @@ def installed() {
 }
 
 def updated() {
-	initialize()
+	initialize()    
 }
 
 def initialize() {
+    updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers()))
+    updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands()))
 }
 
-def parse(String description) {
-    log.info "${device.displayName} parse"
+def configure() {
+    log.info "${device.displayName} configured default rules"
+    initialize()
+    updateDataValue("rules", getReplicaRules())
+    sendCommand("configure")
+}
+
+// Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
+Map getReplicaCommands() {
+    return ([ "setLevelValue":[[name:"level*",type:"NUMBER"]] , "setSwitchValue":[[name:"switch*",type:"ENUM"]], "setSwitchOff":[], "setSwitchOn":[], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]])
 }
 
 def setLevelValue(value) {
-    sendEvent(name: "level", value: value, unit: "%", descriptionText: "${device.displayName} level is $value %")
+    String descriptionText = "${device.displayName} set level to $value% ${getDelay()}"
+    sendEvent(name: "level", value: value, unit: "%", descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setSwitchValue(value) {
-    sendEvent(name: "switch", value: value, descriptionText: "${device.displayName} switch set to $value")
+    String descriptionText = "${device.displayName} was turned $value ${getDelay()}"
+    sendEvent(name: "switch", value: value, descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setSwitchOff() {
@@ -70,8 +83,18 @@ def setHealthStatusValue(value) {
     sendEvent(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
 }
 
-private def sendCommand(String value, Map data=null, Boolean isStateChange=true) {
-    sendEvent(name: "command", value: value, descriptionText: "${device.displayName} sending command ${data ? data : value }", data: data, isStateChange: isStateChange, displayed: false)
+private String getDelay() {
+    return (g_mEventSendTime[device.getId()] && (now() - g_mEventSendTime[device.getId()] < 5000)) ? "with roundtrip delay of ${now() - g_mEventSendTime[device.getId()]}ms" : ""
+}
+
+// Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
+Map getReplicaTriggers() {
+    return ([ "off":[] , "on":[], "setLevel":[[name:"level*",type:"NUMBER"]], "refresh":[]])
+}
+
+private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
+    Long now = g_mEventSendTime[device.getId()] = now()
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
 }
 
 def off() { 
@@ -83,17 +106,13 @@ def on() {
 }
 
 def setLevel(value, duration=null) {
-    sendCommand("level.*", ["level.*":[level:value]])    
+    sendCommand("setLevel", value)    
 }
 
 void refresh() {
     sendCommand("refresh")
 }
 
-void replicaRules() {
-    log.info getReplicaRules()
-}
-
 String getReplicaRules() {
-    return """{"components":[{"trigger":{"attribute: command.level.*":{"dataType":"ENUM","name":"command","label":"attribute: command.level.*","value":"level.*"}},"command":{"command: setLevel(level*, rate)":{"name":"setLevel","arguments":[{"name":"level","optional":false,"schema":{"type":"integer","minimum":0,"maximum":100}},{"name":"rate","optional":true,"schema":{"title":"PositiveInteger","type":"integer","minimum":0}}],"capability":"switchLevel","label":"command: setLevel(level*, rate)"}},"type":"hubitatTrigger"},{"trigger":{"attribute: command.off":{"dataType":"ENUM","name":"command","label":"attribute: command.off","value":"off"}},"command":{"command: off()":{"name":"off","capability":"switch","label":"command: off()"}},"type":"hubitatTrigger"},{"trigger":{"attribute: command.on":{"dataType":"ENUM","name":"command","label":"attribute: command.on","value":"on"}},"command":{"command: on()":{"name":"on","capability":"switch","label":"command: on()"}},"type":"hubitatTrigger"},{"trigger":{"attribute: switch.*":{"properties":{"value":{"title":"SwitchState","type":"string","enum":["on","off"]}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"}},"command":{"command: setSwitchValue(switch*)":{"arguments":["ENUM"],"parameters":[{"name":"switch*","description":"Any supported switch attribute","type":"ENUM","constraints":["off","on"]}],"name":"setSwitchValue","label":"command: setSwitchValue(switch*)"}},"type":"smartTrigger"},{"trigger":{"attribute: healthStatus.*":{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.* "}},"command":{"command: setHealthStatusValue(healthStatus*)":{"arguments":["ENUM"],"parameters":[{"name":"healthStatus*","description":"Any supported healthStatus attribute","type":"ENUM","constraints":["offline","online"]}],"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)"}},"type":"smartTrigger","mute":true},{"trigger":{"attribute: level.*":{"title":"IntegerPercent","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"switchLevel","attribute":"level","label":"attribute: level.*"}},"command":{"command: setLevelValue(level*)":{"arguments":["NUMBER"],"parameters":[{"name":"level*","description":"Dimmer level in %","type":"NUMBER"}],"name":"setLevelValue","label":"command: setLevelValue(level*)"}},"type":"smartTrigger"}]}"""
+    return """{"version":1,"components":[{"trigger":{"name":"off","label":"command: off()","type":"command"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"name":"on","label":"command: on()","type":"command"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"name":"setLevel","label":"command: setLevel(level*)","type":"command","parameters":[{"name":"level*","type":"NUMBER"}]},"command":{"name":"setLevel","arguments":[{"name":"level","optional":false,"schema":{"type":"integer","minimum":0,"maximum":100}},{"name":"rate","optional":true,"schema":{"title":"PositiveInteger","type":"integer","minimum":0}}],"type":"command","capability":"switchLevel","label":"command: setLevel(level*, rate)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"},"command":{"name":"setSwitchValue","label":"command: setSwitchValue(switch*)","type":"command","parameters":[{"name":"switch*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"switchLevel","attribute":"level","label":"attribute: level.*"},"command":{"name":"setLevelValue","label":"command: setLevelValue(level*)","type":"command","parameters":[{"name":"level*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true}]}"""
 }
