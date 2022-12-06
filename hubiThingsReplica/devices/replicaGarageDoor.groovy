@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.1.2"}
+public static String version() {return "1.2.0"}
 
 metadata 
 {
@@ -21,6 +21,7 @@ metadata
         capability "Actuator"
         capability "Alarm"
         capability "Battery"
+        capability "Configuration"
         capability "ContactSensor"
         capability "DoorControl"
         capability "GarageDoorControl"       
@@ -28,51 +29,43 @@ metadata
         capability "Sensor"
         capability "Switch"
         
-        attribute "command", "enum", ["both", "siren", "strobe", "close", "open", "off", "on", "refresh"]
         attribute "healthStatus", "enum", ["offline", "online"]
-        
-        command "setAlarmValue", [[name: "alarm*", type: "ENUM", description: "Any supported alarm attribute", constraints: ["off","both","siren","strobe"]]]
-        command "setAlarmOff"
-        command "setAlarmBoth"
-        command "setAlarmSiren"
-        command "setAlarmStrobe"
-        command "setBatteryValue", [[name: "number*", type: "NUMBER", description: "Battery level in %"]]
-        command "setContactValue", [[name: "contact*", type: "ENUM", description: "Any supported contact attribute", constraints: ["closed","open"]]]
-        command "setContactClosed"
-        command "setContactOpen"
-        command "setDoorValue", [[name: "door*", type: "ENUM", description: "Any supported door attribute", constraints: ["closed","closing","open","opening","unknown"]]]
-        command "setDoorClosed"
-        command "setDoorClosing"
-        command "setDoorOpen"
-        command "setDoorOpening"
-        command "setDoorUnknown"
-        command "setSwitchValue", [[name: "switch*", type: "ENUM", description: "Any supported switch attribute", constraints: ["off","on"]]]
-        command "setSwitchOff"
-        command "setSwitchOn"
-        command "setHealthStatusValue", [[name: "healthStatus*", type: "ENUM", description: "Any supported healthStatus attribute", constraints: ["offline","online"]]]
-        command "replicaRules" // indicates getReplicaRules is available
+    }
+    preferences {   
     }
 }
 
 def installed() {
-    log.info "${device.displayName} installed"
-    initialize()
+	initialize()
 }
 
 def updated() {
-    log.info "${device.displayName} updated"
-    initialize()
+	initialize()    
 }
 
 def initialize() {
+    updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers()))
+    updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands()))
 }
 
-def parse(String description) {
-    log.info "${device.displayName} parse"
+def configure() {
+    log.info "${device.displayName} configured default rules"
+    initialize()
+    updateDataValue("rules", getReplicaRules())
+    sendCommand("configure")
+}
+
+// Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
+Map getReplicaCommands() {
+    return ([ "setAlarmValue":[[name:"alarm*",type:"ENUM"]], "setAlarmOff":[], "setAlarmBoth":[], "setAlarmSiren":[], "setAlarmStrobe":[], "setBatteryValue":[[name:"battery*",type:"NUMBER"]], 
+              "setContactValue":[[name:"contact*",type:"ENUM"]], "setContactClosed":[], "setContactOpen":[], "setDoorValue":[[name:"door*",type:"ENUM"]], "setDoorClosed":[], "setDoorClosing":[], 
+              "setDoorOpen":[], "setDoorOpening":[], "setDoorUnknown":[], "setSwitchValue":[[name:"switch*",type:"ENUM"]], "setSwitchOff":[], "setSwitchOn":[], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]])
 }
 
 def setAlarmValue(String value) {
-    sendEvent(name: "alarm", value: value, descriptionText: "${device.displayName} alarm set to $value")
+    String descriptionText = "${device.displayName} alarm is $value"
+    sendEvent(name: "alarm", value: value, descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setAlarmOff() {
@@ -91,12 +84,16 @@ def setAlarmStrobe() {
     setAlarmValue("strobe")
 }
 
-def setBatteryValue(value) {    
-    sendEvent(name: "battery", value: "$value", unit: "%", descriptionText: "${device.displayName} battery is ${value}%")
+def setBatteryValue(value) {
+    String descriptionText = "${device.displayName} battery level is $value %"
+    sendEvent(name: "battery", value: value, unit: "%", descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setContactValue(String value) {
-    sendEvent(name: "contact", value: value, descriptionText: "${device.displayName} contact set to $value")
+    String descriptionText = "${device.displayName} contact is $value"
+    sendEvent(name: "contact", value: value, descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setContactClosed() {
@@ -108,7 +105,9 @@ def setContactOpen() {
 }
 
 def setDoorValue(String value) {
-    sendEvent(name: "door", value: value, descriptionText: "${device.displayName} door set to $value")
+    String descriptionText = "${device.displayName} door is $value"
+    sendEvent(name: "door", value: value, descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setDoorClosed() {
@@ -131,8 +130,10 @@ def setDoorUnknown() {
     setDoorValue("unknown")
 }
 
-def setSwitchValue(String value) {
-    sendEvent(name: "switch", value: value, descriptionText: "${device.displayName} switch set to $value")
+def setSwitchValue(value) {
+    String descriptionText = "${device.displayName} was turned $value"
+    sendEvent(name: "switch", value: value, descriptionText: descriptionText)
+    log.info descriptionText
 }
 
 def setSwitchOff() {
@@ -147,8 +148,13 @@ def setHealthStatusValue(String value) {
     sendEvent(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
 }
 
-private def sendCommand(String value, Map data=null, Boolean isStateChange=true) {
-    sendEvent(name: "command", value: value, descriptionText: "${device.displayName} sending command ${data ? data : value }", data: data, isStateChange: isStateChange, displayed: false)
+// Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
+Map getReplicaTriggers() {
+    return ([ "both":[] , "siren":[], "strobe":[], "off":[], "on":[], "close":[], "open":[], "refresh":[]])
+}
+
+private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
 }   
 
 def both() {
@@ -183,10 +189,7 @@ void refresh() {
     sendCommand("refresh")
 }
 
-void replicaRules() {
-    log.info getReplicaRules()
-}
-
 String getReplicaRules() {
-    return """{"components":[{"trigger":{"attribute: command.close":{"dataType":"ENUM","name":"command","label":"attribute: command.close","value":"close"}},"command":{"command: close()":{"name":"close","capability":"doorControl","label":"command: close()"}},"type":"hubitatTrigger"},{"trigger":{"attribute: command.open":{"dataType":"ENUM","name":"command","label":"attribute: command.open","value":"open"}},"command":{"command: open()":{"name":"open","capability":"doorControl","label":"command: open()"}},"type":"hubitatTrigger"},{"trigger":{"attribute: contact.*":{"properties":{"value":{"title":"ContactState","type":"string","enum":["closed","open"]}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.*"}},"command":{"command: setContactValue(contact*)":{"arguments":["ENUM"],"parameters":[{"name":"contact*","description":"Any supported contact attribute","type":"ENUM","constraints":["closed","open"]}],"name":"setContactValue","label":"command: setContactValue(contact*)"}},"type":"smartTrigger"},{"trigger":{"attribute: door.*":{"properties":{"value":{"type":"string","enum":["closed","closing","open","opening","unknown"]}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.*"}},"command":{"command: setDoorValue(door*)":{"arguments":["ENUM"],"parameters":[{"name":"door*","description":"Any supported door attribute","type":"ENUM","constraints":["closed","closing","open","opening","unknown"]}],"name":"setDoorValue","label":"command: setDoorValue(door*)"}},"type":"smartTrigger"},{"trigger":{"attribute: healthStatus.*":{"schema":{"properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.* "}},"command":{"command: setHealthStatusValue(healthStatus*)":{"arguments":["ENUM"],"parameters":[{"name":"healthStatus*","description":"Any supported healthStatus attribute","type":"ENUM","constraints":["offline","online"]}],"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)"}},"type":"smartTrigger","mute":true},{"trigger":{"attribute: switch.*":{"properties":{"value":{"title":"SwitchState","type":"string","enum":["on","off"]}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"}},"command":{"command: setSwitchValue(switch*)":{"arguments":["ENUM"],"parameters":[{"name":"switch*","description":"Any supported switch attribute","type":"ENUM","constraints":["off","on"]}],"name":"setSwitchValue","label":"command: setSwitchValue(switch*)"}},"type":"smartTrigger"}]}"""
+    return """ {"version":1,"components":[{"trigger":{"name":"close","label":"command: close()","type":"command"},"command":{"name":"close","type":"command","capability":"doorControl","label":"command: close()"},"type":"hubitatTrigger"},{"trigger":{"name":"open","label":"command: open()","type":"command"},"command":{"name":"open","type":"command","capability":"doorControl","label":"command: open()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.*"},"command":{"name":"setContactValue","label":"command: setContactValue(contact*)","type":"command","parameters":[{"name":"contact*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"},"command":{"name":"setSwitchValue","label":"command: setSwitchValue(switch*)","type":"command","parameters":[{"name":"switch*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.*"},"command":{"name":"setDoorValue","label":"command: setDoorValue(door*)","type":"command","parameters":[{"name":"door*","type":"ENUM"}]},"type":"smartTrigger"}]}
+status: {"components":{"main":{"doorControl":{"door":{"value":"closed","timestamp":"2022-11-20T01:40:51.228Z"}},"contactSensor":{"contact":{"value":"closed","timestamp":"2022-11-20T01:40:51.232Z"}},"switch":{"switch":{"value":"on","timestamp":"2022-11-20T01:40:51.229Z"}}}}}"""
 }
