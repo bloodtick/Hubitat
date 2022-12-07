@@ -105,7 +105,6 @@ def setTemperatureValue(value) {
 def setThreeAxisValue(value) {
     String descriptionText = "${device.displayName} 3-axis is X:${value[0]}, Y:${value[1]}, Z:${value[2]}"
     sendEvent(name: "threeAxis", value: value, descriptionText: descriptionText)
-    log.info descriptionText
     vibrationActive()
 }
 
