@@ -1,0 +1,2709 @@
+[
+    {
+        "capability": "AccelerationSensor",
+        "attributes": [
+            {
+                "name": "acceleration",
+                "type": "ENUM",
+                "enumValues": [
+                    "inactive",
+                    "active"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Actuator"
+    },
+    {
+        "capability": "AirQuality",
+        "attributes": [
+            {
+                "name": "airQualityIndex",
+                "type": "NUMBER",
+                "description": "range:0..500"
+            }
+        ]
+    },
+    {
+        "capability": "Alarm",
+        "attributes": [
+            {
+                "name": "alarm",
+                "type": "ENUM",
+                "enumValues": [
+                    "strobe",
+                    "off",
+                    "both",
+                    "siren"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "both"
+            },
+            {
+                "name": "off"
+            },
+            {
+                "name": "siren"
+            },
+            {
+                "name": "strobe"
+            }
+        ]
+    },
+    {
+        "capability": "AudioNotification",
+        "commands": [
+            {
+                "name": "playText",
+                "args": [
+                    {
+                        "name": "text",
+                        "type": "STRING",
+                        "description": "Text to play",
+                        "required": true
+                    },
+                    {
+                        "name": "volumelevel",
+                        "type": "NUMBER",
+                        "description": "Volume level (0 to 100)",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "playTextAndRestore",
+                "args": [
+                    {
+                        "name": "text",
+                        "type": "STRING",
+                        "description": "Text to play",
+                        "required": true
+                    },
+                    {
+                        "name": "volumelevel",
+                        "type": "NUMBER",
+                        "description": "Volume level (0 to 100)",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "playTextAndResume",
+                "args": [
+                    {
+                        "name": "text",
+                        "type": "STRING",
+                        "description": "Text to play",
+                        "required": true
+                    },
+                    {
+                        "name": "volumelevel",
+                        "type": "NUMBER",
+                        "description": "Volume level (0 to 100)",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "playTrack",
+                "args": [
+                    {
+                        "name": "trackuri",
+                        "type": "STRING",
+                        "description": "URI/URL of track to play",
+                        "required": true
+                    },
+                    {
+                        "name": "volumelevel",
+                        "type": "NUMBER",
+                        "description": "Volume level (0 to 100)",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "playTrackAndRestore",
+                "args": [
+                    {
+                        "name": "trackuri",
+                        "type": "STRING",
+                        "description": "URI/URL of track to play",
+                        "required": true
+                    },
+                    {
+                        "name": "volumelevel",
+                        "type": "NUMBER",
+                        "description": "Volume level (0 to 100)",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "playTrackAndResume",
+                "args": [
+                    {
+                        "name": "trackuri",
+                        "type": "STRING",
+                        "description": "URI/URL of track to play",
+                        "required": true
+                    },
+                    {
+                        "name": "volumelevel",
+                        "type": "NUMBER",
+                        "description": "Volume level (0 to 100)",
+                        "required": false
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "AudioVolume",
+        "attributes": [
+            {
+                "name": "mute",
+                "type": "ENUM",
+                "enumValues": [
+                    "unmuted",
+                    "muted"
+                ]
+            },
+            {
+                "name": "volume",
+                "type": "NUMBER",
+                "unit": [
+                    "%"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "mute"
+            },
+            {
+                "name": "setVolume",
+                "args": [
+                    {
+                        "name": "volumelevel",
+                        "type": "NUMBER",
+                        "description": "Volume level (0 to 100)",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "unmute"
+            },
+            {
+                "name": "volumeDown"
+            },
+            {
+                "name": "volumeUp"
+            }
+        ]
+    },
+    {
+        "capability": "Battery",
+        "attributes": [
+            {
+                "name": "battery",
+                "type": "NUMBER",
+                "unit": [
+                    "%"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Beacon",
+        "attributes": [
+            {
+                "name": "presence",
+                "type": "ENUM",
+                "enumValues": [
+                    "not present",
+                    "present"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Bulb",
+        "attributes": [
+            {
+                "name": "switch",
+                "type": "ENUM",
+                "enumValues": [
+                    "on",
+                    "off"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "off"
+            },
+            {
+                "name": "on"
+            }
+        ]
+    },
+    {
+        "capability": "Button",
+        "attributes": [
+            {
+                "name": "button",
+                "type": "NUMBER"
+            },
+            {
+                "name": "holdableButton",
+                "type": "ENUM",
+                "enumValues": [
+                    "true",
+                    "false"
+                ]
+            },
+            {
+                "name": "numberOfButtons",
+                "type": "NUMBER"
+            }
+        ]
+    },
+    {
+        "capability": "CarbonDioxideMeasurement",
+        "attributes": [
+            {
+                "name": "carbonDioxide",
+                "type": "NUMBER",
+                "unit": [
+                    "ppm"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "CarbonMonoxideDetector",
+        "attributes": [
+            {
+                "name": "carbonMonoxide",
+                "type": "ENUM",
+                "enumValues": [
+                    "detected",
+                    "tested",
+                    "clear"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ChangeLevel",
+        "commands": [
+            {
+                "name": "startLevelChange",
+                "args": [
+                    {
+                        "name": "direction",
+                        "type": "ENUM",
+                        "description": "Direction for level change request",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "stopLevelChange"
+            }
+        ]
+    },
+    {
+        "capability": "Chime",
+        "attributes": [
+            {
+                "name": "soundEffects",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "soundName",
+                "type": "STRING"
+            },
+            {
+                "name": "status",
+                "type": "ENUM",
+                "enumValues": [
+                    "playing",
+                    "stopped"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "playSound",
+                "args": [
+                    {
+                        "name": "soundnumber",
+                        "type": "NUMBER",
+                        "description": "Sound number to play",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "stop"
+            }
+        ]
+    },
+    {
+        "capability": "ColorControl",
+        "attributes": [
+            {
+                "name": "RGB",
+                "type": "STRING"
+            },
+            {
+                "name": "color",
+                "type": "STRING"
+            },
+            {
+                "name": "colorName",
+                "type": "STRING"
+            },
+            {
+                "name": "hue",
+                "type": "NUMBER"
+            },
+            {
+                "name": "saturation",
+                "type": "NUMBER",
+                "unit": [
+                    "%"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "setColor",
+                "args": [
+                    {
+                        "name": "colormap",
+                        "type": "COLOR_MAP",
+                        "description": "Color map settings [hue*:(0 to 100), saturation*:(0 to 100), level:(0 to 100)]",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setHue",
+                "args": [
+                    {
+                        "name": "hue",
+                        "type": "NUMBER",
+                        "description": "Color Hue (0 to 100)",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setSaturation",
+                "args": [
+                    {
+                        "name": "saturation",
+                        "type": "NUMBER",
+                        "description": "Color Saturation (0 to 100)",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ColorMode",
+        "attributes": [
+            {
+                "name": "colorMode",
+                "type": "ENUM",
+                "enumValues": [
+                    "CT",
+                    "RGB",
+                    "EFFECTS"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ColorTemperature",
+        "attributes": [
+            {
+                "name": "colorName",
+                "type": "STRING"
+            },
+            {
+                "name": "colorTemperature",
+                "type": "NUMBER",
+                "unit": [
+                    "°K"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "setColorTemperature",
+                "args": [
+                    {
+                        "name": "colortemperature",
+                        "type": "NUMBER",
+                        "description": "Color temperature in degrees Kelvin",
+                        "required": true
+                    },
+                    {
+                        "name": "level",
+                        "type": "NUMBER",
+                        "description": "Level to set",
+                        "required": false
+                    },
+                    {
+                        "name": "transitionTime",
+                        "type": "NUMBER",
+                        "description": "Transition time to use in seconds",
+                        "required": false
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Configuration",
+        "commands": [
+            {
+                "name": "configure"
+            }
+        ]
+    },
+    {
+        "capability": "Consumable",
+        "attributes": [
+            {
+                "name": "consumableStatus",
+                "type": "ENUM",
+                "enumValues": [
+                    "missing",
+                    "order",
+                    "maintenance_required",
+                    "good",
+                    "replace"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "setConsumableStatus",
+                "args": [
+                    {
+                        "name": "STRING",
+                        "type": "",
+                        "description": "STRING",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ContactSensor",
+        "attributes": [
+            {
+                "name": "contact",
+                "type": "ENUM",
+                "enumValues": [
+                    "closed",
+                    "open"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "CurrentMeter",
+        "attributes": [
+            {
+                "name": "amperage",
+                "type": "NUMBER",
+                "unit": [
+                    "A"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "DoorControl",
+        "attributes": [
+            {
+                "name": "door",
+                "type": "ENUM",
+                "enumValues": [
+                    "unknown",
+                    "closed",
+                    "open",
+                    "closing",
+                    "opening"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "close"
+            },
+            {
+                "name": "open"
+            }
+        ]
+    },
+    {
+        "capability": "DoubleTapableButton",
+        "attributes": [
+            {
+                "name": "doubleTapped",
+                "type": "NUMBER"
+            }
+        ],
+        "commands": [
+            {
+                "name": "doubleTap",
+                "args": [
+                    {
+                        "name": "buttonNumber",
+                        "type": "NUMBER",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "EnergyMeter",
+        "attributes": [
+            {
+                "name": "energy",
+                "type": "NUMBER",
+                "unit": [
+                    "kWh"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "EstimatedTimeOfArrival",
+        "attributes": [
+            {
+                "name": "eta",
+                "type": "DATE"
+            }
+        ]
+    },
+    {
+        "capability": "FanControl",
+        "attributes": [
+            {
+                "name": "speed",
+                "type": "ENUM",
+                "enumValues": [
+                    "low",
+                    "medium-low",
+                    "medium",
+                    "medium-high",
+                    "high",
+                    "on",
+                    "off",
+                    "auto"
+                ]
+            },
+            {
+                "name": "supportedFanSpeeds",
+                "type": "JSON_OBJECT"
+            }
+        ],
+        "commands": [
+            {
+                "name": "setSpeed",
+                "args": [
+                    {
+                        "name": "fanspeed",
+                        "type": "ENUM",
+                        "description": "Fan speed to set",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "cycleSpeed"
+            }
+        ]
+    },
+    {
+        "capability": "FilterStatus",
+        "attributes": [
+            {
+                "name": "filterStatus",
+                "type": "ENUM",
+                "enumValues": [
+                    "normal",
+                    "replace"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Flash",
+        "commands": [
+            {
+                "name": "flash",
+                "args": [
+                    {
+                        "name": "rateToFlash",
+                        "type": "NUMBER",
+                        "description": "Rate to flash in ms",
+                        "required": false
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "GarageDoorControl",
+        "attributes": [
+            {
+                "name": "door",
+                "type": "ENUM",
+                "enumValues": [
+                    "unknown",
+                    "open",
+                    "closing",
+                    "closed",
+                    "opening"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "close"
+            },
+            {
+                "name": "open"
+            }
+        ]
+    },
+    {
+        "capability": "GasDetector",
+        "attributes": [
+            {
+                "name": "naturalGas",
+                "type": "ENUM",
+                "enumValues": [
+                    "clear",
+                    "tested",
+                    "detected"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "HealthCheck",
+        "attributes": [
+            {
+                "name": "checkInterval",
+                "type": "NUMBER"
+            },
+            {
+                "name": "healthStatus",
+                "type": "ENUM",
+                "enumValues": [
+                    "online",
+                    "offline"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "ping"
+            }
+        ]
+    },
+    {
+        "capability": "HoldableButton",
+        "attributes": [
+            {
+                "name": "held",
+                "type": "NUMBER"
+            }
+        ],
+        "commands": [
+            {
+                "name": "hold",
+                "args": [
+                    {
+                        "name": "buttonNumber",
+                        "type": "NUMBER",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "IlluminanceMeasurement",
+        "attributes": [
+            {
+                "name": "illuminance",
+                "type": "NUMBER",
+                "unit": [
+                    "lx"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ImageCapture",
+        "attributes": [
+            {
+                "name": "image",
+                "type": "STRING"
+            }
+        ],
+        "commands": [
+            {
+                "name": "take"
+            }
+        ]
+    },
+    {
+        "capability": "Indicator",
+        "attributes": [
+            {
+                "name": "indicatorStatus",
+                "type": "ENUM",
+                "enumValues": [
+                    "never",
+                    "when on",
+                    "when off"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "indicatorNever"
+            },
+            {
+                "name": "indicatorWhenOff"
+            },
+            {
+                "name": "indicatorWhenOn"
+            }
+        ]
+    },
+    {
+        "capability": "Initialize",
+        "commands": [
+            {
+                "name": "initialize"
+            }
+        ]
+    },
+    {
+        "capability": "LevelPreset",
+        "attributes": [
+            {
+                "name": "levelPreset",
+                "type": "NUMBER",
+                "unit": [
+                    "%"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "presetLevel",
+                "args": [
+                    {
+                        "name": "level",
+                        "type": "NUMBER",
+                        "description": "Level to set (1 to 100)",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Light",
+        "attributes": [
+            {
+                "name": "switch",
+                "type": "ENUM",
+                "enumValues": [
+                    "on",
+                    "off"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "off"
+            },
+            {
+                "name": "on"
+            }
+        ]
+    },
+    {
+        "capability": "LightEffects",
+        "attributes": [
+            {
+                "name": "effectName",
+                "type": "STRING"
+            },
+            {
+                "name": "lightEffects",
+                "type": "JSON_OBJECT"
+            }
+        ],
+        "commands": [
+            {
+                "name": "setEffect",
+                "args": [
+                    {
+                        "name": "effectnumber",
+                        "type": "NUMBER",
+                        "description": "Effect number to enable",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setNextEffect"
+            },
+            {
+                "name": "setPreviousEffect"
+            }
+        ]
+    },
+    {
+        "capability": "LocationMode",
+        "attributes": [
+            {
+                "name": "mode",
+                "type": "DYNAMIC_ENUM"
+            }
+        ]
+    },
+    {
+        "capability": "Lock",
+        "attributes": [
+            {
+                "name": "lock",
+                "type": "ENUM",
+                "enumValues": [
+                    "locked",
+                    "unlocked with timeout",
+                    "unlocked",
+                    "unknown"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "lock"
+            },
+            {
+                "name": "unlock"
+            }
+        ]
+    },
+    {
+        "capability": "LockCodes",
+        "attributes": [
+            {
+                "name": "codeChanged",
+                "type": "ENUM",
+                "enumValues": [
+                    "added",
+                    "changed",
+                    "deleted",
+                    "failed"
+                ]
+            },
+            {
+                "name": "codeLength",
+                "type": "NUMBER"
+            },
+            {
+                "name": "lockCodes",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "maxCodes",
+                "type": "NUMBER"
+            }
+        ],
+        "commands": [
+            {
+                "name": "deleteCode",
+                "args": [
+                    {
+                        "name": "codeposition",
+                        "type": "NUMBER",
+                        "description": "Code position number to delete",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "getCodes"
+            },
+            {
+                "name": "setCode",
+                "args": [
+                    {
+                        "name": "codeposition",
+                        "type": "NUMBER",
+                        "description": "Code position number",
+                        "required": true
+                    },
+                    {
+                        "name": "pincode",
+                        "type": "STRING",
+                        "description": "Numeric PIN code",
+                        "required": true
+                    },
+                    {
+                        "name": "name",
+                        "type": "STRING",
+                        "description": "Name for this lock code",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "setCodeLength",
+                "args": [
+                    {
+                        "name": "pincodelength",
+                        "type": "NUMBER",
+                        "description": "Maximum pin code lentgh for this lock",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "MediaController",
+        "attributes": [
+            {
+                "name": "activities",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "currentActivity",
+                "type": "STRING"
+            }
+        ],
+        "commands": [
+            {
+                "name": "getAllActivities"
+            },
+            {
+                "name": "getCurrentActivity"
+            },
+            {
+                "name": "startActivity",
+                "args": [
+                    {
+                        "name": "activityname",
+                        "type": "STRING",
+                        "description": "Name of media activity to start",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "MediaInputSource",
+        "attributes": [
+            {
+                "name": "supportedInputs",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "mediaInputSource",
+                "type": "STRING"
+            }
+        ],
+        "commands": [
+            {
+                "name": "setInputSource",
+                "args": [
+                    {
+                        "name": "inputName",
+                        "type": "STRING",
+                        "description": "Input to select",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "MediaTransport",
+        "attributes": [
+            {
+                "name": "transportStatus",
+                "type": "ENUM",
+                "enumValues": [
+                    "playing",
+                    "paused",
+                    "stopped"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "play"
+            },
+            {
+                "name": "pause"
+            },
+            {
+                "name": "stop"
+            }
+        ]
+    },
+    {
+        "capability": "Momentary",
+        "commands": [
+            {
+                "name": "push"
+            }
+        ]
+    },
+    {
+        "capability": "MotionSensor",
+        "attributes": [
+            {
+                "name": "motion",
+                "type": "ENUM",
+                "enumValues": [
+                    "inactive",
+                    "active"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "MusicPlayer",
+        "attributes": [
+            {
+                "name": "level",
+                "type": "NUMBER"
+            },
+            {
+                "name": "mute",
+                "type": "ENUM",
+                "enumValues": [
+                    "unmuted",
+                    "muted"
+                ]
+            },
+            {
+                "name": "status",
+                "type": "STRING"
+            },
+            {
+                "name": "trackData",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "trackDescription",
+                "type": "STRING"
+            }
+        ],
+        "commands": [
+            {
+                "name": "mute"
+            },
+            {
+                "name": "nextTrack"
+            },
+            {
+                "name": "pause"
+            },
+            {
+                "name": "play"
+            },
+            {
+                "name": "playText",
+                "args": [
+                    {
+                        "name": "text",
+                        "type": "STRING",
+                        "description": "Text to play",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "playTrack",
+                "args": [
+                    {
+                        "name": "trackuri",
+                        "type": "STRING",
+                        "description": "URI/URL of track to play",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "previousTrack"
+            },
+            {
+                "name": "restoreTrack",
+                "args": [
+                    {
+                        "name": "trackuri",
+                        "type": "STRING",
+                        "description": "URI/URL of track to restore",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "resumeTrack",
+                "args": [
+                    {
+                        "name": "trackuri",
+                        "type": "STRING",
+                        "description": "URI/URL of track to play",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setLevel",
+                "args": [
+                    {
+                        "name": "volumelevel",
+                        "type": "NUMBER",
+                        "description": "Volume level (0 to 100)",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setTrack",
+                "args": [
+                    {
+                        "name": "trackuri",
+                        "type": "STRING",
+                        "description": "URI/URL of track to set",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "stop"
+            },
+            {
+                "name": "unmute"
+            }
+        ]
+    },
+    {
+        "capability": "Notification",
+        "commands": [
+            {
+                "name": "deviceNotification",
+                "args": [
+                    {
+                        "name": "text",
+                        "type": "STRING",
+                        "description": "Notification text",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Outlet",
+        "attributes": [
+            {
+                "name": "switch",
+                "type": "ENUM",
+                "enumValues": [
+                    "on",
+                    "off"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "off"
+            },
+            {
+                "name": "on"
+            }
+        ]
+    },
+    {
+        "capability": "Polling",
+        "commands": [
+            {
+                "name": "poll"
+            }
+        ]
+    },
+    {
+        "capability": "PowerMeter",
+        "attributes": [
+            {
+                "name": "power",
+                "type": "NUMBER",
+                "unit": [
+                    "W"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "PowerSource",
+        "attributes": [
+            {
+                "name": "powerSource",
+                "type": "ENUM",
+                "enumValues": [
+                    "battery",
+                    "dc",
+                    "mains",
+                    "unknown"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "PresenceSensor",
+        "attributes": [
+            {
+                "name": "presence",
+                "type": "ENUM",
+                "enumValues": [
+                    "present",
+                    "not present"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "PressureMeasurement",
+        "attributes": [
+            {
+                "name": "pressure",
+                "type": "NUMBER",
+                "unit": [
+                    "Pa",
+                    "psi"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "PushableButton",
+        "attributes": [
+            {
+                "name": "numberOfButtons",
+                "type": "NUMBER"
+            },
+            {
+                "name": "pushed",
+                "type": "NUMBER"
+            }
+        ],
+        "commands": [
+            {
+                "name": "push",
+                "args": [
+                    {
+                        "name": "buttonNumber",
+                        "type": "NUMBER",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Refresh",
+        "commands": [
+            {
+                "name": "refresh"
+            }
+        ]
+    },
+    {
+        "capability": "RelativeHumidityMeasurement",
+        "attributes": [
+            {
+                "name": "humidity",
+                "type": "NUMBER",
+                "unit": [
+                    "%",
+                    "%rh"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "RelaySwitch",
+        "attributes": [
+            {
+                "name": "switch",
+                "type": "ENUM",
+                "enumValues": [
+                    "on",
+                    "off"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "off"
+            },
+            {
+                "name": "on"
+            }
+        ]
+    },
+    {
+        "capability": "ReleasableButton",
+        "attributes": [
+            {
+                "name": "released",
+                "type": "NUMBER"
+            }
+        ],
+        "commands": [
+            {
+                "name": "release",
+                "args": [
+                    {
+                        "name": "buttonNumber",
+                        "type": "NUMBER",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "SamsungTV",
+        "attributes": [
+            {
+                "name": "messageButton",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "mute",
+                "type": "ENUM",
+                "enumValues": [
+                    "muted",
+                    "unknown",
+                    "unmuted"
+                ]
+            },
+            {
+                "name": "pictureMode",
+                "type": "ENUM",
+                "enumValues": [
+                    "unknown",
+                    "standard",
+                    "movie",
+                    "dynamic"
+                ]
+            },
+            {
+                "name": "soundMode",
+                "type": "ENUM",
+                "enumValues": [
+                    "speech",
+                    "movie",
+                    "unknown",
+                    "standard",
+                    "music"
+                ]
+            },
+            {
+                "name": "switch",
+                "type": "ENUM",
+                "enumValues": [
+                    "on",
+                    "off"
+                ]
+            },
+            {
+                "name": "volume",
+                "type": "NUMBER"
+            }
+        ],
+        "commands": [
+            {
+                "name": "mute"
+            },
+            {
+                "name": "off"
+            },
+            {
+                "name": "on"
+            },
+            {
+                "name": "setPictureMode",
+                "args": [
+                    {
+                        "name": "mode",
+                        "type": "ENUM",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setSoundMode",
+                "args": [
+                    {
+                        "name": "mode",
+                        "type": "ENUM",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setVolume",
+                "args": [
+                    {
+                        "name": "level",
+                        "type": "NUMBER",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "showMessage",
+                "args": [
+                    {
+                        "name": "message1",
+                        "type": "STRING",
+                        "required": false
+                    },
+                    {
+                        "name": "message2",
+                        "type": "STRING",
+                        "required": false
+                    },
+                    {
+                        "name": "message3",
+                        "type": "STRING",
+                        "required": false
+                    },
+                    {
+                        "name": "message4",
+                        "type": "STRING",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "unmute"
+            },
+            {
+                "name": "volumeDown"
+            },
+            {
+                "name": "volumeUp"
+            }
+        ]
+    },
+    {
+        "capability": "SecurityKeypad",
+        "attributes": [
+            {
+                "name": "codeChanged",
+                "type": "ENUM",
+                "enumValues": [
+                    "added",
+                    "changed",
+                    "deleted",
+                    "failed"
+                ]
+            },
+            {
+                "name": "codeLength",
+                "type": "NUMBER"
+            },
+            {
+                "name": "lockCodes",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "maxCodes",
+                "type": "NUMBER"
+            },
+            {
+                "name": "securityKeypad",
+                "type": "ENUM",
+                "enumValues": [
+                    "disarmed",
+                    "armed home",
+                    "armed away",
+                    "unknown"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "armAway"
+            },
+            {
+                "name": "armHome"
+            },
+            {
+                "name": "deleteCode",
+                "args": [
+                    {
+                        "name": "codeposition",
+                        "type": "NUMBER",
+                        "description": "Code position number to delete",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "disarm"
+            },
+            {
+                "name": "getCodes"
+            },
+            {
+                "name": "setCode",
+                "args": [
+                    {
+                        "name": "codeposition",
+                        "type": "NUMBER",
+                        "description": "Code position number",
+                        "required": true
+                    },
+                    {
+                        "name": "pincode",
+                        "type": "STRING",
+                        "description": "Numeric PIN code",
+                        "required": true
+                    },
+                    {
+                        "name": "name",
+                        "type": "STRING",
+                        "description": "Name for this lock code",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "setCodeLength",
+                "args": [
+                    {
+                        "name": "pincodelength",
+                        "type": "NUMBER",
+                        "description": "Maximum pin code lentgh for this keypad",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setEntryDelay",
+                "args": [
+                    {
+                        "name": "entrancedelay",
+                        "type": "NUMBER",
+                        "description": "Entrance delay in seconds",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setExitDelay",
+                "args": [
+                    {
+                        "name": "exitdelay",
+                        "type": "NUMBER",
+                        "description": "Exit delay in seconds",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Sensor"
+    },
+    {
+        "capability": "ShockSensor",
+        "attributes": [
+            {
+                "name": "shock",
+                "type": "ENUM",
+                "enumValues": [
+                    "clear",
+                    "detected"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "SignalStrength",
+        "attributes": [
+            {
+                "name": "lqi",
+                "type": "NUMBER"
+            },
+            {
+                "name": "rssi",
+                "type": "NUMBER"
+            }
+        ]
+    },
+    {
+        "capability": "SleepSensor",
+        "attributes": [
+            {
+                "name": "sleeping",
+                "type": "ENUM",
+                "enumValues": [
+                    "not sleeping",
+                    "sleeping"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "SmokeDetector",
+        "attributes": [
+            {
+                "name": "smoke",
+                "type": "ENUM",
+                "enumValues": [
+                    "clear",
+                    "tested",
+                    "detected"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "SoundPressureLevel",
+        "attributes": [
+            {
+                "name": "soundPressureLevel",
+                "type": "NUMBER",
+                "unit": [
+                    "dB"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "SoundSensor",
+        "attributes": [
+            {
+                "name": "sound",
+                "type": "ENUM",
+                "enumValues": [
+                    "detected",
+                    "not detected"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "SpeechRecognition",
+        "attributes": [
+            {
+                "name": "phraseSpoken",
+                "type": "STRING"
+            }
+        ]
+    },
+    {
+        "capability": "SpeechSynthesis",
+        "commands": [
+            {
+                "name": "speak",
+                "args": [
+                    {
+                        "name": "text",
+                        "type": "STRING",
+                        "description": "Text to speak",
+                        "required": true
+                    },
+                    {
+                        "name": "volume",
+                        "type": "NUMBER",
+                        "required": false
+                    },
+                    {
+                        "name": "voice",
+                        "type": "STRING",
+                        "description": "AWS Polly voice name",
+                        "required": false
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "StepSensor",
+        "attributes": [
+            {
+                "name": "goal",
+                "type": "NUMBER"
+            },
+            {
+                "name": "steps",
+                "type": "NUMBER"
+            }
+        ]
+    },
+    {
+        "capability": "Switch",
+        "attributes": [
+            {
+                "name": "switch",
+                "type": "ENUM",
+                "enumValues": [
+                    "on",
+                    "off"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "off"
+            },
+            {
+                "name": "on"
+            }
+        ]
+    },
+    {
+        "capability": "SwitchLevel",
+        "attributes": [
+            {
+                "name": "level",
+                "type": "NUMBER",
+                "unit": [
+                    "%"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "setLevel",
+                "args": [
+                    {
+                        "name": "level",
+                        "type": "NUMBER",
+                        "description": "Level to set (0 to 100)",
+                        "required": true
+                    },
+                    {
+                        "name": "duration",
+                        "type": "NUMBER",
+                        "description": "Transition duration in seconds",
+                        "required": false
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "TV",
+        "attributes": [
+            {
+                "name": "channel",
+                "type": "NUMBER"
+            },
+            {
+                "name": "movieMode",
+                "type": "STRING"
+            },
+            {
+                "name": "picture",
+                "type": "STRING"
+            },
+            {
+                "name": "power",
+                "type": "STRING"
+            },
+            {
+                "name": "sound",
+                "type": "STRING"
+            },
+            {
+                "name": "volume",
+                "type": "NUMBER"
+            }
+        ],
+        "commands": [
+            {
+                "name": "channelDown"
+            },
+            {
+                "name": "channelUp"
+            },
+            {
+                "name": "volumeDown"
+            },
+            {
+                "name": "volumeUp"
+            }
+        ]
+    },
+    {
+        "capability": "TamperAlert",
+        "attributes": [
+            {
+                "name": "tamper",
+                "type": "ENUM",
+                "enumValues": [
+                    "clear",
+                    "detected"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "Telnet",
+        "attributes": [
+            {
+                "name": "networkStatus",
+                "type": "ENUM",
+                "enumValues": [
+                    "online",
+                    "offline"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "sendMsg",
+                "args": [
+                    {
+                        "name": "message",
+                        "type": "STRING",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "TemperatureMeasurement",
+        "attributes": [
+            {
+                "name": "temperature",
+                "type": "NUMBER",
+                "unit": [
+                    "°F",
+                    "°C"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "TestCapability"
+    },
+    {
+        "capability": "Thermostat",
+        "attributes": [
+            {
+                "name": "coolingSetpoint",
+                "type": "NUMBER",
+                "unit": [
+                    "°F",
+                    "°C"
+                ]
+            },
+            {
+                "name": "heatingSetpoint",
+                "type": "NUMBER",
+                "unit": [
+                    "°F",
+                    "°C"
+                ]
+            },
+            {
+                "name": "schedule",
+                "type": "JSON_OBJECT",
+                "description": "Deprecated"
+            },
+            {
+                "name": "supportedThermostatFanModes",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "supportedThermostatModes",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "temperature",
+                "type": "NUMBER",
+                "unit": [
+                    "°F",
+                    "°C"
+                ]
+            },
+            {
+                "name": "thermostatFanMode",
+                "type": "ENUM",
+                "enumValues": [
+                    "on",
+                    "circulate",
+                    "auto"
+                ]
+            },
+            {
+                "name": "thermostatMode",
+                "type": "ENUM",
+                "enumValues": [
+                    "auto",
+                    "off",
+                    "heat",
+                    "emergency heat",
+                    "cool"
+                ]
+            },
+            {
+                "name": "thermostatOperatingState",
+                "type": "ENUM",
+                "enumValues": [
+                    "heating",
+                    "pending cool",
+                    "pending heat",
+                    "vent economizer",
+                    "idle",
+                    "cooling",
+                    "fan only"
+                ]
+            },
+            {
+                "name": "thermostatSetpoint",
+                "type": "NUMBER",
+                "unit": [
+                    "°F",
+                    "°C"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "auto"
+            },
+            {
+                "name": "cool"
+            },
+            {
+                "name": "emergencyHeat"
+            },
+            {
+                "name": "fanAuto"
+            },
+            {
+                "name": "fanCirculate"
+            },
+            {
+                "name": "fanOn"
+            },
+            {
+                "name": "heat"
+            },
+            {
+                "name": "off"
+            },
+            {
+                "name": "setCoolingSetpoint",
+                "args": [
+                    {
+                        "name": "temperature",
+                        "type": "NUMBER",
+                        "description": "Cooling setpoint in degrees",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setHeatingSetpoint",
+                "args": [
+                    {
+                        "name": "temperature",
+                        "type": "NUMBER",
+                        "description": "Heating setpoint in degrees",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setSchedule",
+                "description": "Deprecated",
+                "args": [
+                    {
+                        "name": "JSON_OBJECT",
+                        "type": "JSON_OBJECT",
+                        "description": "Deprecated",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "setThermostatFanMode",
+                "args": [
+                    {
+                        "name": "fanmode",
+                        "type": "ENUM",
+                        "description": "Fan mode to set",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "setThermostatMode",
+                "args": [
+                    {
+                        "name": "thermostatmode",
+                        "type": "ENUM",
+                        "description": "Thermostat mode to set",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ThermostatCoolingSetpoint",
+        "attributes": [
+            {
+                "name": "coolingSetpoint",
+                "type": "NUMBER",
+                "unit": [
+                    "°F",
+                    "°C"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "setCoolingSetpoint",
+                "args": [
+                    {
+                        "name": "temperature",
+                        "type": "NUMBER",
+                        "description": "Cooling setpoint in degrees",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ThermostatFanMode",
+        "attributes": [
+            {
+                "name": "thermostatFanMode",
+                "type": "ENUM",
+                "enumValues": [
+                    "auto",
+                    "circulate",
+                    "on"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "fanAuto"
+            },
+            {
+                "name": "fanCirculate"
+            },
+            {
+                "name": "fanOn"
+            },
+            {
+                "name": "setThermostatFanMode",
+                "args": [
+                    {
+                        "name": "fanmode",
+                        "type": "ENUM",
+                        "description": "Fan mode to set",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ThermostatHeatingSetpoint",
+        "attributes": [
+            {
+                "name": "heatingSetpoint",
+                "type": "NUMBER",
+                "unit": [
+                    "°F",
+                    "°C"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "setHeatingSetpoint",
+                "args": [
+                    {
+                        "name": "temperature",
+                        "type": "NUMBER",
+                        "description": "Heating setpoint in degrees",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ThermostatMode",
+        "attributes": [
+            {
+                "name": "thermostatMode",
+                "type": "ENUM",
+                "enumValues": [
+                    "heat",
+                    "cool",
+                    "emergency heat",
+                    "auto",
+                    "off"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "auto"
+            },
+            {
+                "name": "cool"
+            },
+            {
+                "name": "emergencyHeat"
+            },
+            {
+                "name": "heat"
+            },
+            {
+                "name": "off"
+            },
+            {
+                "name": "setThermostatMode",
+                "args": [
+                    {
+                        "name": "thermostatmode",
+                        "type": "ENUM",
+                        "description": "Thermostat mode to set",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ThermostatOperatingState",
+        "attributes": [
+            {
+                "name": "thermostatOperatingState",
+                "type": "ENUM",
+                "enumValues": [
+                    "vent economizer",
+                    "pending cool",
+                    "cooling",
+                    "heating",
+                    "pending heat",
+                    "fan only",
+                    "idle"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ThermostatSchedule",
+        "attributes": [
+            {
+                "name": "schedule",
+                "type": "JSON_OBJECT"
+            }
+        ],
+        "commands": [
+            {
+                "name": "setSchedule",
+                "args": [
+                    {
+                        "name": "JSON_OBJECT",
+                        "type": "JSON_OBJECT",
+                        "description": "JSON_OBJECT",
+                        "required": false
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ThermostatSetpoint",
+        "attributes": [
+            {
+                "name": "thermostatSetpoint",
+                "type": "NUMBER",
+                "unit": [
+                    "°F",
+                    "°C"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "ThreeAxis",
+        "attributes": [
+            {
+                "name": "threeAxis",
+                "type": "VECTOR3"
+            }
+        ]
+    },
+    {
+        "capability": "TimedSession",
+        "attributes": [
+            {
+                "name": "sessionStatus",
+                "type": "ENUM",
+                "enumValues": [
+                    "stopped",
+                    "canceled",
+                    "running",
+                    "paused"
+                ]
+            },
+            {
+                "name": "timeRemaining",
+                "type": "NUMBER"
+            }
+        ],
+        "commands": [
+            {
+                "name": "cancel"
+            },
+            {
+                "name": "pause"
+            },
+            {
+                "name": "setTimeRemaining",
+                "args": [
+                    {
+                        "name": "NUMBER",
+                        "type": "NUMBER",
+                        "description": "NUMBER",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "start"
+            },
+            {
+                "name": "stop"
+            }
+        ]
+    },
+    {
+        "capability": "Tone",
+        "commands": [
+            {
+                "name": "beep"
+            }
+        ]
+    },
+    {
+        "capability": "TouchSensor",
+        "attributes": [
+            {
+                "name": "touch",
+                "type": "ENUM",
+                "enumValues": [
+                    "touched"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "UltravioletIndex",
+        "attributes": [
+            {
+                "name": "ultravioletIndex",
+                "type": "NUMBER"
+            }
+        ]
+    },
+    {
+        "capability": "Valve",
+        "attributes": [
+            {
+                "name": "valve",
+                "type": "ENUM",
+                "enumValues": [
+                    "open",
+                    "closed"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "close"
+            },
+            {
+                "name": "open"
+            }
+        ]
+    },
+    {
+        "capability": "Variable",
+        "attributes": [
+            {
+                "name": "variable",
+                "type": "STRING"
+            }
+        ],
+        "commands": [
+            {
+                "name": "setVariable",
+                "args": [
+                    {
+                        "name": "valueToSet",
+                        "type": "STRING",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "VideoCamera",
+        "attributes": [
+            {
+                "name": "camera",
+                "type": "ENUM",
+                "enumValues": [
+                    "on",
+                    "off",
+                    "restarting",
+                    "unavailable"
+                ]
+            },
+            {
+                "name": "mute",
+                "type": "ENUM",
+                "enumValues": [
+                    "unmuted",
+                    "muted"
+                ]
+            },
+            {
+                "name": "settings",
+                "type": "JSON_OBJECT"
+            },
+            {
+                "name": "statusMessage",
+                "type": "STRING"
+            }
+        ],
+        "commands": [
+            {
+                "name": "flip"
+            },
+            {
+                "name": "mute"
+            },
+            {
+                "name": "off"
+            },
+            {
+                "name": "on"
+            },
+            {
+                "name": "unmute"
+            }
+        ]
+    },
+    {
+        "capability": "VideoCapture",
+        "attributes": [
+            {
+                "name": "clip",
+                "type": "JSON_OBJECT"
+            }
+        ],
+        "commands": [
+            {
+                "name": "capture",
+                "args": [
+                    {
+                        "name": "date1",
+                        "type": "DATE",
+                        "required": false
+                    },
+                    {
+                        "name": "date2",
+                        "type": "DATE",
+                        "required": false
+                    },
+                    {
+                        "name": "date3",
+                        "type": "DATE",
+                        "required": false
+                    },
+                    {
+                        "name": "date4",
+                        "type": "DATE",
+                        "required": false
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "VoltageMeasurement",
+        "attributes": [
+            {
+                "name": "voltage",
+                "type": "NUMBER",
+                "unit": [
+                    "V"
+                ]
+            },
+            {
+                "name": "frequency",
+                "type": "NUMBER",
+                "unit": [
+                    "Hz"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "WaterSensor",
+        "attributes": [
+            {
+                "name": "water",
+                "type": "ENUM",
+                "enumValues": [
+                    "wet",
+                    "dry"
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "WindowBlind",
+        "attributes": [
+            {
+                "name": "position",
+                "type": "NUMBER",
+                "unit": [
+                    "%"
+                ]
+            },
+            {
+                "name": "windowBlind",
+                "type": "ENUM",
+                "enumValues": [
+                    "opening",
+                    "partially open",
+                    "closed",
+                    "open",
+                    "closing",
+                    "unknown"
+                ]
+            },
+            {
+                "name": "tilt",
+                "type": "NUMBER",
+                "unit": [
+                    "%"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "close"
+            },
+            {
+                "name": "open"
+            },
+            {
+                "name": "setPosition",
+                "args": [
+                    {
+                        "name": "position",
+                        "type": "NUMBER",
+                        "description": "Blind position (0 to 100)",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "startPositionChange",
+                "args": [
+                    {
+                        "name": "direction",
+                        "type": "ENUM",
+                        "description": "Direction for position change request",
+                        "enumValues": [
+                            "open",
+                            "close"
+                        ],
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "stopPositionChange"
+            },
+            {
+                "name": "setTiltLevel",
+                "args": [
+                    {
+                        "name": "tilt",
+                        "type": "NUMBER",
+                        "description": "Tilt percent (0 to 100)",
+                        "required": true
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "WindowShade",
+        "attributes": [
+            {
+                "name": "position",
+                "type": "NUMBER",
+                "unit": [
+                    "%"
+                ]
+            },
+            {
+                "name": "windowShade",
+                "type": "ENUM",
+                "enumValues": [
+                    "opening",
+                    "partially open",
+                    "closed",
+                    "open",
+                    "closing",
+                    "unknown"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "name": "close"
+            },
+            {
+                "name": "open"
+            },
+            {
+                "name": "setPosition",
+                "args": [
+                    {
+                        "name": "position",
+                        "type": "NUMBER",
+                        "description": "Shade position (0 to 100)",
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "startPositionChange",
+                "args": [
+                    {
+                        "name": "direction",
+                        "type": "ENUM",
+                        "description": "Direction for position change request",
+                        "enumValues": [
+                            "open",
+                            "close"
+                        ],
+                        "required": true
+                    }
+                ]
+            },
+            {
+                "name": "stopPositionChange"
+            }
+        ]
+    },
+    {
+        "capability": "ZwMultichannel",
+        "attributes": [
+            {
+                "name": "epEvent",
+                "type": "STRING"
+            },
+            {
+                "name": "epInfo",
+                "type": "STRING"
+            }
+        ],
+        "commands": [
+            {
+                "name": "enableEpEvents",
+                "args": [
+                    {
+                        "name": "STRING",
+                        "type": "STRING",
+                        "required": false
+                    }
+                ]
+            },
+            {
+                "name": "epCmd",
+                "args": [
+                    {
+                        "name": "NUMBER",
+                        "type": "NUMBER",
+                        "required": false
+                    },
+                    {
+                        "name": "STRING",
+                        "type": "STRING",
+                        "required": false
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "capability": "pHMeasurement",
+        "attributes": [
+            {
+                "name": "pH",
+                "type": "NUMBER"
+            }
+        ]
+    }
+]
