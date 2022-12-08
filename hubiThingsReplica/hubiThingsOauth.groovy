@@ -17,6 +17,7 @@
 *
 *  1.0.00  2022-12-04 First pass.
 *  1.0.01  2022-12-04 Updated to hide PAT as a password
+*  1.0.02  2022-12-08 Fixes getting ready to integrate with Replica
 */
 
 public static String version() {  return "1.0.01"  }
@@ -47,15 +48,15 @@ import groovy.transform.Field
 @Field volatile static Map<Long,Integer> g_iRefreshInterval = [:]
 
 definition(
-    name: "HubiThings Oauth",
+    //parent: 'hubitat:HubiThings Replica',
+    name: "HubiThings OAuth",
     namespace: "replica",
     author: "bloodtick",
-    description: "Hubitat Application to manage SmartThings Oauth",
+    description: "Hubitat Application to manage SmartThings OAuth",
     category: "Convenience",
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
     iconUrl: "",
     iconX2Url: "",
-    oauth: [displayName: "HubiThings Oauth", displayLink: ""],
     singleInstance: false
 ){}
 
@@ -154,31 +155,34 @@ def mainPage(){
         
         section(menuHeader("${app.getLabel()} Configuration ${refreshInterval?"[Auto Refresh]":""} $sHubitatIconStatic $sSamsungIconStatic")) {
             input(name: "clientSecretPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings Token UUID", width: 6, submitOnChange: true, newLineAfter:true)
-            if(state.user=="bloodtick") { input(name: "mainPage::test", type: "button", width: 2, title: "Test", style:"width:75%;") }
+            if(getHubUID()=="bb6472bd-e232-4cbe-83a6-ecab1592d889") { input(name: "mainPage::test", type: "button", width: 2, title: "Test", style:"width:75%;") }
         }
         
         if(clientSecretPAT) {
             section(menuHeader("SmartThings API")) {
                 if(!state.appId) {
-                    input(name: "mainPage::create", type: "button", width: 2, title: "Create", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
-                    paragraph( getFormat("text", "Select 'Create' to begin initialization of SmartThings API") )
+                    input(name: "mainPage::create", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
+                    paragraph( getFormat("text", "Select 'Create API' to begin initialization of SmartThings API") )
                     if(state.createAppError) paragraph( "SmartThings API ERROR: "+state.createAppError )
                 }
                 else {
-                    input(name: "mainPage::delete", type: "button", width: 2, title: "Delete", style:"width:75%;")                
+                    input(name: "mainPage::delete", type: "button", width: 2, title: "Delete API", style:"width:75%;")                
                 
-                    paragraph("SmartThings API is ${state.installedAppId ? "configured : select 'Delete' to remove all authorizations" : "available for Oauth configuration : select link below to continue"}")
+                    paragraph("SmartThings API is ${state.installedAppId ? "configured : select 'Delete API' to remove all OAuth authorizations" : "available for OAuth configuration : select link below to continue"}")
                     String status  =  "OAuth Client ID: ${state.oauthClientId}\n"
-                        status += "OAuth Client Secret: ${state.oauthClientSecret}\n"
-                        status += "OAuth Hubitat Callback: ${state.oauthCallback}\n"
-                        status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}"
-                    paragraph(status)
+                        //status += "OAuth Client Secret: ${state.oauthClientSecret}\n"
+                        status += "OAuth Hubitat Cloud Callback: ${state.oauthCallback}\n"
+                        status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n"
+                    if(state.authTokenExpires!=null) {
+                        status += "Token Expiration Date: ${state.authTokenExpires==0 ? getFormat("text","Action: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : (new Date(state.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
+                    }
+                    paragraph(status)                      
                 
                     if(state.installedAppId) {
-                        paragraph( getFormat("hyperlink","$sSamsungIcon Click here to refresh SmartThings Oauth Authorization", getOauthAuthorizeUri()) )
+                        paragraph( getFormat("hyperlink","$sSamsungIcon Click here to refresh SmartThings OAuth Authorization", getOauthAuthorizeUri()) )
                     }
                     else {
-                        paragraph( getFormat("hyperlink","$sSamsungIcon 'Click Here' for SmartThings Oauth Authorization and select 'Refresh' when completed", getOauthAuthorizeUri()) )
+                        paragraph( getFormat("hyperlink","$sSamsungIcon 'Click Here' for SmartThings OAuth Authorization and select 'Refresh' when completed", getOauthAuthorizeUri()) )
                         input(name: "mainPage::noop", type: "button", width: 2, title: "Refresh", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;", newLineAfter:true)
                     }
                 }
@@ -186,20 +190,23 @@ def mainPage(){
         }
   
         if(state.installedAppId) {
-            Map smartDevices = getSmartDevices() // this could block up to five seconds if we don't have devices cached
-            section(menuHeader("SmartThings Devices")) {
+            section(menuHeader("SmartThings Subscriptions")) {                               
+                input(name: "enableHealthSubscription", type: "bool", title: getFormat("text","Enable SmartThings Health Subscription"), defaultValue: false, submitOnChange: true)
+                input(name: "enableModeSubscription", type: "bool", title: getFormat("text","Enable SmartThings Mode Subscription"), defaultValue: false, submitOnChange: true)     
+
+                Map smartDevices = getSmartDevices() // this could block up to five seconds if we don't have devices cached
                 if(smartDevices) {
                     List smartDevicesSelect = []
                     smartDevices?.items?.sort{ a,b -> getSmartRoomName(a.roomId) <=> getSmartRoomName(b.roomId) ?: getSmartDeviceName(a.deviceId) <=> getSmartDeviceName(b.deviceId) }?.each {
                         Map device = [ "${it.deviceId}" : "${getSmartRoomName(it.roomId)} : ${getSmartDeviceName(it.deviceId)}" ]
                         smartDevicesSelect.add(device)   
                     }
-                    input(name: "mainPageSmartDevices", type: "enum", title: "SmartThings Devices (${mainPageSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):", description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
+                    input(name: "mainPageSmartDevices", type: "enum", title: getFormat("text", "Enable SmartThings Devices (${mainPageSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
                     if(iSmartAppDeviceLimit >=mainPageSmartDevices?.size()) {
-                        Map update = checkSmartDeviceSubscriptions()
+                        Map update = checkSmartSubscriptions()
                         if(update?.ready && !g_iRefreshInterval[app.getId()]) {
                             input(name: "mainPage::configure", type: "button", width: 2, title: "Configure", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
-                            paragraph( getFormat("text", "Select 'Configure' to update SmartThings device subscriptions") )
+                            paragraph( getFormat("text", "Select 'Configure' to update SmartThings subscriptions") )
                         }
                         else {
                             input(name: "mainPage::noop", type: "button", width: 2, title: "Refresh", style:"width:75%;")
@@ -207,29 +214,27 @@ def mainPage(){
                         }
                     }
                     else {
-                        paragraph( getFormat("text","Action: Too many SmartThings devices selected. The maximum device count supported is $iSmartAppDeviceLimit per '${app.getLabel()}' instance.") )
+                        paragraph( getFormat("text","Action: Too many SmartThings devices selected! The maximum device count supported is $iSmartAppDeviceLimit per '${app.getLabel()}' instance!",null,sColorDarkRed) )
                     }                        
                 } 
                 else {
                      input(name: "mainPage::noop", type: "button", width: 2, title: "Refresh", style:"width:75%;")
                 }            
-                smartDevicesSection()
+                smartDevicesTable()
             }
         }        
     }
 }
 
-def smartDevicesSection(){
-    Map update = checkSmartDeviceSubscriptions()
+def smartDevicesTable(){
+    Map update = checkSmartSubscriptions()
     
-    List deviceIds = update?.current ?: []
-    deviceIds = update?.select ? update?.select + deviceIds : deviceIds
-    deviceIds = update?.delete ? update?.delete + deviceIds : deviceIds    
-    List selectDevices = deviceIds?.unique()?.collect{ deviceId -> smartDevices?.items?.find{ it.deviceId==deviceId } }
+    List deviceIds = (update?.current + update?.select + update?.delete).unique()
+    List smartDevices = deviceIds?.collect{ deviceId -> smartDevices?.items?.find{ it.deviceId==deviceId } }
   
     String smartDeviceList = "<span><table style='width:100%;'>"
-    smartDeviceList += "<tr><th>SmartThings Device</th><th>SmartThings Room</th><th style='text-align:center;'>Device Subscription Status</th></tr>"
-    selectDevices?.sort{ a,b -> getSmartRoomName(a?.roomId) <=> getSmartRoomName(b?.roomId) ?: getSmartDeviceName(a?.deviceId) <=> getSmartDeviceName(b?.deviceId) }.each { device ->
+    smartDeviceList += "<tr><th>SmartThings Device</th><th>SmartThings Room</th><th style='text-align:center;'>Device Subscription</th></tr>"
+    smartDevices?.sort{ a,b -> getSmartRoomName(a?.roomId) <=> getSmartRoomName(b?.roomId) ?: getSmartDeviceName(a?.deviceId) <=> getSmartDeviceName(b?.deviceId) }.each { device ->
         String status = (update?.select?.find{it==device.deviceId}) ? "Pending Select" : (update?.delete?.find{it==device.deviceId}) ? "Pending Delete" : "Subscribed"        
         smartDeviceList += "<tr><td>${getSmartDeviceName(device.deviceId)}</td>"
         smartDeviceList += "<td>${getSmartRoomName(device.roomId)}</td>"
@@ -237,14 +242,15 @@ def smartDevicesSection(){
     }
     smartDeviceList +="</table>"
     
-    if (selectDevices?.size()){        
+    if (smartDevices?.size()){
+        paragraph( getFormat("line") )
         paragraph( smartDeviceList )
         paragraph("<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>")
     }
 }
 
 def installHelper() {
-    if(!state?.isInstalled && !state?.accessToken) {        
+    if(!state?.isInstalled && !isChildApp) {        
         return dynamicPage(name: "mainPage", install: true, refreshInterval: 0){
             displayHeader()
             section(menuHeader("Complete Install $sHubitatIconStatic $sSamsungIconStatic")) {
@@ -321,10 +327,12 @@ def callback() {
             logInfo "${app.getLabel()} ${event?.messageType}: $request.body"
             if(event?.eventData?.events?.find{ it.eventType=="DEVICE_LIFECYCLE_EVENT" }) { runIn(1,refresh) }
             //response = handleEvent(event?.eventData, eventPostTime)
+            if(isReplicaChildApp) { parent.childEvent(event) }
             break;        
         default:
           logWarn "${app.getLabel()} lifecycle ${event?.messageType} not supported"
     }    
+    event.clear()
     event = null
     
     logDebug "RESPONSE: ${JsonOutput.toJson(response)}"
@@ -355,40 +363,56 @@ Map handleConfirm(Map confirmationData) {
     return response
 }
 
-Map checkSmartDeviceSubscriptions() {
+Map checkSmartSubscriptions() {
     List currentIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId
     List selectIds = mainPageSmartDevices?.clone()
     List deleteIds = currentIds?.clone()
     if(selectIds) { deleteIds?.intersect(selectIds)?.each{ deleteIds?.remove(it); selectIds?.remove(it) } }
-    Boolean ready = (selectIds?.size() || deleteIds?.size())
     
-    return ([current:currentIds, select:(selectIds?:[]), delete:(deleteIds?:[]), ready:ready])
+    Boolean health = !!getSmartSubscriptions()?.items?.find{ it.sourceType=="DEVICE_HEALTH" }
+    Boolean mode = !!getSmartSubscriptions()?.items?.find{ it.sourceType=="MODE" }    
+    Boolean ready = (selectIds?.size() || deleteIds?.size() || health!=enableHealthSubscription || mode!=enableModeSubscription)
+    
+    return ([current:(currentIds?:[]), select:(selectIds?:[]), delete:(deleteIds?:[]), ready:ready])
 }
 
 void setSmartSubscriptions() {
-    if(getSmartSubscriptions()?.items?.find{ it.sourceType=="DEVICE_HEALTH" }==null)    
-        setSmartHealthSubscription()
     if(getSmartSubscriptions()?.items?.find{ it.sourceType=="DEVICE_LIFECYCLE" }==null)    
         setSmartLifecycleSubscription()
-    if(getSmartSubscriptions()?.items?.find{ it.sourceType=="MODE" }==null)    
-        setSmartModeSubscription()
+
+    Boolean health = !!getSmartSubscriptions()?.items?.find{ it.sourceType=="DEVICE_HEALTH" }
+    if(!health && enableHealthSubscription)   
+        setSmartHealthSubscription()
+    else if (health && !enableHealthSubscription)
+        deleteSmartSubscriptions("DEVICE_HEALTH")
     
-    Map update = checkSmartDeviceSubscriptions()    
+    Boolean mode = !!getSmartSubscriptions()?.items?.find{ it.sourceType=="MODE" }
+    if(!mode && enableModeSubscription)    
+        setSmartModeSubscription()
+    else if (mode && !enableModeSubscription)
+        deleteSmartSubscriptions("MODE")
+}
+
+void setSmartDeviceSubscriptions() {
+    
+    setSmartSubscriptions()
+    
+    Map update = checkSmartSubscriptions()    
     update?.select?.each{ deviceId ->
         logDebug "${app.getLabel()} subscribed to $deviceId"
         setSmartDeviceSubscription(deviceId)
     }
     update?.delete?.each{ deviceId ->
         logDebug "${app.getLabel()} unsubscribe to $deviceId"
-        deleteSmartSubscriptions(deviceId)
+        deleteSmartSubscriptions("DEVICE", deviceId)
     }
-    if(update?.select?.size() || update?.delete?.size()) { runIn(2, getSmartSubscriptionList) }
+    if(update?.ready) { runIn(2, getSmartSubscriptionList) }
 }
 
-Map deleteSmartSubscriptions(String deviceId) {
-    logDebug "${app.getLabel()} executing 'deleteSmartSubscriptions($deviceId)'"
+Map deleteSmartSubscriptions(String sourceType, String deviceId=null) {
+    logDebug "${app.getLabel()} executing 'deleteSmartSubscriptions($sourceType, $deviceId)'"
     Map response = [statusCode:iHttpError]
-    String subscriptionId = getSmartSubscriptions()?.items?.find{ it.sourceType=="DEVICE" && it.device.deviceId==deviceId }?.id
+    String subscriptionId = getSmartSubscriptions()?.items?.find{ it.sourceType==sourceType && (deviceId==null || it.device.deviceId==deviceId) }?.id
 
     Map params = [
         uri: sURI,
@@ -397,11 +421,11 @@ Map deleteSmartSubscriptions(String deviceId) {
     ]
     try {
         httpDelete(params) { resp ->
-            logInfo "${app.getLabel()} '${getSmartDeviceName(deviceId)}' delete subscription status:${resp.status}"
+            logInfo "${app.getLabel()} '${deviceId?getSmartDeviceName(deviceId):sourceType}' delete subscription status:${resp.status}"
             response.statusCode = resp.status
         }
     } catch (e) {
-        logWarn "${app.getLabel()} deleteSmartSubscriptions($deviceId) error: $e"
+        logWarn "${app.getLabel()} deleteSmartSubscriptions($sourceType, $deviceId) error: $e"
     }    
     return response
 }
@@ -589,15 +613,21 @@ Map oauthRefresh() {
     
     try {
         httpPost(params) { resp ->
-            // strange json'y response. this works good enough to solve. 
-            String respStr = resp.data.toString().replace("[{","{").replace("}:null]","}")
-            Map respStrJson = new JsonSlurper().parseText(respStr)
-            state.installedAppId = respStrJson.installed_app_id
-            state.authToken = respStrJson.access_token
-            state.refreshToken = respStrJson.refresh_token
-            state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
-            response.statusCode = resp.status
-            logInfo "${app.getLabel()} updated authorization token"
+            if (resp && resp.data && resp.success) {
+                // strange json'y response. this works good enough to solve. 
+                String respStr = resp.data.toString().replace("[{","{").replace("}:null]","}")
+                Map respStrJson = new JsonSlurper().parseText(respStr)
+                state.installedAppId = respStrJson.installed_app_id
+                state.authToken = respStrJson.access_token
+                state.refreshToken = respStrJson.refresh_token
+                state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
+                response.statusCode = resp.status
+                logInfo "${app.getLabel()} updated authorization token"
+            }
+            else {
+                state.authTokenExpires = 0
+                logWarn"${app.getLabel()} could not update authorization token"                
+            }                
          }
     } catch (e) {
         logWarn "${app.getLabel()} oauthRefresh() error: $e"
@@ -680,22 +710,22 @@ void asyncHttpGetCallback(resp, data) {
             case "getSmartSubscriptionList":            
                 Map subscriptionList = new JsonSlurper().parseText(resp.data)
                 if(!(subscriptionList?.sort()?.equals(g_mSmartSubscriptionList[app.getId()]?.sort()))) {
-                    state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList
+                    state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList.clone()
                     logInfo "${app.getLabel()} updated subscription list"
                 }
-                setSmartSubscriptions()
+                setSmartDeviceSubscriptions()
                 break
             case "getSmartDeviceList":            
                 Map deviceList = new JsonSlurper().parseText(resp.data)
                 if(!(deviceList?.sort()?.equals(g_mSmartDeviceList[app.getId()]?.sort()))) {                    
-                    g_mSmartDeviceList[app.getId()] = deviceList
+                    g_mSmartDeviceList[app.getId()] = deviceList.clone()
                     logInfo "${app.getLabel()} updated device list"
                 }
                 break
             case "getSmartRoomList":            
                 Map roomList = new JsonSlurper().parseText(resp.data)
                 if(!(roomList?.sort()?.equals(g_mSmartRoomList[app.getId()]?.sort()))) {                    
-                    g_mSmartRoomList[app.getId()] = roomList
+                    g_mSmartRoomList[app.getId()] = roomList.clone()
                     logInfo "${app.getLabel()} updated room list"
                 }
                 getSmartDeviceList()
@@ -703,7 +733,7 @@ void asyncHttpGetCallback(resp, data) {
             case "getSmartLocationList":            
                 Map locationList = new JsonSlurper().parseText(resp.data)
                 if(!locationList?.equals(g_mSmartLocationList[app.getId()])) {                     
-                    g_mSmartLocationList[app.getId()] = locationList
+                    g_mSmartLocationList[app.getId()] = locationList.clone()
                     state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
                     logInfo "${app.getLabel()} updated location list"
                 }
@@ -740,23 +770,6 @@ void startState() {
     refresh()    
     String crontab = "${Calendar.instance[ Calendar.SECOND ]} ${Calendar.instance[ Calendar.MINUTE ]} */12 * * ?" // every 12 hours from midnight+min+sec
     schedule(crontab, 'oauthRefresh') // tokens are good for 24 hours
-}
-
-void testButton() {  
-    def appId = '42639b20-71a8-4288-944e-c9c32a15303b'
-    
-    //oauthRefresh()    
-    //createApp()
-    //createAppSecret(appId)
-    //getApp(appId)
-    //updateApp(appId)
-    //deleteApp(appId)
-    
-    listApps()
-    //listInstalledApps()
-    
-    logInfo clientSecretPAT
-    return
 }
 
 def createApp() {
@@ -907,16 +920,16 @@ def appCallback(resp, data) {
 @Field static final String sHubitatIcon="""<svg width="1.0em" height="1.0em" version="2.0"><use href="#hubitat-svg"/></svg>"""
 
 // thanks to DCMeglio (Hubitat Package Manager) for a lot of formatting hints
-def getFormat(type, myText="", myHyperlink=""){   
-    if(type == "line")      return "<hr style='background-color:${sColorDarkBlue}; height: 1px; border: 0;'>"
-	if(type == "title")     return "<h2 style='color:${sColorDarkBlue};font-weight: bold'>${myText}</h2>"
-    if(type == "text")      return "<span style='color:${sColorDarkBlue};font-weight: bold'>${myText}</span>"
-    if(type == "hyperlink") return "<a href='${myHyperlink}' target='_blank' rel='noopener noreferrer' style='color:${sColorDarkBlue};font-weight:bold'>${myText}</a>"
+def getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){   
+    if(type == "line")      return "<hr style='background-color:$myColor; height: 1px; border: 0;'>"
+	if(type == "title")     return "<h2 style='color:$myColor;font-weight: bold'>${myText}</h2>"
+    if(type == "text")      return "<span style='color:$myColor;font-weight: bold'>${myText}</span>"
+    if(type == "hyperlink") return "<a href='${myHyperlink}' target='_blank' rel='noopener noreferrer' style='color:$myColor;font-weight:bold'>${myText}</a>"
 }
 
 def displayHeader() { 
     section (getFormat("title", "${app.getLabel()}${sCodeRelease?.size() ? " : $sCodeRelease" : ""}"  )) { 
-        paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: ${version()} -  ${copyright()}</div>"
+        paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: v${version()} -  ${copyright()}</div>"
         paragraph( getFormat("line") ) 
     }
 }
@@ -935,3 +948,21 @@ private logDebug(msg) { if(appLogEnable == true) { log.debug "${msg}" } }
 private logTrace(msg) { if(appTraceEnable == true) { log.trace "${msg}" } }
 private logWarn(msg)  { log.warn  "${msg}" } 
 private logError(msg) { log.error  "${msg}" }
+
+
+void testButton() {  
+    def appId = '42639b20-71a8-4288-944e-c9c32a15303b'
+    
+    oauthRefresh()    
+    //createApp()
+    //createAppSecret(appId)
+    //getApp(appId)
+    //updateApp(appId)
+    //deleteApp(appId)
+    
+    listApps()
+    //listInstalledApps()
+    
+    logInfo clientSecretPAT
+    return
+}
