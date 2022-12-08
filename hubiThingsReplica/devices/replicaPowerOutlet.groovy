@@ -67,13 +67,13 @@ def setPowerValue(value) {
 def setVoltageValue(value) {
     String descriptionText = "${device.displayName} voltage is $value V"
     sendEvent(name: "voltage", value: value, unit: "V", descriptionText: descriptionText)
-    log.info descriptionText
+    //log.info descriptionText
 }
 
 def setFrequencyValue(value) {
     String descriptionText = "${device.displayName} frequency is $value Hz"
     sendEvent(name: "frequency", value: value, unit: "Hz", descriptionText: descriptionText)
-    log.info descriptionText
+    //log.info descriptionText
 }
 
 def setSwitchValue(value) {
