@@ -20,7 +20,7 @@
 *  1.0.02  2022-12-08 Fixes getting ready to integrate with Replica
 */
 
-public static String version() {  return "1.0.01"  }
+public static String version() {  return "1.0.02"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
