@@ -61,7 +61,7 @@ Map getReplicaCommands() {
 def setPowerValue(value) {
     String descriptionText = "${device.displayName} power is $value W"
     sendEvent(name: "power", value: value, unit: "W", descriptionText: descriptionText)
-    log.info descriptionText
+    //log.info descriptionText
 }
 
 def setVoltageValue(value) {
