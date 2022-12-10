@@ -1995,7 +1995,7 @@ Map handleTokenRefresh() {
 Map handleUninstall(Map uninstallData) {
     logInfo "${app.getLabel()} executing uninstall"
     Map response = [statusCode:iHttpSuccess]
-    return response
+
     // All subscriptions and schedules for the installed app will be automatically deleted by SmartThings.
     appRemoveSettings()
     state.remove('authToken')
