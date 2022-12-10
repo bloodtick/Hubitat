@@ -17,16 +17,16 @@
 *
 *  1.0.0  2022-10-01 First pass.
 *  ...    Deleted
-*  1.0.24 2022-11-11 Bug fixes on Mirror. Ignore devices that are not configured.
 *  1.0.25 2022-11-13 Bug fixes. Commented out temp code. First install checks to prevent bad install (OAUTH and Done).
 *  1.0.26 2022-11-14 Starting work on Subscription & Mode status. Starting moving Rules to a MAP and not LIST. Selecting event captures.
 *  1.0.27 2022-11-14 Event, Status & Command logging to help t/s by deviceId
 *  1.0.28 2022-11-18 Allow disabling status updates, display replica namespace handlers, work on replica handler auto rules
 *  1.0.29 2022-11-21 Update rules to version 1. Prepare for parent->child replica device handlers. Capability fix for mult-device support.
 *  1.0.30 2022-11-25 Updated to support new Replica format. Force devcies to rules version 1.
+*  1.1.00 2022-12-10 Complete rebuilt to support OAuth solutions.
 */
 
-public static String version() {  return "1.0.30"  }
+public static String version() {  return "1.1.00"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -40,6 +40,7 @@ import com.hubitat.app.ChildDeviceWrapper
 import groovy.transform.CompileStatic
 import groovy.transform.Field
 
+@Field static final String  sDefaultAppName="HubiThings Replica"
 @Field static final Integer iSmartAppDeviceLimit=20
 @Field static final Integer iHttpSuccess=200
 @Field static final Integer iHttpError=400
@@ -69,15 +70,14 @@ void clearAllVolatileCache() {
 }
 
 definition(
-    name: "HubiThings Replica",
+    name: sDefaultAppName,
     namespace: "hubitat",
     author: "bloodtick",
-    description: "Hubitat Application to manage SmartThings SmartApp Webhooks",
+    description: "Hubitat Application to manage SmartThings SmartApp Devices",
     category: "Convenience",
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsReplica.groovy",
     iconUrl: "",
     iconX2Url: "",
-    oauth: [displayName: "HubiThings Replica", displayLink: ""],
     singleInstance: false
 ){}
 
@@ -108,12 +108,15 @@ def updated() {
 
 def initialize() {
     logInfo "${app.getLabel()} executing 'initialize()'"
+    if(pageMainPageAppLabel && pageMainPageAppLabel!=app.getLabel()) { app.updateLabel( pageMainPageAppLabel ) }
 }
 
 def uninstalled() {
     logInfo "${app.getLabel()} executing 'uninstalled()'"    
     unsubscribe()
     unschedule()
+    getChildDevices().each { deleteChildDevice("${it.deviceNetworkId}") }
+    getChildApps().each { deleteChildApp(it.id) }
 }
 
 String getLocalUri() {
@@ -122,6 +125,27 @@ String getLocalUri() {
 
 String getCloudUri() {
     return "${getApiServerUrl()}/${hubUID}/apps/${app.id}/webhook?access_token=${state.accessToken}"
+}
+
+public void childEvent( childApp, event ) {
+    handleEvent( event?.eventData, now() )
+}
+
+public Map childInitialize( childApp ) {
+    logInfo "${app.getLabel()} executing 'childInitialize()' on '${childApp.getLabel()}:${childApp.id}'"
+    return [type:'initialize', settings: [userSmartThingsPAT:(userSmartThingsPAT?:null), pageMainSmartDevices:null]]
+}
+
+public void childInstall( childApp, devices ) {
+    logInfo "${app.getLabel()} executing 'childInstall()' on '${childApp.getLabel()}:${childApp.id}'"
+}
+
+public void childUninstalled( childApp ) {
+    logInfo "${app.getLabel()} executing 'childUninstalled()' on '${childApp.getLabel()}:${childApp.id}'"
+}
+
+String getAuthToken() {
+    return (state?.authToken?:userSmartThingsPAT)
 }
 
 Map getSmartDevicesMap() {
@@ -151,6 +175,12 @@ void setSmartModesMap(Map modeList) {
     g_mSmartModeListCache[app.getId()] = modeList
     logInfo "${app.getLabel()} caching SmartThings modes list"
 }
+
+
+        
+        
+    
+    
 
 Map getInstallSmartDevicesMap() {
     Long appId = app.getId()
@@ -183,12 +213,11 @@ def mainPage(){
             displayHeader()
             section(menuHeader("Complete Install $sHubitatIconStatic $sSamsungIconStatic")) {
                 paragraph("Please complete the install <b>(click done)</b> and then return to $sHubitatIcon SmartApp to continue configuration")
-                if(!pageMainPageAppLabel) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
-                input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change ${app.getLabel()} SmartApp Name:"), width: 6, default:app.getLabel(), submitOnChange: true, newLineAfter:true)
-                if(pageMainPageAppLabel && pageMainPageAppLabel!=app.getLabel()) { app.updateLabel( pageMainPageAppLabel ) }
+                input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change ${app.getLabel()} SmartApp Name:"), width: 6, defaultValue:app.getLabel(), submitOnChange: true, newLineAfter:true)
             }
         }
     }
+    /*
     if(!state?.accessToken){	
         try { createAccessToken() } catch(e) { logWarn e }	
     }
@@ -201,44 +230,63 @@ def mainPage(){
             }
         }
     }
+    */
+    
+    app.removeSetting('mainPageShowConfig') // remove someday; 1.0.31
+    app.removeSetting('clientSecretPAT') // remove someday; 1.0.31
+    app.removeSetting('pageMainShowAdvanceFeatures')
     
     Map smartDevices = getSmartDevicesMap()
-    Map installDevices = getInstallSmartDevicesMap()
+    //Map installDevices = getInstallSmartDevicesMap()
     Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
     
-    if(!pageMainPageAppLabel || !mainPageShowConfig) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
+    if(!pageMainPageAppLabel || !pageMainShowConfig) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
     
     return dynamicPage(name: "mainPage", install: true,  refreshInterval: 0){
         displayHeader()
         
         section(menuHeader("${app.getLabel()} Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
             
-            input(name: "mainPageShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: false, submitOnChange: true)
-            paragraph( getFormat("line") )
-            
-            if(mainPageShowConfig) {
+            input(name: "pageMainShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: false, submitOnChange: true)
+            paragraph( getFormat("line") )            
+            if(pageMainShowConfig) {
+             
+                input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)
+                paragraph("") 
                 
-			    input(name: "mainPageAllowCloudAccess", type: "bool", title: getFormat("text","$sHubitatIcon Enable Hubitat REST API Endpoint for SmartThings Developer Workspace SmartApp"), defaultValue: false, submitOnChange: true)  
-                if(mainPageAllowCloudAccess) {
-                    paragraph("<ul><strong>External</strong>: ${getFormat("hyperlink", getCloudUri(), getCloudUri())}</ul>")                
-               }                       
-            
+                app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: getFormat("text","$sSamsungIcon Authorize SmartThings Devices"), multiple: true)                
                 paragraph( getFormat("line") )
-                // required for authToken refresh
-                input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
-                input(name: "clientSecretUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client Secret from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
-                input(name: "clientSecretPAT", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token (Mode Changes Only):","https://account.smartthings.com/tokens"), width: 6, submitOnChange: true, newLineAfter:true)
-                if(state?.authTokenDate) {
-                    paragraph( getFormat("text","$sSamsungIcon Token Expiration Date: ${state.authTokenDate}") )
-                    input(name: "mainPage::refreshToken", type: "button", title: "Refresh Token", width: 3, style:"width:50%;", newLineAfter:true)
-                }
-                paragraph( getFormat("line") )
-               
+  
+                input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: getFormat("text","$sHubitatIcon Advanced Configuration"), defaultValue: false, submitOnChange: true)                
+                if(pageMainShowAdvanceConfiguration) {
                 def deviceText = (deviceAuthCount<1 ? ": (Select to Authorize Devices to Mirror)" : (deviceAuthCount==1 ?  ": ($deviceAuthCount Device Authorized)" : ": ($deviceAuthCount Devices Authorized)"))
-                href "pageAuthDevice", title: getFormat("text","$sHubitatIcon Authorize Hubitat Devices $deviceText"), description: "Click to show"
-                
+                href "pageAuthDevice", title: getFormat("text","$sHubitatIcon Authorize Hubitat Devices $deviceText"), description: "Click to show"                
+                paragraph("")
+   
                 input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change SmartApp Name:"), width: 6, submitOnChange: true, newLineAfter:true)
-                input(name: "mainPage::changeAppName", type: "button", title: "Change Name", width: 3, style:"width:50%;", newLineAfter:true)
+                input(name: "mainPage::changeAppName", type: "button", title: "Change Name", width: 3, style:"width:50%;", newLineAfter:true)                
+                
+                if(state.installedAppConfig) {
+                    paragraph( getFormat("line") )
+                    
+                    paragraph( getFormat("text","This section to be deprecated. Please delete SmartApp from mobile client and authorize devices with OAuth.",null,sColorDarkRed) )
+                    
+			        input(name: "mainPageAllowCloudAccess", type: "bool", title: getFormat("text","$sHubitatIcon Enable Hubitat REST API Endpoint for SmartThings Developer Workspace SmartApp"), defaultValue: false, submitOnChange: true)  
+                    if(mainPageAllowCloudAccess) {
+                        paragraph("<ul><strong>External</strong>: ${getFormat("hyperlink", getCloudUri(), getCloudUri())}</ul>")               
+                    }                       
+
+                    // required for authToken refresh
+                    input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
+                    input(name: "clientSecretUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client Secret from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
+
+                    if(state?.authTokenDate) {
+                        paragraph( getFormat("text","$sSamsungIcon Token Expiration Date: ${state.authTokenDate}") )
+                        input(name: "mainPage::refreshToken", type: "button", title: "Refresh Token", width: 3, style:"width:50%;", newLineAfter:true)
+                    }
+                    paragraph( getFormat("line") )
+                }
+                }
             }
             else {
                 if(state?.user=="bloodtick") { 
@@ -254,9 +302,12 @@ def mainPage(){
             
         section(menuHeader("HubiThings Device List")){            
             
-            if (smartDevices && installDevices) {               
+            //if (smartDevices && installDevices) {
+            if (smartDevices) {
                 def devicesTable = "<table style='width:100%;'>"
-                devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sSamsungIcon Type</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sSamsungIcon Events</th><th style='text-align:center;'>$sSamsungIcon Subscription</th></tr>"
+                //devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sSamsungIcon Type</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sSamsungIcon Events</th><th style='text-align:center;'>$sSamsungIcon Subscription</th></tr>"
+                devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
+ 
                 smartDevices?.items?.sort{ it.label }?.each { smartDevice -> 
                     def hubitatDevices = getReplicaDevices(smartDevice.deviceId)
                     for (def i = 0; i ==0 || i < hubitatDevices.size(); i++) {
@@ -264,10 +315,10 @@ def mainPage(){
                         //def deviceColor = hubitatDevices[i]?.getDataValue("statuscolor") ?: sColorLightGrey                            
                         devicesTable += "<tr>"
                         devicesTable += "<td>${smartDevice?.label}</td>"                  
-                        devicesTable += "<td>${installDevices?.get(smartDevice.deviceId)?.id?.join(', ')}</td>"
+                        //devicesTable += "<td>${installDevices?.get(smartDevice.deviceId)?.id?.join(', ')}</td>"
                         devicesTable += hubitatDevices[i] ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.getDisplayName()}</a></td>" : "<td></td>"
                         devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${getSmartDeviceEventsStatus(hubitatDevices[i])}</td>"
-                        devicesTable += "<td style='text-align:center;'><div><span id='status_${hubitatDevices[i]?.deviceNetworkId}' style='background:${sColorLightGrey};' class='dot'></span></div></td>"
+                        //devicesTable += "<td style='text-align:center;'><div><span id='status_${hubitatDevices[i]?.deviceNetworkId}' style='background:${sColorLightGrey};' class='dot'></span></div></td>"
                         devicesTable += "</tr>"
                     }
 		        }                
@@ -278,7 +329,8 @@ def mainPage(){
                 def html =  """<style>.dot{height:20px; width:20px; background:${sColorDarkBlue}; border-radius:50%; display:inline-block;}</style>"""
                     html += """<style>th,td{border-bottom:3px solid #ddd;}</style>"""                
                     html += """<style>table{ table-layout: fixed;width: 100%;}</style>"""
-                    html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(2),td:nth-of-type(2),th:nth-of-type(5),td:nth-of-type(5) { display: none; } }</style>"""
+                    //html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(2),td:nth-of-type(2),th:nth-of-type(5),td:nth-of-type(5) { display: none; } }</style>"""
+                    //html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(4),td:nth-of-type(4) { display: none; } }</style>"""
                     html += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { updatedot(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
                     //html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='statuscolor' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).style.background = evt.value;}}</script>"""
                     html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerText = evt.value; }}</script>"""
@@ -309,7 +361,7 @@ def mainPage(){
             input(name: "appLogEnable", type: "bool", title: "Enable debug logging", required: false, defaultValue: false, submitOnChange: true)
             input(name: "appTraceEnable", type: "bool", title: "Enable trace logging", required: false, defaultValue: false, submitOnChange: true)
         }
-        if(mainPageShowConfig || appLogEnable || appTraceEnable) {
+        if(pageMainShowConfig || appLogEnable || appTraceEnable) {
             runIn(30*60, updateMainPage)
         } else {
             unschedule('updateMainPage')
@@ -321,7 +373,8 @@ def mainPage(){
 
 void updateMainPage() {
     logInfo "${app.getLabel()} disabling debug and trace logs"
-    app.updateSetting("mainPageShowConfig", false)
+    app.updateSetting("pageMainShowConfig", false)
+    app.updateSetting("pageMainShowAdvanceConfiguration", false)
     app.updateSetting("appLogEnable", false)
     app.updateSetting("appTraceEnable", false)    
 }
@@ -473,7 +526,8 @@ def createChildDevices(){
         // the deviceId makes this a hubiThing
         // Needed for mirror function to prevent two SmartApps talking to same device.
         Map replica = [ deviceId:deviceId, replicaId:(app.getId()), type:'child']
-        setReplicaDataJsonValue(replicaDevice, "replica", replica)        
+        setReplicaDataJsonValue(replicaDevice, "replica", replica)
+        if(replicaDevice?.hasCommand('configure')) replicaDevice.configure()
         replicaDeviceRefresh(replicaDevice)
 
         logInfo "${app.getLabel()} created device '${replicaDevice.getDisplayName()}' with network id: ${replicaDevice.deviceNetworkId}"  
@@ -1087,7 +1141,12 @@ void appButtonHandler(String btn) {
 }
 
 void allSmartDeviceRefresh() {
-    allSmartDeviceList(1)
+    if(state.installedAppConfig) { 
+        allSmartDeviceList(1) 
+    }
+    else {
+        getChildApps()?.each{ setSmartDevicesMap( it?.getSmartSubscribedDevices() ) }
+    }        
     allSmartDeviceStatus(10)
     allSmartDeviceHealth(20)
     allSmartDeviceDescription(30)    
@@ -1175,7 +1234,8 @@ Boolean deviceTriggerHandlerCache(replicaDevice, attribute, value) {
     Boolean response = false
 
     String deviceId = getReplicaDeviceId(replicaDevice)
-    Map device = getInstallSmartDevicesMap()?.get(deviceId)
+    Map device = getSmartDeviceStatusMap(deviceId)
+    //Map device = getInstallSmartDevicesMap()?.get(deviceId)
     if (device) {
         String a = device?.eventCache?.get(attribute).toString()
         String b = value.toString()
@@ -1201,7 +1261,8 @@ void smartTriggerHandlerCache(replicaDevice, attribute, value) {
     logDebug "${app.getLabel()} executing 'smartTriggerHandlerCache()' replicaDevice:'${replicaDevice?.getDisplayName()}'"
 
     String deviceId = getReplicaDeviceId(replicaDevice)
-    Map device = getInstallSmartDevicesMap()?.get(deviceId)
+    Map device = getSmartDeviceStatusMap(deviceId)
+    //Map device = getInstallSmartDevicesMap()?.get(deviceId)
     if (device!=null) {
         device?.eventCache[attribute] = value
         logDebug "${app.getLabel()} cache => ${device?.eventCache}"
@@ -1263,8 +1324,9 @@ String getSmartDeviceEventsStatus(replicaDevice) {
     if(replicaDevice) {
         String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
         String deviceId = getReplicaDeviceId(replicaDevice)    
-    
-        String eventCount = (getInstallSmartDevicesMap()?.get(deviceId)?.eventCount ?: 0).toString()
+            
+        String eventCount = (getSmartDeviceStatusMap(deviceId)?.eventCount ?: 0).toString()
+        //String eventCount = (getInstallSmartDevicesMap()?.get(deviceId)?.eventCount ?: 0).toString()
         value = (healthState=='offline' ? healthState : eventCount)
         sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
     }
@@ -1414,7 +1476,7 @@ void getReplicaCapabilities(replicaDevice) {
 Map getSmartDeviceCapability(String deviceId, String capabilityId, Integer capabilityVersion=1) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceCapability()'"
     Map response = [statusCode:iHttpError]    
-	Map data = [ uri: sURI, path: "/capabilities/${capabilityId}/${capabilityVersion}", deviceId: deviceId, method: "getSmartDeviceCapability", authToken: state?.authToken	]
+	Map data = [ uri: sURI, path: "/capabilities/${capabilityId}/${capabilityVersion}", deviceId: deviceId, method: "getSmartDeviceCapability"	]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -1446,7 +1508,7 @@ void setAllSmartDeviceHealthOffline() {
 Map getSmartDeviceHealth(String deviceId) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceHealth($deviceId)'"
     Map response = [statusCode:iHttpError]
-	Map data = [ uri: sURI, path: "/devices/${deviceId}/health", deviceId: deviceId, method: "getSmartDeviceHealth", authToken: state?.authToken ]
+	Map data = [ uri: sURI, path: "/devices/${deviceId}/health", deviceId: deviceId, method: "getSmartDeviceHealth" ]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -1467,7 +1529,7 @@ void getAllDeviceDescription() {
 Map getSmartDeviceDescription(String deviceId) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceDescription($deviceId)'"
     Map response = [statusCode:iHttpError]
-	Map data = [ uri: sURI, path: "/devices/${deviceId}", deviceId: deviceId, method: "getSmartDeviceDescription", authToken: state?.authToken ]
+	Map data = [ uri: sURI, path: "/devices/${deviceId}", deviceId: deviceId, method: "getSmartDeviceDescription" ]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -1488,15 +1550,7 @@ void getAllSmartDeviceStatus() {
 Map getSmartDeviceStatus(String deviceId) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceStatus($deviceId)'"
     Map response = [statusCode:iHttpError]
-	Map data = [ uri: sURI, path: "/devices/${deviceId}/status", deviceId: deviceId, method: "getSmartDeviceStatus", authToken: state?.authToken ]
-	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
-    return response
-}
-
-Map getSmartModeList() {
-    logDebug "${app.getLabel()} executing 'getSmartModeList()'"
-    Map response = [statusCode:iHttpError]    
-    Map data = [ uri: sURI, path: "/locations/${state?.locationId}/modes", method: "getSmartModeList", authToken: state?.authToken ]
+	Map data = [ uri: sURI, path: "/devices/${deviceId}/status", deviceId: deviceId, method: "getSmartDeviceStatus" ]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -1504,7 +1558,7 @@ Map getSmartModeList() {
 Map getSmartSubscriptionList() {
     logDebug "${app.getLabel()} executing 'getSmartSubscriptionList()'"
     Map response = [statusCode:iHttpError]    
-    Map data = [ uri: sURI, path: "/installedapps/${state?.installedAppId}/subscriptions", method: "getSmartSubscriptionList", authToken: state?.authToken ]
+    Map data = [ uri: sURI, path: "/installedapps/${state?.installedAppId}/subscriptions", method: "getSmartSubscriptionList"  ]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -1517,7 +1571,7 @@ void allSmartDeviceList(Integer delay=1) {
 Map getSmartDeviceList() {
     logDebug "${app.getLabel()} executing 'getSmartDeviceList()'"
     Map response = [statusCode:iHttpError]   
-	Map data = [ uri: sURI, path: "/devices", method: "getSmartDeviceList", authToken: state?.authToken	]
+	Map data = [ uri: sURI, path: "/devices", method: "getSmartDeviceList"	]
     response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -1529,7 +1583,7 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
     Map params = [
 	    uri: data.uri,
 	    path: data.path,
-		headers: [ Authorization: "Bearer ${data.authToken}" ]
+		headers: [ Authorization: "Bearer ${getAuthToken()}" ]
     ]
 	try {
 	    asynchttpGet(callbackMethod, params, data)
@@ -1568,12 +1622,7 @@ void asyncHttpGetCallback(resp, data) {
                 Map status = new JsonSlurper().parseText(resp.data)        
                 getReplicaDevices(data.deviceId)?.each { replicaDevice -> smartStatusHandler(replicaDevice, status) }
                 status = null
-                break
-            case "getSmartModeList":
-                Map modeList = new JsonSlurper().parseText(resp.data)
-                //logTrace "${app.getLabel()} successful ${data?.method}: ${JsonOutput.toJson(modeList)}"
-                setSmartModesMap(modeList)
-                break           
+                break        
             case "getSmartSubscriptionList":
                 Map subscriptionList = new JsonSlurper().parseText(resp.data)                
                 //logTrace "${app.getLabel()} successful ${data?.method}: ${JsonOutput.toJson(subscriptionList)}"
@@ -1589,7 +1638,6 @@ void asyncHttpGetCallback(resp, data) {
                 }
                 setSmartDevicesMap(smartDevices)
                 getSmartSubscriptionList()
-                getSmartModeList()
                 break
             default:
                 logWarn "${app.getLabel()} asyncHttpGetCallback ${data?.method} not supported"
@@ -1638,7 +1686,7 @@ Map deleteSmartSubscriptions() {
     Map params = [
         uri: sURI,
         path: "/installedapps/${state?.installedAppId}/subscriptions",
-        headers: [ Authorization: "Bearer ${state?.authToken}" ]        
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
     ]
     try {
         httpDelete(params) { resp ->
@@ -1663,7 +1711,7 @@ Map setSmartDeviceCommand(deviceId, capability, command, arguments = []) {
         path: "/devices/${deviceId}/commands",
         body: JsonOutput.toJson(commands),
         method: "setSmartDeviceCommand",
-        authToken: state?.authToken        
+        authToken: getAuthToken()        
     ]
     if(appLogEventEnable && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         logInfo "Command deviceId:$deviceId data:${JsonOutput.toJson(commands)}"
@@ -1681,8 +1729,7 @@ Map setSmartModeSubscription() {
         uri: sURI,
         path: "/installedapps/${state?.installedAppId}/subscriptions",
         body: JsonOutput.toJson(mode),
-        method: "setSmartModeSubscription",
-        authToken: state?.authToken        
+        method: "setSmartModeSubscription"        
     ]
     response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", data).statusCode    
     return response
@@ -1697,8 +1744,7 @@ Map setSmartHealthSubscription() {
         uri: sURI,
         path: "/installedapps/${state?.installedAppId}/subscriptions",
         body: JsonOutput.toJson(health),
-        method: "setSmartHealthSubscription",
-        authToken: state?.authToken        
+        method: "setSmartHealthSubscription"       
     ]
     response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", data).statusCode    
     return response
@@ -1713,8 +1759,7 @@ Map setSmartDeviceSubscription(String deviceId) {
         uri: sURI,
         path: "/installedapps/${state?.installedAppId}/subscriptions",        
         body: JsonOutput.toJson(subscription),
-        method: "setSmartDeviceSubscription",
-        authToken: state?.authToken        
+        method: "setSmartDeviceSubscription"
     ]
     response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", data).statusCode    
     return response
@@ -1730,7 +1775,7 @@ private Map asyncHttpPostJson(String callbackMethod, Map data) {
         body: data.body,
         contentType: "application/json",
         requestContentType: "application/json",
-		headers: [ Authorization: "Bearer ${data.authToken}" ]
+		headers: [ Authorization: "Bearer ${getAuthToken()}" ]
     ]
 	try {
 	    asynchttpPost(callbackMethod, params, data)
@@ -1818,7 +1863,7 @@ Map getSmartCurrentMode() {
     Map params = [
         uri: sURI,
         path: "/locations/${state?.locationId}/modes/current",
-        headers: [ Authorization: "Bearer ${state?.authToken}" ]        
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
     ]
     try {
         httpGet(params) { resp ->
@@ -1842,7 +1887,7 @@ Map getSmartSubscription(String subscriptionId) {
     Map params = [
         uri: sURI,
         path: "/installedapps/${state?.installedAppId}/subscriptions/${subscriptionId}",
-        headers: [ Authorization: "Bearer ${state?.authToken}" ]        
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
     ]
     try {
         httpGet(params) { resp ->
@@ -1967,16 +2012,32 @@ Map handleUninstall(Map uninstallData) {
     return [statusCode:response.statusCode, uninstallData:{}]
 }
 
+@Field volatile static Map<Long,Map>   g_mSmartDeviceStatusMap = [:]
+Map getSmartDeviceStatusMap(deviceId) {
+    Long appId = app.getId()
+    if(g_mSmartDeviceStatusMap[appId]==null) { 
+        g_mSmartDeviceStatusMap[appId] = [:]
+        allSmartDeviceRefresh() // THIS DOES NOT BELONG HERE
+    }
+    if(!g_mSmartDeviceStatusMap[appId]?.get(deviceId)) {
+        g_mSmartDeviceStatusMap[appId][deviceId] = [ eventCount:0, eventCache:[:] ]
+        //logInfo g_mSmartDeviceStatusMap[appId]
+    }
+    //logInfo g_mSmartDeviceStatusMap[appId]?.get(deviceId)
+    return g_mSmartDeviceStatusMap[appId]?.get(deviceId)
+}
+
 Map handleEvent(Map eventData, Long eventPostTime=null) {
     logDebug "${app.getLabel()} executing 'handleEvent()'"
     Map response = [statusCode:iHttpSuccess]
-    
+
     eventData?.events?.each { event ->
         switch(event?.eventType) {
             case 'DEVICE_EVENT':
                 String deviceId = event?.deviceEvent?.deviceId
-                Map device = getInstallSmartDevicesMap()?.get(deviceId)
-                if(device?.eventCount!=null) device.eventCount += 1 
+                Map device = getSmartDeviceStatusMap(deviceId)
+                //Map device = getInstallSmartDevicesMap()?.get(deviceId)
+                if(device?.eventCount!=null) device.eventCount += 1
                 getReplicaDevices(deviceId)?.each{ replicaDevice ->
                     response.statusCode = smartEventHandler(replicaDevice, event?.deviceEvent, eventPostTime).statusCode
                 }
@@ -2118,6 +2179,7 @@ def webhookPost() {
         default:
           logWarn "${app.getLabel()} lifecycle ${evt?.lifecycle} not supported"
     }    
+    event?.clear()
     event = null
     
     logDebug "RESPONSE: ${JsonOutput.toJson(response)}"
@@ -2240,16 +2302,16 @@ def getHtmlResponse(Boolean success=false) {
 @Field static final String sHubitatIcon="""<svg width="1.0em" height="1.0em" version="2.0"><use href="#hubitat-svg"/></svg>"""
 
 // thanks to DCMeglio (Hubitat Package Manager) for a lot of formatting hints
-def getFormat(type, myText="", myHyperlink=""){   
-    if(type == "line")      return "<hr style='background-color:${sColorDarkBlue}; height: 1px; border: 0;'>"
-	if(type == "title")     return "<h2 style='color:${sColorDarkBlue};font-weight: bold'>${myText}</h2>"
-    if(type == "text")      return "<span style='color:${sColorDarkBlue};font-weight: bold'>${myText}</span>"
-    if(type == "hyperlink") return "<a href='${myHyperlink}' target='_blank' rel='noopener noreferrer' style='color:${sColorDarkBlue};font-weight:bold'>${myText}</a>"
+def getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){   
+    if(type == "line")      return "<hr style='background-color:$myColor; height: 1px; border: 0;'>"
+	if(type == "title")     return "<h2 style='color:$myColor;font-weight: bold'>${myText}</h2>"
+    if(type == "text")      return "<span style='color:$myColor;font-weight: bold'>${myText}</span>"
+    if(type == "hyperlink") return "<a href='${myHyperlink}' target='_blank' rel='noopener noreferrer' style='color:$myColor;font-weight:bold'>${myText}</a>"
 }
 
 def displayHeader() { 
     section (getFormat("title", "${app.getLabel()}${sCodeRelease?.size() ? " : $sCodeRelease" : ""}"  )) { 
-        paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: ${version()} -  ${copyright()}</div>"
+        paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: v${version()} -  ${copyright()}</div>"
         paragraph( getFormat("line") ) 
     }
 }
@@ -2443,58 +2505,6 @@ private void clearReplicaDataCache(def replicaDevice, String dataKey, Boolean de
 }
 // ******** Volatile Memory Device Cache - End ********
 
-// ******** Child Device Component Handlers - Start ********
-void componentOn(device) {
-    logDebug "componentOn device:$device"
-    getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"on", descriptionText:"${device.displayName} was turned on", data:[appId:app.getId()]]])
-}
-
-void componentOff(device) {
-    logDebug "componentOff device:$device"
-    getChildDevice(device.deviceNetworkId).parse([[name:"switch", value:"off", descriptionText:"${device.displayName} was turned off", data:[appId:app.getId()]]])
-}
-
-void componentSetLevel(device, level, ramp=null) {
-    logDebug "componentSetLevel device:$device $level $ramp"
-    getChildDevice(device.deviceNetworkId).parse([[name:"level", value:level, descriptionText:"${device.displayName} level was set to ${level}%", unit: "%", data:[appId:app.getId()]]])
-}
-
-void componentStartLevelChange(device, direction) {
-    logWarn "componentStartLevelChange device:$device $direction : No Operation"
-}
-
-void componentStopLevelChange(device) {
-    logWarn "componentStopLevelChange device:$device : No Operation"
-}
-
-void componentRefresh(device) {
-    logDebug "componentRefresh device:$device"
-    replicaDeviceRefresh(device)
-}
-
-void componentPush(device, buttonNumber) {
-    logDebug "componentPush device:$device buttonNumber:$buttonNumber"
-    getChildDevice(device.deviceNetworkId).parse([[name:"pushed", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was pushed", isStateChange:true, data:[appId:app.getId()]]])
-}
-
-void componentDoubleTap(device, buttonNumber) {
-    logDebug "componentDoubleTap device:$device buttonNumber:$buttonNumber"
-    getChildDevice(device.deviceNetworkId).parse([[name:"doubleTapped", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was double tapped", isStateChange:true, data:[appId:app.getId()]]])
-}
-
-
-void componentHold(device, buttonNumber) {
-    logDebug "componentHold device:$device buttonNumber:$buttonNumber"
-    getChildDevice(device.deviceNetworkId).parse([[name:"held", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was held", isStateChange:true, data:[appId:app.getId()]]])
-}
-
-void componentRelease(device, buttonNumber) {
-    logDebug "componentRelease device:$device buttonNumber:$buttonNumber"
-    getChildDevice(device.deviceNetworkId).parse([[name:"released", value:(buttonNumber?:1), descriptionText:"${device.displayName} button number ${(buttonNumber?:1)} was released", isStateChange:true, data:[appId:app.getId()]]])
-}
-// ******** Child Device Component Handlers - End ********
-
-
 // ******** Thanks to Dominick Meglio for the code below! ********
 Map getDriverList() {
 	def params = [
@@ -2519,258 +2529,14 @@ Map getDriverList() {
 
 void testButton() {
     
-    def appId = "0b13d150-e77d-4729-ab82-80095cdfe2af"
-   
-    //createApp()
-    //createAppSecret(appId)
-    getApp(appId)
-    //updateApp(appId)
-    //deleteApp(appId)
-
-    //registerApp(appId) // don't work. it should.
+    logInfo clientSecretPAT
     
-    //listApps()
-    //listInstalledApps()
+    def jsonString = """{"components":[{"id":"partyvoice23922.partitionstatus2","version":1,"status":"proposed","name":"partitionstatus2","ephemeral":false,"attributes":{"partStatus":{"schema":{"type":"object","properties":{"value":{"type":"string","maxLength":16}},"additionalProperties":false,"required":["value"]},"setter":"setPartStatus","enumCommands":[]}},"commands":{"setPartStatus":{"name":"setPartStatus","arguments":[{"name":"value","optional":false,"schema":{"type":"string","maxLength":16}}]}}},{"id":"partyvoice23922.dscdashswitch","version":1,"status":"proposed","name":"dscdashswitch","ephemeral":false,"attributes":{"switch":{"schema":{"type":"object","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"]},"setter":"setSwitch","enumCommands":[]}},"commands":{"setSwitch":{"name":"setSwitch","arguments":[{"name":"value","optional":false,"schema":{"type":"string"}}]}}},{"id":"partyvoice23922.dscawayswitch","version":1,"status":"proposed","name":"dscawayswitch","ephemeral":false,"attributes":{"switch":{"schema":{"type":"object","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"]},"setter":"setSwitch","enumCommands":[]}},"commands":{"setSwitch":{"name":"setSwitch","arguments":[{"name":"value","optional":false,"schema":{"type":"string"}}]}}},{"id":"partyvoice23922.ledStatus","version":1,"status":"proposed","name":"LED Status","ephemeral":false,"attributes":{"ledStatus":{"schema":{"type":"object","properties":{"value":{"type":"string","maxLength":30}},"additionalProperties":false,"required":["value"]},"setter":"setledStatus","enumCommands":[]}},"commands":{"setledStatus":{"name":"setledStatus","arguments":[{"name":"value","optional":false,"schema":{"type":"string","maxLength":30}}]}}},{"id":"partyvoice23922.partitioncommand2","version":1,"status":"proposed","name":"partitionCommand2","ephemeral":false,"attributes":{"partitionCommand":{"schema":{"type":"object","properties":{"value":{"type":"string","maxLength":16}},"additionalProperties":false,"required":["value"]},"setter":"setPartitionCommand","enumCommands":[]}},"commands":{"setPartitionCommand":{"name":"setPartitionCommand","arguments":[{"name":"value","optional":false,"schema":{"type":"string","maxLength":16}}]}}},{"id":"partyvoice23922.dscstayswitch","version":1,"status":"proposed","name":"dscstayswitch","ephemeral":false,"attributes":{"switch":{"schema":{"type":"object","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"]},"setter":"setSwitch","enumCommands":[]}},"commands":{"setSwitch":{"name":"setSwitch","arguments":[{"name":"value","optional":false,"schema":{"type":"string"}}]}}},{"id":"partyvoice23922.dscselectswitch2","version":1,"status":"proposed","name":"dscselectswitch2","ephemeral":false,"attributes":{"selection":{"schema":{"type":"object","properties":{"value":{"type":"string","maxLength":20}},"additionalProperties":false,"required":["value"]},"setter":"setSelection","enumCommands":[]}},"commands":{"setSelection":{"name":"setSelection","arguments":[{"name":"value","optional":false,"schema":{"type":"string","maxLength":20}}]}}},{"id":"alarm","version":1,"status":"live","name":"Alarm","ephemeral":false,"attributes":{"alarm":{"schema":{"type":"object","properties":{"value":{"title":"AlertState","type":"string","enum":["both","off","siren","strobe"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[{"command":"both","value":"both"},{"command":"off","value":"off"},{"command":"siren","value":"siren"},{"command":"strobe","value":"strobe"}]}},"commands":{"siren":{"name":"siren","arguments":[]},"strobe":{"name":"strobe","arguments":[]},"off":{"name":"off","arguments":[]},"both":{"name":"both","arguments":[]}}},{"id":"securitySystem","version":1,"status":"live","name":"Security System","ephemeral":false,"attributes":{"alarm":{"schema":{"type":"object","properties":{"value":{"title":"String","type":"string","maxLength":255}},"additionalProperties":false,"required":["value"]},"enumCommands":[]},"securitySystemStatus":{"schema":{"type":"object","properties":{"value":{"type":"string","enum":["armedAway","armedStay","disarmed"]}},"additionalProperties":false,"required":["value"]},"enumCommands":[{"command":"armStay","value":"armedStay"},{"command":"armAway","value":"armedAway"},{"command":"disarm","value":"disarmed"}]}},"commands":{"armStay":{"name":"armStay","arguments":[{"name":"bypassAll","optional":false,"schema":{"type":"boolean"}}]},"disarm":{"name":"disarm","arguments":[]},"armAway":{"name":"armAway","arguments":[{"name":"bypassAll","optional":false,"schema":{"type":"boolean"}}]}}},{"id":"refresh","version":1,"status":"live","name":"Refresh","ephemeral":false,"attributes":{},"commands":{"refresh":{"name":"refresh","arguments":[]}}}]}"""
+    //logInfo jsonString.toString().replace("“","\"").replace("”","\"")
     
+    //def capabilities = new JsonSlurper().parseText(jsonString)
+    
+    //def replicaDevice = getReplicaDevices("abb1bf83-c8ad-41cf-8c72-80bd6a93115a").getAt(0)
+    //setReplicaDataJsonValue(replicaDevice, "capabilities", capabilities)
     return
-}
-
-Map registerApp(appNameOrId) {
-    logInfo "${app.getLabel()} executing 'registerApp($appNameOrId)'"
-    Map response = [statusCode:iHttpError]
-    
-    Map params = [
-        uri: sURI,
-        path: "/apps/$appNameOrId/register",
-        //body: JsonOutput.toJson([id:clientName]),
-        contentType: "application/json",
-        requestContentType: "application/json",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]        
-    ]
-    logInfo params
-    try {
-        httpPut(params) { resp ->
-            resp.headers.each { logInfo "${it.name} : ${it.value}" }
-            logInfo "registerApp() response data: ${resp.data}"
-            logInfo "registerApp() response status: ${resp.status}"
-            response.statusCode = resp.status            
-        }
-    } catch (e) {
-        logWarn "${app.getLabel()} has registerApp() error: $e"        
-    }
-    return [statusCode:response.statusCode, modes:response.data]
-}
-
-def createAppSecret(appNameOrId) {
-    logInfo "executing 'createAppSecret($clientName)'"
-    def response = [statusCode:iHttpError]
- 
-    def client = [
-        "clientName": appNameOrId,
-        "scope": [ 
-            /*
-            "r:locations:*", 
-            "w:customcapability", 
-            "x:rules:*", 
-            "r:customcapability", 
-            "w:rules:*", 
-            "w:installedapps:*", 
-            "r:installedapps:*", 
-            "r:schedules", 
-            "w:deviceprofiles", 
-            "r:rules:*", 
-            "x:devices:*", 
-            "l:devices", 
-            "w:locations:*", 
-            "x:locations:*", 
-            "r:channels:*", 
-            "r:deviceprofiles", 
-            "w:invitations", 
-            "l:installedapps", 
-            "r:scenes:*", 
-            "w:schedules", 
-            "x:notifications:*", 
-            "x:scenes:*", 
-            "w:channels:*", 
-            "r:invitations", 
-            "r:drivers:*", 
-            "r:devices:*", 
-            "w:devices:*", 
-            "w:drivers:*", 
-            "r:apps:*", 
-            "w:apps:*"
-            */
-            "i:deviceprofiles:*",
-            "r:customcapability",
-            "r:devices:*",
-            "r:hubs:*",
-            "r:locations:*",
-            "r:rules:*",
-            "r:scenes:*",
-            "w:devices:*",
-            "w:rules:*",
-            "x:devices:*",
-            "x:scenes:*",
-            "r:security:locations:*:armstate"            
-        ]
-    ]
-    
-    def params = [
-        uri: sURI,
-        path: "/apps/${client.clientName}/oauth/generate",
-        query: [ signatureType:"ST_PADLOCK", requireConfirmation:"true" ],
-        body: JsonOutput.toJson(client),
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]        
-    ]
-    try {
-        httpPostJson(params) { resp ->
-            logInfo "createAppSecret() response data: ${resp.data}"
-            logInfo "createAppSecret() response status: ${resp.status}"
-            response.statusCode = resp.status
-        }
-    } catch (e) {
-        logWarn "createAppSecret() error: $e"
-    }
-    return [statusCode:response.statusCode]
-}
-
-def createApp() {
-    logInfo "executing 'createApp()'"
-    def response = [statusCode:iHttpError]
-    
-    def app = [
-        appName: "${UUID.randomUUID().toString()}",
-        displayName: "API AUTOMATION ${now()}",
-        description: "SmartThings Webhook SmartApp",
-        appType: "WEBHOOK_SMART_APP",
-        classifications: ["AUTOMATION"],
-        singleInstance: true,
-        webhookSmartApp: [targetUrl:getCloudUri()]    
-    ]
-    
-    def params = [
-        uri: sURI,
-        path: "/apps",
-        //query: [ signatureType:"ST_PADLOCK", requireConfirmation:"true" ],
-        body: JsonOutput.toJson(app),
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]        
-    ]
-    logInfo params
-    try {
-        httpPostJson(params) { resp ->
-            logInfo "createApp() response data: ${resp.data}"
-            logInfo "createApp() response status: ${resp.status}"
-            response.statusCode = resp.status
-        }
-    } catch (e) {
-        logWarn "createApp() error: $e"
-    }
-    return [statusCode:response.statusCode]
-}
-
-def updateApp(appNameOrId) {
-    logInfo "executing 'updateApp($appNameOrId)'"
-    def response = [statusCode:iHttpError]
-    
-    def app = [
-        //appName: "${UUID.randomUUID().toString()}",
-        displayName: "API AUTOMATION ${now()} UPDATED",
-        description: "SmartThings Webhook SmartApp",
-        appType: "WEBHOOK_SMART_APP",
-        classifications: ["AUTOMATION"],
-        singleInstance: true,
-        webhookSmartApp: [targetUrl:getCloudUri()],
-        installMetadata: [assumedRoleCanInstall:"false", maxContentLengthBytes:"64000", maxInstalls:"500", certified:"false"] // this seems to be what publish adds. doesn't work.
-    ]
-    
-    def params = [
-        uri: sURI,
-        path: "/apps/$appNameOrId",
-        //query: [ signatureType:"APP_RSA", requireConfirmation:"true" ],
-        body: JsonOutput.toJson(app),
-        contentType: "application/json",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]        
-    ]
-    logInfo params
-    try {
-        httpPut(params) { resp ->
-            logInfo "updateApp() response data: ${resp.data}"
-            logInfo "updateApp() response status: ${resp.status}"
-            response.statusCode = resp.status
-        }
-    } catch (e) {
-        logWarn "updateApp() error: $e"
-    }
-    return [statusCode:response.statusCode]
-}
-
-def deleteApp(appNameOrId) {
-    logInfo "executing 'deleteApp($appNameOrId)'"
-    def response = [statusCode:iHttpError]
-    
-    def params = [
-        uri: sURI,
-        path: "/apps/$appNameOrId",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]        
-    ]
-    try {
-        httpDelete(params) { resp ->   
-            logInfo "deleteApp() response data: ${resp.data}"
-            logInfo "deleteApp() response status: ${resp.status}"
-            response.statusCode = resp.status
-        }
-    } catch (e) {
-        logWarn "deleteApp() error: $e"
-    }    
-    return response
-}
-
-def getApp(appNameOrId) {
-    logInfo "executing 'getApp($appNameOrId)'"
-	def params = [
-        uri: sURI,
-		path: "/apps/$appNameOrId",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]
-		]    
-    def data = [method:"getApp"]
-	try {
-	    asynchttpGet("appCallback", params, data)
-	} catch (e) {
-	    logWarn "getApp() error: $e"
-	}
-}
-
-def listApps() {
-    logInfo "executing 'listApps()'"
-	def params = [
-        uri: sURI,
-		path: "/apps",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]
-		]    
-    def data = [method:"listApps"]
-	try {
-	    asynchttpGet("appCallback", params, data)
-	} catch (e) {
-	    logWarn "listApps() error: $e"
-	}
-}
-
-def listInstalledApps() {
-    logInfo "executing 'listInstalledApps()'"
-	def params = [
-        uri: sURI,
-        path: "/installedapps",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]
-		]    
-    def data = [method:"listInstalledApps"]
-	try {
-	    asynchttpGet("appCallback", params, data)
-	} catch (e) {
-	    logWarn "listInstalledApps() error: $e"
-	}
-}
-
-def appCallback(resp, data) {
-    logInfo "executing 'appCallback()' status: ${resp.status} method: ${data?.method}"
-    logInfo "response data: ${resp?.data}"      
 }
