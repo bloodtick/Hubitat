@@ -17,16 +17,16 @@
 *
 *  1.0.0  2022-10-01 First pass.
 *  ...    Deleted
-*  1.0.25 2022-11-13 Bug fixes. Commented out temp code. First install checks to prevent bad install (OAUTH and Done).
 *  1.0.26 2022-11-14 Starting work on Subscription & Mode status. Starting moving Rules to a MAP and not LIST. Selecting event captures.
 *  1.0.27 2022-11-14 Event, Status & Command logging to help t/s by deviceId
 *  1.0.28 2022-11-18 Allow disabling status updates, display replica namespace handlers, work on replica handler auto rules
 *  1.0.29 2022-11-21 Update rules to version 1. Prepare for parent->child replica device handlers. Capability fix for mult-device support.
 *  1.0.30 2022-11-25 Updated to support new Replica format. Force devcies to rules version 1.
 *  1.1.00 2022-12-10 Complete rebuilt to support OAuth solutions.
+*  1.1.01 2022-12-10 Add solution to delete old SmartApp
 */
 
-public static String version() {  return "1.1.00"  }
+public static String version() {  return "1.1.01"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -175,12 +175,6 @@ void setSmartModesMap(Map modeList) {
     g_mSmartModeListCache[app.getId()] = modeList
     logInfo "${app.getLabel()} caching SmartThings modes list"
 }
-
-
-        
-        
-    
-    
 
 Map getInstallSmartDevicesMap() {
     Long appId = app.getId()
@@ -338,6 +332,7 @@ def mainPage(){
                 paragraph( html )
             }            
             input(name: "mainPage::refresh",  type: "button", width: 2, title: "$sSamsungIcon Refresh", style:"width:75%;")
+            if(state.locationId && getChildApps()) input(name: "mainPage::deleteOldApp",  type: "button", width: 2, title: "<b>!! DELETE OLD APP !!</b>", style:"width:75%;")
     	}
         
         section(menuHeader("HubiThings Device Creation and Control")){	
@@ -1066,6 +1061,9 @@ void appButtonHandler(String btn) {
             switch(k) {                
                 case "mainPage":                    
                     switch(v) {
+                        case "deleteOldApp":
+                            handleUninstall([:])
+                            break
                         case "refresh":
                             allSmartDeviceRefresh()
                             break
@@ -1145,7 +1143,10 @@ void allSmartDeviceRefresh() {
         allSmartDeviceList(1) 
     }
     else {
-        getChildApps()?.each{ setSmartDevicesMap( it?.getSmartSubscribedDevices() ) }
+        getChildApps()?.each{ setSmartDevicesMap( it.getSmartSubscribedDevices() ) }
+        getAllReplicaDevices()?.each { replicaDevice ->
+            replicaDeviceSubscribe(replicaDevice)
+        }
     }        
     allSmartDeviceStatus(10)
     allSmartDeviceHealth(20)
@@ -1994,7 +1995,7 @@ Map handleTokenRefresh() {
 Map handleUninstall(Map uninstallData) {
     logInfo "${app.getLabel()} executing uninstall"
     Map response = [statusCode:iHttpSuccess]
-    
+    return response
     // All subscriptions and schedules for the installed app will be automatically deleted by SmartThings.
     appRemoveSettings()
     state.remove('authToken')
@@ -2005,7 +2006,8 @@ Map handleUninstall(Map uninstallData) {
     state.remove('locationId')
     state.remove('refreshToken')
     
-    unsubscribe()
+    if(uninstallData != [:]) unsubscribe()
+    if(uninstallData == [:]) app.updateSetting("mainPageAllowCloudAccess", false)
     unschedule()
     clearAllVolatileCache()
     
@@ -2165,7 +2167,7 @@ def webhookPost() {
             response = handleConfig(event?.configurationData)       
             break;
         case 'INSTALL':
-            response = handleInstall(event?.installData)
+            //response = handleInstall(event?.installData)
             break;
         case 'UPDATE':
             response = handleUpdate(event?.updateData)
@@ -2525,7 +2527,7 @@ Map getDriverList() {
 	}
 	return result
 }
-// ******** Thanks to Dominick Meglio for the code below! - End ********
+// ******** Thanks to Dominick Meglio for the code above! - End ********
 
 void testButton() {
 
