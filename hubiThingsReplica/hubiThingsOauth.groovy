@@ -18,9 +18,10 @@
 *  1.0.00  2022-12-04 First pass.
 *  1.0.01  2022-12-04 Updated to hide PAT as a password
 *  1.0.02  2022-12-08 Fixes getting ready to integrate with Replica
+*  1.1.00  2022-12-10 Fixes for first release. Right now only single instance support.
 */
 
-public static String version() {  return "1.0.02"  }
+public static String version() {  return "1.1.00"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -33,6 +34,7 @@ import com.hubitat.app.ChildDeviceWrapper
 import groovy.transform.CompileStatic
 import groovy.transform.Field
 
+@Field static final String  sDefaultAppName="HubiThings OAuth"
 @Field static final Integer iSmartAppDeviceLimit=20
 @Field static final Integer iHttpSuccess=200
 @Field static final Integer iHttpError=400
@@ -45,23 +47,22 @@ import groovy.transform.Field
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
 @Field static final String  sCodeRelease="Alpha"
-@Field volatile static Map<Long,Integer> g_iRefreshInterval = [:]
 
 definition(
-    //parent: 'hubitat:HubiThings Replica',
-    name: "HubiThings OAuth",
+    parent: 'hubitat:HubiThings Replica',
+    name: sDefaultAppName,
     namespace: "replica",
     author: "bloodtick",
-    description: "Hubitat Application to manage SmartThings OAuth",
+    description: "Hubitat Child Application to manage SmartThings OAuth",
     category: "Convenience",
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
     iconUrl: "",
     iconX2Url: "",
-    singleInstance: false
+    singleInstance: true
 ){}
 
 preferences {
-    page name:"mainPage"
+    page name:"pageMain"
 }
 
 mappings { 
@@ -79,12 +80,24 @@ def updated() {
 }
 
 def initialize() {
-    logInfo "${app.getLabel()} executing 'initialize()'"
+    logInfo "${app.getLabel()?:sDefaultAppName} executing 'initialize()'"
+    if(pageMainPageAppLabel) { app.updateLabel( pageMainPageAppLabel ) }
+
+    getParent()?.childInitialize( app )?.settings?.each{ key, value ->
+        if(value) app.updateSetting(key, value)
+    }
 }
 
 def uninstalled() {
     logInfo "${app.getLabel()} executing 'uninstalled()'"    
     if(state.appId) deleteApp(state.appId)
+    getParent()?.childUninstalled( app )
+}
+
+public Map getSmartSubscribedDevices() {
+    List deviceIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId 
+    List devices = getSmartDevices()?.items?.findAll{ device -> deviceIds?.find{ it==device?.deviceId } }
+    return [items:(devices?:[])]
 }
 
 public Map getSmartDevices() {
@@ -102,16 +115,20 @@ public Map getSmartDevices() {
 
 public Map getSmartRooms() {
     getSmartDevices()
-    return g_mSmartRoomList[app.getId()]
+    return (g_mSmartRoomList[app.getId()]?:[:])
 }
 
 public Map getSmartLocations() {
     getSmartDevices()
-    return g_mSmartLocationList[app.getId()]
+    return (g_mSmartLocationList[app.getId()]?:[:])
 }
 
 public Map getSmartSubscriptions() {
     return g_mSmartSubscriptionList[app.getId()] ?: state.subscriptions
+}
+
+public String getAuthToken() {
+    return state.authToken
 }
 
 public void refresh() {
@@ -141,32 +158,33 @@ String getOauthAuthorizeUri() {
     return "$sURI/oauth/authorize?client_id=${clientId}&scope=${scope}&response_type=code&redirect_uri=${redirectUri}&state=${oauthState}"
 }
 
-def mainPage(){
+def pageMain(){
     if(!state.accessToken) { 
         def install = installHelper()
         if(install) return install
     }
-
-    Integer refreshInterval = g_iRefreshInterval[app.getId()]?:0
-    if(state.appId && !state.installedAppId) refreshInterval=5
-         
-    return dynamicPage(name: "mainPage", install: true, refreshInterval: refreshInterval) {
+    
+    Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)         
+    return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
         
-        section(menuHeader("${app.getLabel()} Configuration ${refreshInterval?"[Auto Refresh]":""} $sHubitatIconStatic $sSamsungIconStatic")) {
-            input(name: "clientSecretPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings Token UUID", width: 6, submitOnChange: true, newLineAfter:true)
-            if(getHubUID()=="bb6472bd-e232-4cbe-83a6-ecab1592d889") { input(name: "mainPage::test", type: "button", width: 2, title: "Test", style:"width:75%;") }
+        if(!getParent()) {
+            section(menuHeader("${app.getLabel()} Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
+                input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)            
+            }
         }
         
-        if(clientSecretPAT) {
-            section(menuHeader("SmartThings API")) {
+        if(getHubUID()=="bb6472bd-e232-4cbe-83a6-ecab1592d889") { section() { input(name: "pageMain::test", type: "button", width: 2, title: "Test", style:"width:75%;") } }
+        
+        if(userSmartThingsPAT) {
+            section(menuHeader("SmartThings API ${refreshInterval?"[Auto Refresh]":""}")) {
                 if(!state.appId) {
-                    input(name: "mainPage::create", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
+                    input(name: "pageMain::create", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
                     paragraph( getFormat("text", "Select 'Create API' to begin initialization of SmartThings API") )
                     if(state.createAppError) paragraph( "SmartThings API ERROR: "+state.createAppError )
                 }
                 else {
-                    input(name: "mainPage::delete", type: "button", width: 2, title: "Delete API", style:"width:75%;")                
+                    input(name: "pageMain::delete", type: "button", width: 2, title: "Delete API", style:"width:75%;")                
                 
                     paragraph("SmartThings API is ${state.installedAppId ? "configured : select 'Delete API' to remove all OAuth authorizations" : "available for OAuth configuration : select link below to continue"}")
                     String status  =  "OAuth Client ID: ${state.oauthClientId}\n"
@@ -183,7 +201,7 @@ def mainPage(){
                     }
                     else {
                         paragraph( getFormat("hyperlink","$sSamsungIcon 'Click Here' for SmartThings OAuth Authorization and select 'Refresh' when completed", getOauthAuthorizeUri()) )
-                        input(name: "mainPage::noop", type: "button", width: 2, title: "Refresh", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;", newLineAfter:true)
+                        input(name: "pageMain::noop", type: "button", width: 2, title: "Refresh", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;", newLineAfter:true)
                     }
                 }
             }
@@ -201,16 +219,16 @@ def mainPage(){
                         Map device = [ "${it.deviceId}" : "${getSmartRoomName(it.roomId)} : ${getSmartDeviceName(it.deviceId)}" ]
                         smartDevicesSelect.add(device)   
                     }
-                    input(name: "mainPageSmartDevices", type: "enum", title: getFormat("text", "Enable SmartThings Devices (${mainPageSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
-                    if(iSmartAppDeviceLimit >=mainPageSmartDevices?.size()) {
+                    input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "Enable SmartThings Devices (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
+                    if(iSmartAppDeviceLimit >=pageMainSmartDevices?.size()) {
                         Map update = checkSmartSubscriptions()
-                        if(update?.ready && !g_iRefreshInterval[app.getId()]) {
-                            input(name: "mainPage::configure", type: "button", width: 2, title: "Configure", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
+                        if(update?.ready && !state.refreshInterval) {
+                            input(name: "pageMain::configure", type: "button", width: 2, title: "Configure", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
                             paragraph( getFormat("text", "Select 'Configure' to update SmartThings subscriptions") )
                         }
                         else {
-                            input(name: "mainPage::noop", type: "button", width: 2, title: "Refresh", style:"width:75%;")
-                            g_iRefreshInterval[app.getId()] = 0
+                            input(name: "pageMain::noop", type: "button", width: 2, title: "Refresh", style:"width:75%;")
+                            state.remove('refreshInterval')
                         }
                     }
                     else {
@@ -218,7 +236,7 @@ def mainPage(){
                     }                        
                 } 
                 else {
-                     input(name: "mainPage::noop", type: "button", width: 2, title: "Refresh", style:"width:75%;")
+                     input(name: "pageMain::noop", type: "button", width: 2, title: "Refresh", style:"width:75%;")
                 }            
                 smartDevicesTable()
             }
@@ -235,9 +253,9 @@ def smartDevicesTable(){
     String smartDeviceList = "<span><table style='width:100%;'>"
     smartDeviceList += "<tr><th>SmartThings Device</th><th>SmartThings Room</th><th style='text-align:center;'>Device Subscription</th></tr>"
     smartDevices?.sort{ a,b -> getSmartRoomName(a?.roomId) <=> getSmartRoomName(b?.roomId) ?: getSmartDeviceName(a?.deviceId) <=> getSmartDeviceName(b?.deviceId) }.each { device ->
-        String status = (update?.select?.find{it==device.deviceId}) ? "Pending Select" : (update?.delete?.find{it==device.deviceId}) ? "Pending Delete" : "Subscribed"        
-        smartDeviceList += "<tr><td>${getSmartDeviceName(device.deviceId)}</td>"
-        smartDeviceList += "<td>${getSmartRoomName(device.roomId)}</td>"
+        String status = (update?.select?.find{it==device?.deviceId}) ? "Pending Select" : (update?.delete?.find{it==device?.deviceId}) ? "Pending Delete" : "Subscribed"        
+        smartDeviceList += "<tr><td>${getSmartDeviceName(device?.deviceId)}</td>"
+        smartDeviceList += "<td>${getSmartRoomName(device?.roomId)}</td>"
         smartDeviceList += "<td style='text-align:center;'>$status</td></tr>"
     }
     smartDeviceList +="</table>"
@@ -250,14 +268,12 @@ def smartDevicesTable(){
 }
 
 def installHelper() {
-    if(!state?.isInstalled && !isChildApp) {        
-        return dynamicPage(name: "mainPage", install: true, refreshInterval: 0){
+    if(!state?.isInstalled) {        
+        return dynamicPage(name: "pageMain", install: true, refreshInterval: 0){
             displayHeader()
             section(menuHeader("Complete Install $sHubitatIconStatic $sSamsungIconStatic")) {
                 paragraph("Please complete the install <b>(click done)</b> and then return to $sHubitatIcon SmartApp to continue configuration")
-                if(!pageMainPageAppLabel) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
-                input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change ${app.getLabel()} SmartApp Name:"), width: 6, default:app.getLabel(), submitOnChange: true, newLineAfter:true)
-                if(pageMainPageAppLabel && pageMainPageAppLabel!=app.getLabel()) { app.updateLabel( pageMainPageAppLabel ) }
+                input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change ${app.getLabel()?:sDefaultAppName} SmartApp Name:"), width: 6, defaultValue:(app.getLabel()?:sDefaultAppName), submitOnChange: true, newLineAfter:true)
             }
         }
     }
@@ -265,7 +281,7 @@ def installHelper() {
         try { createAccessToken() } catch(e) { logWarn e }	
     }
     if(!state?.accessToken) {        
-        return dynamicPage(name: "mainPage", install: true, refreshInterval: 0){
+        return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: 0){
             displayHeader()
             section(menuHeader("Complete OAUTH Install $sHubitatIconStatic $sSamsungIconStatic")) {
                 paragraph("Problem with OAUTH installation! Please remove $sHubitatIcon '${app.getLabel()}' and authorize OAUTH in Apps Code source code and reinstall")
@@ -285,7 +301,7 @@ void appButtonHandler(String btn) {
             String v = (String)items[1]
             logTrace "Button [$k] [$v] pressed"
             switch(k) {                
-                case "mainPage":                    
+                case "pageMain":                    
                     switch(v) {                       
                         case "test":
                             testButton()
@@ -293,7 +309,7 @@ void appButtonHandler(String btn) {
                         case "noop":
                             break
                         case "configure":
-                            g_iRefreshInterval[app.getId()]=5
+                            state.refreshInterval=5
                             refresh()
                             break
                         case "create":
@@ -312,22 +328,22 @@ void appButtonHandler(String btn) {
 }
 
 def callback() {   
-    Map response = [statusCode:iHttpSuccess]
+    Map response = [statusCode:iHttpError]
     def event = new JsonSlurper().parseText(request.body)
     logDebug "${app.getLabel()} ${event?.messageType}: $event"
     switch(event?.messageType) {
         case 'PING':
-            response = [statusCode:200, pingData: [challenge: event?.pingData.challenge]]
+            response = [statusCode:iHttpSuccess, pingData: [challenge: event?.pingData.challenge]]
 		    break;
         case 'CONFIRMATION':
-            response = [statusCode:200, targetUrl: getTargetUrl()]
+            response = [statusCode:iHttpSuccess, targetUrl: getTargetUrl()]
             runIn(2, handleConfirm, [data: event?.confirmationData])
             break;
         case 'EVENT':
-            logInfo "${app.getLabel()} ${event?.messageType}: $request.body"
+            logDebug "${app.getLabel()} ${event?.messageType}"
             if(event?.eventData?.events?.find{ it.eventType=="DEVICE_LIFECYCLE_EVENT" }) { runIn(1,refresh) }
-            //response = handleEvent(event?.eventData, eventPostTime)
-            if(isReplicaChildApp) { parent.childEvent(event) }
+            if(getParent()) getParent().childEvent(app, event); else logInfo request.body
+            response.statusCode = iHttpSuccess
             break;        
         default:
           logWarn "${app.getLabel()} lifecycle ${event?.messageType} not supported"
@@ -365,7 +381,7 @@ Map handleConfirm(Map confirmationData) {
 
 Map checkSmartSubscriptions() {
     List currentIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId
-    List selectIds = mainPageSmartDevices?.clone()
+    List selectIds = pageMainSmartDevices?.clone()
     List deleteIds = currentIds?.clone()
     if(selectIds) { deleteIds?.intersect(selectIds)?.each{ deleteIds?.remove(it); selectIds?.remove(it) } }
     
@@ -778,7 +794,7 @@ def createApp() {
     
     String displayName = app.getLabel()
     def app = [
-        appName: "hubithings-${UUID.randomUUID().toString()}",
+        appName: "${sDefaultAppName.replaceAll("\\s","").toLowerCase()}-${UUID.randomUUID().toString()}",
         displayName: displayName,
         description: "SmartThings Service to connect with Hubitat",
         iconImage: [ url:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/icon/replica.png" ],
@@ -797,7 +813,7 @@ def createApp() {
         uri: sURI,
         path: "/apps",
         body: JsonOutput.toJson(app),
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]        
+        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]        
     ]
 
     try {
@@ -826,7 +842,7 @@ def deleteApp(appNameOrId) {
     def params = [
         uri: sURI,
         path: "/apps/$appNameOrId",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]        
+        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]        
     ]
     try {
         httpDelete(params) { resp ->   
@@ -848,7 +864,7 @@ def getApp(appNameOrId) {
 	def params = [
         uri: sURI,
 		path: "/apps/$appNameOrId",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]
+        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]
 		]    
     def data = [method:"getApp"]
 	try {
@@ -863,7 +879,7 @@ def getInstalledApp(installedAppId) {
 	def params = [
         uri: sURI,
 		path: "installedapps/$installedAppId",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]
+        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]
 		]    
     def data = [method:"getInstalledApp"]
 	try {
@@ -878,7 +894,7 @@ def listApps() {
 	def params = [
         uri: sURI,
 		path: "/apps",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]
+        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]
 		]    
     def data = [method:"listApps"]
 	try {
@@ -893,7 +909,7 @@ def listInstalledApps() {
 	def params = [
         uri: sURI,
         path: "/installedapps",
-        headers: [ Authorization: "Bearer ${clientSecretPAT}" ]
+        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]
 		]    
     def data = [method:"listInstalledApps"]
 	try {
@@ -928,7 +944,7 @@ def getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){
 }
 
 def displayHeader() { 
-    section (getFormat("title", "${app.getLabel()}${sCodeRelease?.size() ? " : $sCodeRelease" : ""}"  )) { 
+    section (getFormat("title", "${app.getLabel()?:sDefaultAppName}${sCodeRelease?.size() ? " : $sCodeRelease" : ""}"  )) { 
         paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: v${version()} -  ${copyright()}</div>"
         paragraph( getFormat("line") ) 
     }
@@ -951,9 +967,11 @@ private logError(msg) { log.error  "${msg}" }
 
 
 void testButton() {  
-    def appId = '42639b20-71a8-4288-944e-c9c32a15303b'
+    def appId = '9d69bc69-850f-4c09-b8bb-3df88676df57'
     
-    oauthRefresh()    
+    //logInfo sDefaultAppName.replaceAll("\\s","").toLowerCase()
+
+    //oauthRefresh()    
     //createApp()
     //createAppSecret(appId)
     //getApp(appId)
@@ -962,7 +980,7 @@ void testButton() {
     
     listApps()
     //listInstalledApps()
-    
-    logInfo clientSecretPAT
+    getParent()?.setSmartDevicesMap( getSmartSubscribedDevices() )
+    logInfo userSmartThingsPAT
     return
 }
