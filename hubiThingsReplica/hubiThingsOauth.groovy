@@ -19,9 +19,10 @@
 *  1.0.01  2022-12-04 Updated to hide PAT as a password
 *  1.0.02  2022-12-08 Fixes getting ready to integrate with Replica
 *  1.1.00  2022-12-10 Fixes for first release. Right now only single instance support.
+*  1.1.01  2022-12-11 Allow multiple copies of OAuth
 */
 
-public static String version() {  return "1.1.00"  }
+public static String version() {  return "1.1.01"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -58,7 +59,7 @@ definition(
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
     iconUrl: "",
     iconX2Url: "",
-    singleInstance: true
+    singleInstance: false
 ){}
 
 preferences {
@@ -96,7 +97,7 @@ def uninstalled() {
 
 public Map getSmartSubscribedDevices() {
     List deviceIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId 
-    List devices = getSmartDevices()?.items?.findAll{ device -> deviceIds?.find{ it==device?.deviceId } }
+    List devices = getSmartDevices()?.items?.findAll{ device -> deviceIds?.find{ it==device?.deviceId } }?.each{ device -> device.appId=app.id } //add app.id for multi-auth support
     return [items:(devices?:[])]
 }
 
@@ -726,6 +727,7 @@ void asyncHttpGetCallback(resp, data) {
             case "getSmartSubscriptionList":            
                 Map subscriptionList = new JsonSlurper().parseText(resp.data)
                 if(!(subscriptionList?.sort()?.equals(g_mSmartSubscriptionList[app.getId()]?.sort()))) {
+                    g_mSmartSubscriptionList[app.getId()]?.clear()
                     state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList.clone()
                     logInfo "${app.getLabel()} updated subscription list"
                 }
@@ -733,14 +735,16 @@ void asyncHttpGetCallback(resp, data) {
                 break
             case "getSmartDeviceList":            
                 Map deviceList = new JsonSlurper().parseText(resp.data)
-                if(!(deviceList?.sort()?.equals(g_mSmartDeviceList[app.getId()]?.sort()))) {                    
+                if(!(deviceList?.sort()?.equals(g_mSmartDeviceList[app.getId()]?.sort()))) {
+                    g_mSmartDeviceList[app.getId()]?.clear()
                     g_mSmartDeviceList[app.getId()] = deviceList.clone()
                     logInfo "${app.getLabel()} updated device list"
                 }
                 break
             case "getSmartRoomList":            
                 Map roomList = new JsonSlurper().parseText(resp.data)
-                if(!(roomList?.sort()?.equals(g_mSmartRoomList[app.getId()]?.sort()))) {                    
+                if(!(roomList?.sort()?.equals(g_mSmartRoomList[app.getId()]?.sort()))) {
+                    g_mSmartRoomList[app.getId()]?.clear()
                     g_mSmartRoomList[app.getId()] = roomList.clone()
                     logInfo "${app.getLabel()} updated room list"
                 }
@@ -748,7 +752,8 @@ void asyncHttpGetCallback(resp, data) {
                 break
             case "getSmartLocationList":            
                 Map locationList = new JsonSlurper().parseText(resp.data)
-                if(!locationList?.equals(g_mSmartLocationList[app.getId()])) {                     
+                if(!locationList?.equals(g_mSmartLocationList[app.getId()])) {
+                    g_mSmartLocationList[app.getId()]?.clear()
                     g_mSmartLocationList[app.getId()] = locationList.clone()
                     state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
                     logInfo "${app.getLabel()} updated location list"
@@ -969,7 +974,7 @@ private logError(msg) { log.error  "${msg}" }
 void testButton() {  
     def appId = '9d69bc69-850f-4c09-b8bb-3df88676df57'
     
-    //logInfo sDefaultAppName.replaceAll("\\s","").toLowerCase()
+    //logInfo getSmartSubscribedDevices()
 
     //oauthRefresh()    
     //createApp()
@@ -978,9 +983,9 @@ void testButton() {
     //updateApp(appId)
     //deleteApp(appId)
     
-    listApps()
+    //listApps()
     //listInstalledApps()
-    getParent()?.setSmartDevicesMap( getSmartSubscribedDevices() )
+    //getParent()?.setSmartDevicesMap( getSmartSubscribedDevices() )
     logInfo userSmartThingsPAT
     return
 }
