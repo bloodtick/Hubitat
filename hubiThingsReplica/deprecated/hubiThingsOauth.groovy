@@ -53,7 +53,7 @@ import groovy.transform.Field
 @Field static final String  sCodeRelease="Alpha"
 
 definition(
-    parent: 'hubitat:HubiThings Replica Deprecated',
+    parent: 'hubitat:HubiThings Replica',
     name: sDefaultAppName,
     namespace: "replica",
     author: "bloodtick",
