@@ -19,7 +19,7 @@
 *  1.0.01  2022-12-04 Updated to hide PAT as a password
 *  1.0.02  2022-12-08 Fixes getting ready to integrate with Replica
 *  1.1.00  2022-12-10 Fixes for first release. Right now only single instance support.
-*  1.1.01  2022-12-11 Allow multiple copies of OAuth
+*  1.1.01  2022-12-10 Allow multiple copies of OAuth
 */
 
 public static String version() {  return "1.1.01"  }
