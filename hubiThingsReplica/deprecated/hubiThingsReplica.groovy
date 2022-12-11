@@ -42,7 +42,7 @@ import com.hubitat.app.ChildDeviceWrapper
 import groovy.transform.CompileStatic
 import groovy.transform.Field
 
-@Field static final String  sDefaultAppName="HubiThings Replica"
+@Field static final String  sDefaultAppName="HubiThings Replica Deprecated"
 @Field static final Integer iSmartAppDeviceLimit=20
 @Field static final Integer iHttpSuccess=200
 @Field static final Integer iHttpError=400
