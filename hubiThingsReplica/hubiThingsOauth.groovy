@@ -22,9 +22,10 @@
 *  1.1.01 2022-12-10 Allow multiple copies of OAuth
 *  1.1.02 2022-12-11 Keep track of appName & put lock around button
 *  1.1.03 2022-12-11 Exception code around device list. Display location, room & device confidence on UI.
+*  1.1.04 2022-12-11 Cloning functions to prevent race problems. Fix to table. NO IDEA HOW IT EVEN WORKED.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.03"  }
+public static String version() {  return "1.1.04"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -113,21 +114,21 @@ public Map getSmartDevices() {
             while(count<20 && g_mSmartDeviceList[appId]==[:] ) { pauseExecution(250); count++ } // wait a max of 5 seconds
         }
     }
-    return g_mSmartDeviceList[appId]
+    return g_mSmartDeviceList[appId]?.clone()
 }
 
 public Map getSmartRooms() {
     getSmartDevices()
-    return (g_mSmartRoomList[app.getId()]?:[:])
+    return (g_mSmartRoomList[app.getId()]?.clone() ?: [:])
 }
 
 public Map getSmartLocations() {
     getSmartDevices()
-    return (g_mSmartLocationList[app.getId()]?:[:])
+    return (g_mSmartLocationList[app.getId()]?.clone() ?: [:])
 }
 
 public Map getSmartSubscriptions() {
-    return g_mSmartSubscriptionList[app.getId()] ?: state.subscriptions
+    return g_mSmartSubscriptionList[app.getId()]?.clone() ?: state.subscriptions
 }
 
 public String getAuthToken() {
@@ -199,7 +200,8 @@ def pageMain(){
                         status += "OAuth Hubitat Cloud Callback: ${state.oauthCallback}\n"
                         status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n\n"
                     if(state.authTokenExpires!=null) {
-                        status += "Location: ${getSmartLocations()?.items?.get(0)?.name}\n"
+                        //status += "Location: ${getSmartLocations()?.items?.get(0)?.name}\n" 
+                        status += "Location: ${getSmartLocationName(state.locationId)}\n" 
                         status += "Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
                         status += "Device Count: ${getSmartDevices()?.items?.size()?:0}\n"
                         status += "Token Expiration Date: ${state.authTokenExpires==0 ? getFormat("text","Action: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : (new Date(state.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
@@ -260,8 +262,8 @@ def smartDevicesTable(){
     Map update = checkSmartSubscriptions()
     
     List deviceIds = (update?.current + update?.select + update?.delete).unique()
-    List smartDevices = deviceIds?.collect{ deviceId -> smartDevices?.items?.find{ it.deviceId==deviceId } }
-  
+    List smartDevices = deviceIds?.collect{ deviceId -> getSmartDevices()?.items?.find{ it.deviceId==deviceId } }
+
     String smartDeviceList = "<span><table style='width:100%;'>"
     smartDeviceList += "<tr><th>SmartThings Device</th><th>SmartThings Room</th><th style='text-align:center;'>Device Subscription</th></tr>"
     smartDevices?.sort{ a,b -> getSmartRoomName(a?.roomId) <=> getSmartRoomName(b?.roomId) ?: getSmartDeviceName(a?.deviceId) <=> getSmartDeviceName(b?.deviceId) }.each { device ->
@@ -689,7 +691,8 @@ Map getSmartDeviceList() {
     return response
 }
 String getSmartDeviceName(String deviceId) {
-    Map device = g_mSmartDeviceList[app.getId()] ? g_mSmartDeviceList[app.getId()]?.items?.find{ it.deviceId==deviceId } ?: [label:"Name Not Defined"] : [label:deviceId]
+    Map smartDeviceList = g_mSmartDeviceList[app.getId()]?.clone()
+    Map device = smartDeviceList ? smartDeviceList?.items?.find{ it.deviceId==deviceId } ?: [label:"Name Not Defined"] : [label:deviceId]
     return (device?.label ?: device?.name) 
 }
 
@@ -702,7 +705,8 @@ Map getSmartRoomList() {
     return response
 }
 String getSmartRoomName(String roomId) {
-    return g_mSmartRoomList[app.getId()] ? g_mSmartRoomList[app.getId()]?.items?.find{ it.roomId==roomId }?.name ?: "Room Not Defined" : roomId
+    Map smartRoomList = g_mSmartRoomList[app.getId()]?.clone()
+    return smartRoomList ? smartRoomList?.items?.find{ it.roomId==roomId }?.name ?: "Room Not Defined" : roomId
 }
 
 @Field volatile static Map<Long,Map> g_mSmartLocationList = [:]
@@ -714,7 +718,8 @@ Map getSmartLocationList() {
     return response
 }
 String getSmartLocationName(String locationId) {
-    return g_mSmartLocationList[app.getId()] ? g_mSmartLocationList[app.getId()]?.items?.find{ it.locationId==locationId }?.name ?: "Location Not Defined" : locationId
+    Map smartLocationList = g_mSmartLocationList[app.getId()]?.clone()
+    return smartLocationList ? smartLocationList?.items?.find{ it.locationId==locationId }?.name ?: "Location Not Defined" : locationId
 }
     
 private Map asyncHttpGet(String callbackMethod, Map data) {
@@ -784,7 +789,7 @@ void asyncHttpGetCallback(resp, data) {
         logTrace "response data: ${resp.data}"
     }
     else {
-        logWarn("${app.getLabel()} asyncHttpGetCallback '${data?.method}' status:${resp.status} reason:${resp.errorMessage} - now scheduled again in 15 minutes")
+        logWarn("${app.getLabel()} asyncHttpGetCallback '${data?.method}' status:${resp.status} reason:${resp.errorMessage} - refresh scheduled in 15 minutes")
         runIn(15*60, data?.method)
     }
 }
