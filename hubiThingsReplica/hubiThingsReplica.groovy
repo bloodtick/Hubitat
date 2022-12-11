@@ -25,9 +25,10 @@
 *  1.1.00 2022-12-10 Complete rebuilt to support OAuth solutions.
 *  1.1.01 2022-12-10 Add solution to delete old SmartApp
 *  1.1.02 2002-12-11 Add event subscription to refresh
+*  1.1.03 2002-12-11 UI updates only.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.02"  }
+public static String version() {  return "1.1.03"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -228,45 +229,51 @@ def mainPage(){
         
         section(menuHeader("${app.getLabel()} Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
             
-            input(name: "pageMainShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: false, submitOnChange: true)
+            if(pageMainShowConfig==null) pageMainShowConfig=true
+            input(name: "pageMainShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: true, submitOnChange: true)
             paragraph( getFormat("line") )            
             if(pageMainShowConfig) {
-             
+                String comments = "This application uses the SmartThings Cloud API to create, delete and query devices. You must supply a SmartThings Personal Access Token (PAT) with all permissions to enable functionality. "
+                       comments+= "SmartThings enforces a maximum valid duration of one year from creation date of the PAT. Click the ${sSamsungIcon} link below to be directed to the SmartThings website."
+                paragraph( getFormat("comments",comments,null,"Gray") )
+                
                 input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)
                 paragraph("") 
                 
-                app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: getFormat("text","$sSamsungIcon Authorize SmartThings Devices"), multiple: true)                
-                paragraph( getFormat("line") )
+                if(userSmartThingsPAT) {
+                    app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: getFormat("text","$sSamsungIcon Authorize SmartThings Devices"), multiple: true)                
+                    paragraph( getFormat("line") )
   
-                input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: getFormat("text","$sHubitatIcon Advanced Configuration"), defaultValue: false, submitOnChange: true)                
-                if(pageMainShowAdvanceConfiguration) {
-                def deviceText = (deviceAuthCount<1 ? ": (Select to Authorize Devices to Mirror)" : (deviceAuthCount==1 ?  ": ($deviceAuthCount Device Authorized)" : ": ($deviceAuthCount Devices Authorized)"))
-                href "pageAuthDevice", title: getFormat("text","$sHubitatIcon Authorize Hubitat Devices $deviceText"), description: "Click to show"                
-                paragraph("")
+                    input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: getFormat("text","$sHubitatIcon Advanced Configuration"), defaultValue: false, submitOnChange: true)                
+                    if(pageMainShowAdvanceConfiguration) {
+                        def deviceText = (deviceAuthCount<1 ? ": (Select to Authorize Devices to Mirror)" : (deviceAuthCount==1 ?  ": ($deviceAuthCount Device Authorized)" : ": ($deviceAuthCount Devices Authorized)"))
+                        href "pageAuthDevice", title: getFormat("text","$sHubitatIcon Authorize Hubitat Devices $deviceText"), description: "Click to show"                
+                        paragraph("")
    
-                input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change SmartApp Name:"), width: 6, submitOnChange: true, newLineAfter:true)
-                input(name: "mainPage::changeAppName", type: "button", title: "Change Name", width: 3, style:"width:50%;", newLineAfter:true)                
+                        input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change SmartApp Name:"), width: 6, submitOnChange: true, newLineAfter:true)
+                        input(name: "mainPage::changeAppName", type: "button", title: "Change Name", width: 3, style:"width:50%;", newLineAfter:true)                
                 
-                if(state.installedAppConfig) {
-                    paragraph( getFormat("line") )
+                        if(state.installedAppConfig) {
+                            paragraph( getFormat("line") )
                     
-                    paragraph( getFormat("text","This section to be deprecated. Please delete SmartApp from mobile client and authorize devices with OAuth.",null,sColorDarkRed) )
+                            paragraph( getFormat("text","This section to be deprecated. Please delete SmartApp from mobile client and authorize devices with OAuth.",null,sColorDarkRed) )
                     
-			        input(name: "mainPageAllowCloudAccess", type: "bool", title: getFormat("text","$sHubitatIcon Enable Hubitat REST API Endpoint for SmartThings Developer Workspace SmartApp"), defaultValue: false, submitOnChange: true)  
-                    if(mainPageAllowCloudAccess) {
-                        paragraph("<ul><strong>External</strong>: ${getFormat("hyperlink", getCloudUri(), getCloudUri())}</ul>")               
-                    }                       
+			                input(name: "mainPageAllowCloudAccess", type: "bool", title: getFormat("text","$sHubitatIcon Enable Hubitat REST API Endpoint for SmartThings Developer Workspace SmartApp"), defaultValue: false, submitOnChange: true)  
+                            if(mainPageAllowCloudAccess) {
+                                paragraph("<ul><strong>External</strong>: ${getFormat("hyperlink", getCloudUri(), getCloudUri())}</ul>")               
+                            }                       
 
-                    // required for authToken refresh
-                    input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
-                    input(name: "clientSecretUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client Secret from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
+                            // required for authToken refresh
+                            input(name: "clientIdUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client ID from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
+                            input(name: "clientSecretUUID", type: "text", title: getFormat("hyperlink","$sSamsungIcon SmartApp Client Secret from SmartThings Developer Workspace:","https://smartthings.developer.samsung.com/workspace"), width: 6, submitOnChange: true, newLineAfter:true)
 
-                    if(state?.authTokenDate) {
-                        paragraph( getFormat("text","$sSamsungIcon Token Expiration Date: ${state.authTokenDate}") )
-                        input(name: "mainPage::refreshToken", type: "button", title: "Refresh Token", width: 3, style:"width:50%;", newLineAfter:true)
+                            if(state?.authTokenDate) {
+                                paragraph( getFormat("text","$sSamsungIcon Token Expiration Date: ${state.authTokenDate}") )
+                                input(name: "mainPage::refreshToken", type: "button", title: "Refresh Token", width: 3, style:"width:50%;", newLineAfter:true)
+                            }
+                            paragraph( getFormat("line") )
+                        }
                     }
-                    paragraph( getFormat("line") )
-                }
                 }
             }
             else {
@@ -2296,6 +2303,7 @@ def getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){
 	if(type == "title")     return "<h2 style='color:$myColor;font-weight: bold'>${myText}</h2>"
     if(type == "text")      return "<span style='color:$myColor;font-weight: bold'>${myText}</span>"
     if(type == "hyperlink") return "<a href='${myHyperlink}' target='_blank' rel='noopener noreferrer' style='color:$myColor;font-weight:bold'>${myText}</a>"
+    if(type == "comments")  return "<div style='color:$myColor;font-weight:small;font-size:14px;'>${myText}</div>"
 }
 
 def displayHeader() { 
