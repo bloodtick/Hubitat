@@ -24,9 +24,10 @@
 *  1.0.30 2022-11-25 Updated to support new Replica format. Force devcies to rules version 1.
 *  1.1.00 2022-12-10 Complete rebuilt to support OAuth solutions.
 *  1.1.01 2022-12-10 Add solution to delete old SmartApp
-*/
+*  1.1.02 2002-12-11 Add event subscription to refresh
+LINE 30 MAX */ 
 
-public static String version() {  return "1.1.01"  }
+public static String version() {  return "1.1.02"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -211,20 +212,6 @@ def mainPage(){
             }
         }
     }
-    /*
-    if(!state?.accessToken){	
-        try { createAccessToken() } catch(e) { logWarn e }	
-    }
-    if(!state?.accessToken) {        
-        return dynamicPage(name: "mainPage", install: true, refreshInterval: 0){
-            displayHeader()
-            section(menuHeader("Complete OAUTH Install $sHubitatIconStatic $sSamsungIconStatic")) {
-                paragraph("Problem with OAUTH installation! Please delete $sHubitatIcon ${app.getLabel()} SmartApp and authorize OAUTH in Apps Code source code and reinstall")
-
-            }
-        }
-    }
-    */
     
     app.removeSetting('mainPageShowConfig') // remove someday; 1.0.31
     app.removeSetting('clientSecretPAT') // remove someday; 1.0.31
