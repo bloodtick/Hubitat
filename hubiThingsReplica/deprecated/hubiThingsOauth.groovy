@@ -57,7 +57,7 @@ definition(
     name: sDefaultAppName,
     namespace: "replica",
     author: "bloodtick",
-    description: "Hubitat Child Application to manage SmartThings OAuth",
+    description: "Deprecated Hubitat Child Application to manage SmartThings OAuth",
     category: "Convenience",
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/deprecated/hubiThingsOauth.groovy",
     iconUrl: "",
@@ -172,7 +172,7 @@ def pageMain(){
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
                 
-        String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 subscriptions per installed OAuth app, "
+        String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed OAuth app, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
                comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account."        
         section() { paragraph( getFormat("comments",comments,null,"Gray") ) }
