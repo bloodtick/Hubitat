@@ -21,9 +21,10 @@
 *  1.1.00 2022-12-10 Fixes for first release. Right now only single instance support.
 *  1.1.01 2022-12-10 Allow multiple copies of OAuth
 *  1.1.02 2022-12-11 Keep track of appName & put lock around button
+*  1.1.03 2022-12-11 Exception code around device list. Display location, room & device confidence on UI.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.02"  }
+public static String version() {  return "1.1.03"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -169,17 +170,21 @@ def pageMain(){
     Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)         
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
+                
+        String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 subscriptions per installed OAuth app, "
+               comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
+               comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account."        
+        section() { paragraph( getFormat("comments",comments,null,"Gray") ) }
         
         if(!getParent()) {
-            section(menuHeader("${app.getLabel()} Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
+            section(menuHeader("${app.getLabel()} Configuration")) {
                 input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)            
             }
-        }
-        
-        if(getHubUID()=="bb6472bd-e232-4cbe-83a6-ecab1592d889") { section() { input(name: "pageMain::test", type: "button", width: 2, title: "Test", style:"width:75%;") } }
+        }        
+        //if(getHubUID()=="bb6472bd-e232-4cbe-83a6-ecab1592d889") { section() { input(name: "pageMain::test", type: "button", width: 2, title: "Test", style:"width:75%;") } }
         
         if(userSmartThingsPAT) {
-            section(menuHeader("SmartThings API ${refreshInterval?"[Auto Refresh]":""}")) {
+            section(menuHeader("SmartThings API ${refreshInterval?"[Auto Refresh]":""} $sHubitatIconStatic $sSamsungIconStatic")) {
                 if(!state.appId) {
                     input(name: "pageMain::create", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
                     paragraph( getFormat("text", "Select 'Create API' to begin initialization of SmartThings API") )
@@ -192,8 +197,11 @@ def pageMain(){
                     String status  =  "OAuth Client ID: ${state.oauthClientId}\n"
                         //status += "OAuth Client Secret: ${state.oauthClientSecret}\n"
                         status += "OAuth Hubitat Cloud Callback: ${state.oauthCallback}\n"
-                        status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n"
+                        status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n\n"
                     if(state.authTokenExpires!=null) {
+                        status += "Location: ${getSmartLocations()?.items?.get(0)?.name}\n"
+                        status += "Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
+                        status += "Device Count: ${getSmartDevices()?.items?.size()?:0}\n"
                         status += "Token Expiration Date: ${state.authTokenExpires==0 ? getFormat("text","Action: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : (new Date(state.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
                     }
                     paragraph(status)                      
@@ -239,8 +247,10 @@ def pageMain(){
                 } 
                 else {
                      input(name: "pageMain::noop", type: "button", width: 2, title: "Refresh", style:"width:75%;")
-                }            
-                smartDevicesTable()
+                }
+                try {
+                    smartDevicesTable()
+                } catch(e) { logInfo e }
             }
         }        
     }
@@ -774,7 +784,7 @@ void asyncHttpGetCallback(resp, data) {
         logTrace "response data: ${resp.data}"
     }
     else {
-        logWarn("${app.getLabel()} asyncHttpGetCallback ${data?.method} status:${resp.status} reason:${resp.errorMessage}")
+        logWarn("${app.getLabel()} asyncHttpGetCallback '${data?.method}' status:${resp.status} reason:${resp.errorMessage} - now scheduled again in 15 minutes")
         runIn(15*60, data?.method)
     }
 }
@@ -955,6 +965,7 @@ def getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){
 	if(type == "title")     return "<h2 style='color:$myColor;font-weight: bold'>${myText}</h2>"
     if(type == "text")      return "<span style='color:$myColor;font-weight: bold'>${myText}</span>"
     if(type == "hyperlink") return "<a href='${myHyperlink}' target='_blank' rel='noopener noreferrer' style='color:$myColor;font-weight:bold'>${myText}</a>"
+    if(type == "comments")  return "<div style='color:$myColor;font-weight:small;font-size:14px;'>${myText}</div>"
 }
 
 def displayHeader() { 
