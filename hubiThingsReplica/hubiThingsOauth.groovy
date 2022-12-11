@@ -10,19 +10,20 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
-*  HubiThings Replica
+*  HubiThings OAuth
 *
 *  Update: Bloodtick Jones
-*  Date: 2022-10-01
+*  Date: 2022-12-04
 *
-*  1.0.00  2022-12-04 First pass.
-*  1.0.01  2022-12-04 Updated to hide PAT as a password
-*  1.0.02  2022-12-08 Fixes getting ready to integrate with Replica
-*  1.1.00  2022-12-10 Fixes for first release. Right now only single instance support.
-*  1.1.01  2022-12-10 Allow multiple copies of OAuth
-*/
+*  1.0.00 2022-12-04 First pass.
+*  1.0.01 2022-12-04 Updated to hide PAT as a password
+*  1.0.02 2022-12-08 Fixes getting ready to integrate with Replica
+*  1.1.00 2022-12-10 Fixes for first release. Right now only single instance support.
+*  1.1.01 2022-12-10 Allow multiple copies of OAuth
+*  1.1.02 2022-12-11 Keep track of appName & put lock around button
+LINE 30 MAX */ 
 
-public static String version() {  return "1.1.01"  }
+public static String version() {  return "1.1.02"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -293,7 +294,11 @@ def installHelper() {
     return null
 }
 
+@Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
 void appButtonHandler(String btn) {
+    if(g_bAppButtonHandlerLock[app.id]) return
+    g_bAppButtonHandlerLock[app.id] = true
+    
     logDebug "${app.getLabel()} executing 'appButtonHandler($btn)'"   
     if(btn.contains("::")) { 
         List items = btn.tokenize("::")
@@ -325,7 +330,8 @@ void appButtonHandler(String btn) {
                     logInfo "Not supported"
             }
         }
-    }    
+    }
+    g_bAppButtonHandlerLock[app.id] = false
 }
 
 def callback() {   
@@ -774,7 +780,8 @@ void asyncHttpGetCallback(resp, data) {
 }
 
 void clearState() {                
-    state.remove('appId')                   
+    state.remove('appId') 
+    state.remove('appName') 
     state.remove('authToken')
     state.remove('authTokenExpires')
     state.remove('installedAppId')
@@ -826,10 +833,12 @@ def createApp() {
             if(resp.status==200) {                
                 logDebug "createApp() response data: ${JsonOutput.toJson(resp.data)}"
                 state.appId = resp.data.app.appId
+                state.appName = resp.data.app.appName
                 state.oauthClientId = resp.data.oauthClientId
                 state.oauthClientSecret = resp.data.oauthClientSecret
-                state.oauthCallback = resp.data.app?.apiOnly?.subscription?.targetStatus
+                state.oauthCallback = resp.data.app?.apiOnly?.subscription?.targetStatus                
                 state.remove('createAppError')
+                logTrace resp.data
             }
             response.statusCode = resp.status
         }
