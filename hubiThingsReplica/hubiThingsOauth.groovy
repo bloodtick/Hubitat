@@ -23,9 +23,10 @@
 *  1.1.02 2022-12-11 Keep track of appName & put lock around button
 *  1.1.03 2022-12-11 Exception code around device list. Display location, room & device confidence on UI.
 *  1.1.04 2022-12-11 Cloning functions to prevent race problems. Fix to table. NO IDEA HOW IT EVEN WORKED.
+*  1.1.05 2022-12-12 Logic updates to help prevent exceeding ST guardrails.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.04"  }
+public static String version() {  return "1.1.05"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -57,9 +58,9 @@ definition(
     name: sDefaultAppName,
     namespace: "replica",
     author: "bloodtick",
-    description: "Hubitat Child Application to manage SmartThings OAuth",
+    description: "Deprecated Hubitat Child Application to manage SmartThings OAuth",
     category: "Convenience",
-    importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
+    importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/deprecated/hubiThingsOauth.groovy",
     iconUrl: "",
     iconX2Url: "",
     singleInstance: false
@@ -109,7 +110,7 @@ public Map getSmartDevices() {
     if(g_mSmartDeviceList[appId]==null) {
         g_mSmartDeviceList[appId]=[:]
         if(state?.installedAppId) {
-            refresh()
+            getSmartLocationList() // this will update location, rooms, devices in order
             Integer count=0
             while(count<20 && g_mSmartDeviceList[appId]==[:] ) { pauseExecution(250); count++ } // wait a max of 5 seconds
         }
@@ -128,15 +129,19 @@ public Map getSmartLocations() {
 }
 
 public Map getSmartSubscriptions() {
-    return g_mSmartSubscriptionList[app.getId()]?.clone() ?: state.subscriptions
+    if(state.installedAppId && g_mSmartSubscriptionList[app.getId()]==null) {        
+        g_mSmartSubscriptionList[app.getId()] = (state?.subscriptions ?: [:])
+        getSmartSubscriptionList() // does not block
+    }
+    return (g_mSmartSubscriptionList[app.getId()]?.clone() ?: [:])
 }
 
 public String getAuthToken() {
-    return state.authToken
+    return (state?.authToken?:userSmartThingsPAT)
 }
 
-public void refresh() {
-    logInfo "${app.getLabel()} executing refresh"
+public void refreshApp() {
+    logInfo "${app.getLabel()} executing refreshApp"
     // these are async calls and will not block
     getSmartLocationList()
     getSmartSubscriptionList()
@@ -172,7 +177,7 @@ def pageMain(){
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
                 
-        String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 subscriptions per installed OAuth app, "
+        String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed OAuth app, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
                comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account."        
         section() { paragraph( getFormat("comments",comments,null,"Gray") ) }
@@ -187,12 +192,12 @@ def pageMain(){
         if(userSmartThingsPAT) {
             section(menuHeader("SmartThings API ${refreshInterval?"[Auto Refresh]":""} $sHubitatIconStatic $sSamsungIconStatic")) {
                 if(!state.appId) {
-                    input(name: "pageMain::create", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
+                    input(name: "pageMain::createApp", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
                     paragraph( getFormat("text", "Select 'Create API' to begin initialization of SmartThings API") )
                     if(state.createAppError) paragraph( "SmartThings API ERROR: "+state.createAppError )
                 }
                 else {
-                    input(name: "pageMain::delete", type: "button", width: 2, title: "Delete API", style:"width:75%;")                
+                    input(name: "pageMain::deleteApp", type: "button", width: 2, title: "Delete API", style:"width:75%;")                
                 
                     paragraph("SmartThings API is ${state.installedAppId ? "configured : select 'Delete API' to remove all OAuth authorizations" : "available for OAuth configuration : select link below to continue"}")
                     String status  =  "OAuth Client ID: ${state.oauthClientId}\n"
@@ -239,7 +244,7 @@ def pageMain(){
                             paragraph( getFormat("text", "Select 'Configure' to update SmartThings subscriptions") )
                         }
                         else {
-                            input(name: "pageMain::noop", type: "button", width: 2, title: "Refresh", style:"width:75%;")
+                            input(name: "pageMain::refreshApp", type: "button", width: 2, title: "Refresh", style:"width:75%;")
                             state.remove('refreshInterval')
                         }
                     }
@@ -328,13 +333,16 @@ void appButtonHandler(String btn) {
                             break
                         case "configure":
                             state.refreshInterval=5
-                            refresh()
-                            break
-                        case "create":
+                            setSmartDeviceSubscriptions()
+                            break                        
+                        case "createApp":
                             createApp()
                             break
-                        case "delete":
+                        case "deleteApp":
                             deleteApp(state.appId)
+                            break
+                        case "refreshApp":
+                            refreshApp()
                             break
                     }                            
                     break                  
@@ -536,7 +544,7 @@ private Map asyncHttpPostJson(String callbackMethod, Map data) {
         body: data.body,
         contentType: "application/json",
         requestContentType: "application/json",
-		headers: [ Authorization: "Bearer ${state.authToken}" ]
+		headers: [ Authorization: "Bearer ${getAuthToken()}" ]
     ]
 	try {
 	    asynchttpPost(callbackMethod, params, data)
@@ -551,8 +559,8 @@ void asyncHttpPostCallback(resp, data) {
     logDebug "${app.getLabel()} executing 'asyncHttpPostCallback()' status: ${resp.status} method: ${data?.method}"
     
     if(resp.status==iHttpSuccess) {
-        resp.headers.each { logDebug "${it.key} : ${it.value}" }
-        logDebug "response data: ${resp.data}"
+        resp.headers.each { logTrace "${it.key} : ${it.value}" }
+        logTrace "response data: ${resp.data}"
         
         switch(data?.method) {
             case "setSmartDeviceCommand":
@@ -561,22 +569,22 @@ void asyncHttpPostCallback(resp, data) {
                 break
             case "setSmartDeviceSubscription":
                 Map deviceSubscription = new JsonSlurper().parseText(resp.data)
-                logDebug "${app.getLabel()} ${data?.method}: ${deviceSubscription}"
+                logTrace "${app.getLabel()} ${data?.method}: ${deviceSubscription}"
                 logInfo "${app.getLabel()} '${getSmartDeviceName(data?.deviceId)}' DEVICE subscription status:${resp.status}"
                 break            
             case "setSmartHealthSubscription":
                 Map healthSubscription = new JsonSlurper().parseText(resp.data)
-                logDebug "${app.getLabel()} ${data?.method}: ${healthSubscription}"
+                logTrace "${app.getLabel()} ${data?.method}: ${healthSubscription}"
                 logInfo "${app.getLabel()} HEALTH subscription status:${resp.status}"
                 break
             case "setSmartLifecycleSubscription":
                 Map deviceLifecycle = new JsonSlurper().parseText(resp.data)
-                logDebug "${app.getLabel()} ${data?.method}: ${deviceLifecycle}"
+                logTrace "${app.getLabel()} ${data?.method}: ${deviceLifecycle}"
                 logInfo "${app.getLabel()} DEVICE_LIFECYCLE subscription status:${resp.status}"
                 break
             case "setSmartModeSubscription":
                 Map modeSubscription = new JsonSlurper().parseText(resp.data)
-                logDebug "${app.getLabel()} ${data?.method}: ${modeSubscription}"
+                logTrace "${app.getLabel()} ${data?.method}: ${modeSubscription}"
                 logInfo "${app.getLabel()} MODE subscription status:${resp.status}"
                 break
             default:
@@ -615,7 +623,7 @@ def oauthCallback() {
                 state.authToken = respStrJson.access_token
                 state.refreshToken = respStrJson.refresh_token
                 state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
-                runIn(1,startState)
+                runIn(1,startApp)
             }
         }
     }
@@ -658,6 +666,7 @@ Map oauthRefresh() {
                 state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
                 response.statusCode = resp.status
                 logInfo "${app.getLabel()} updated authorization token"
+                refreshApp()
             }
             else {
                 state.authTokenExpires = 0
@@ -698,7 +707,7 @@ String getSmartDeviceName(String deviceId) {
 
 @Field volatile static Map<Long,Map> g_mSmartRoomList = [:]
 Map getSmartRoomList() {
-    logDebug "${app.getLabel()} executing 'getSmartRoomList($locationId)'"
+    logDebug "${app.getLabel()} executing 'getSmartRoomList()'"
     Map response = [statusCode:iHttpError]   
     Map data = [ uri: sURI, path: "/locations/${state.locationId}/rooms", method: "getSmartRoomList" ]
     response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
@@ -729,7 +738,7 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
     Map params = [
 	    uri: data.uri,
 	    path: data.path,
-		headers: [ Authorization: "Bearer ${state?.authToken}" ]
+		headers: [ Authorization: "Bearer ${getAuthToken()}" ]
     ]
 	try {
 	    asynchttpGet(callbackMethod, params, data)
@@ -794,7 +803,8 @@ void asyncHttpGetCallback(resp, data) {
     }
 }
 
-void clearState() {                
+void stopApp() {
+    unschedule() 
     state.remove('appId') 
     state.remove('appName') 
     state.remove('authToken')
@@ -805,12 +815,14 @@ void clearState() {
     state.remove('oauthClientId')
     state.remove('oauthClientSecret')
     state.remove('refreshToken') 
-    state.remove('subscriptions') 
-    unschedule()
+    state.remove('subscriptions')       
+    g_mSmartSubscriptionList[app.getId()] = null
+    g_mSmartLocationList[app.getId()] = null
+    g_mSmartRoomList[app.getId()] = null
+    g_mSmartDeviceList[app.getId()] = null    
 }
 
-void startState() {
-    refresh()    
+void startApp() {
     String crontab = "${Calendar.instance[ Calendar.SECOND ]} ${Calendar.instance[ Calendar.MINUTE ]} */12 * * ?" // every 12 hours from midnight+min+sec
     schedule(crontab, 'oauthRefresh') // tokens are good for 24 hours
 }
@@ -878,7 +890,7 @@ def deleteApp(appNameOrId) {
             logDebug "deleteApp() response data: ${JsonOutput.toJson(resp.data)}"
             if(resp.status==200 && state.appId==appNameOrId) {
                 logInfo "${app.getLabel()} successfully deleted SmartThings API"
-                clearState()
+                stopApp()
             }
             response.statusCode = resp.status
         }
