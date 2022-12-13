@@ -72,7 +72,7 @@ definition(
     author: "bloodtick",
     description: "Deprecated Hubitat Application to manage SmartThings SmartApp Devices",
     category: "Convenience",
-    importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/deprecated/hubiThingsReplica.groovy",
+    importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsReplica.groovy",
     iconUrl: "",
     iconX2Url: "",
     singleInstance: false
