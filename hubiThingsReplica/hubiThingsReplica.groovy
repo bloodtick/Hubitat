@@ -256,7 +256,7 @@ def mainPage(){
                     html += """<style>th,td{border-bottom:3px solid #ddd;}</style>"""                
                     html += """<style>table{ table-layout: fixed;width: 100%;}</style>"""
                     //html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(2),td:nth-of-type(2),th:nth-of-type(5),td:nth-of-type(5) { display: none; } }</style>"""
-                    //html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(4),td:nth-of-type(4) { display: none; } }</style>"""
+                    html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
                     html += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { updatedot(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
                     //html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='statuscolor' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).style.background = evt.value;}}</script>"""
                     html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerText = evt.value; }}</script>"""
