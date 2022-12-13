@@ -61,7 +61,7 @@ definition(
     author: "bloodtick",
     description: "Deprecated Hubitat Child Application to manage SmartThings OAuth",
     category: "Convenience",
-    importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/deprecated/hubiThingsOauth.groovy",
+    importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
     iconUrl: "",
     iconX2Url: "",
     singleInstance: false
