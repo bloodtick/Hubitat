@@ -24,9 +24,10 @@
 *  1.1.03 2022-12-11 Exception code around device list. Display location, room & device confidence on UI.
 *  1.1.04 2022-12-11 Cloning functions to prevent race problems. Fix to table. NO IDEA HOW IT EVEN WORKED.
 *  1.1.05 2022-12-12 Logic updates to help prevent exceeding ST guardrails.
+*  1.1.06 2022-12-13 First pass at Mutli-OAuth support. Both (1) Replica and (2) OAuth must be upgraded together
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.05"  }
+public static String version() {  return "1.1.06"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -66,6 +67,11 @@ definition(
     singleInstance: false
 ){}
 
+
+String getDefaultLabel() {
+    return pageMainPageAppLabel?:app.getLabel()?:sDefaultAppName
+}
+
 preferences {
     page name:"pageMain"
 }
@@ -76,32 +82,40 @@ mappings {
 }
 
 def installed() {
-    state.isInstalled = true
-    initialize()
-}
-
-def updated() {
+    logInfo "${getDefaultLabel()} executing 'installed()'"
+    state.isInstalled = true    
+    if(pageMainPageAppLabel) { app.updateLabel( pageMainPageAppLabel ) }
     initialize()
 }
 
 def initialize() {
-    logInfo "${app.getLabel()?:sDefaultAppName} executing 'initialize()'"
-    if(pageMainPageAppLabel) { app.updateLabel( pageMainPageAppLabel ) }
+    logInfo "${getDefaultLabel()} executing 'initialize()'"
 
     getParent()?.childInitialize( app )?.settings?.each{ key, value ->
         if(value) app.updateSetting(key, value)
     }
 }
 
+def updated() {
+    logInfo "${getDefaultLabel()} executing 'updated()'"
+    getParent()?.childUpdated( app )
+}
+
 def uninstalled() {
-    logInfo "${app.getLabel()} executing 'uninstalled()'"    
+    logInfo "${getDefaultLabel()} executing 'uninstalled()'"    
     if(state.appId) deleteApp(state.appId)
     getParent()?.childUninstalled( app )
 }
 
+def subscriptionListChanged() {
+    logInfo "${getDefaultLabel()} executing 'subscriptionListChanged()'" 
+    getParent()?.childSubscriptionListChanged( app )
+}
+    
+
 public Map getSmartSubscribedDevices() {
     List deviceIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId 
-    List devices = getSmartDevices()?.items?.findAll{ device -> deviceIds?.find{ it==device?.deviceId } }?.each{ device -> device.appId=app.id } //add app.id for multi-auth support
+    List devices = getSmartDevices()?.items?.findAll{ device -> deviceIds?.find{ it==device?.deviceId } }?.each{ device -> device.oauthId=getOauthId() } //add oauthId for multi-auth support
     return [items:(devices?:[])]
 }
 
@@ -140,13 +154,6 @@ public String getAuthToken() {
     return (state?.authToken?:userSmartThingsPAT)
 }
 
-public void refreshApp() {
-    logInfo "${app.getLabel()} executing refreshApp"
-    // these are async calls and will not block
-    getSmartLocationList()
-    getSmartSubscriptionList()
-}
-
 String getTargetUrl() {
     return "${getApiServerUrl()}/${getHubUID()}/apps/${app.id}/callback?access_token=${state.accessToken}"
 }
@@ -157,6 +164,10 @@ String getRedirectUri() {
 
 String getOauthState() {
     return "${getHubUID()}/apps/${app.id}/oauth/callback?access_token=${state.accessToken}"
+}
+
+String getOauthId() {
+    return "${getHubUID().reverse().take(3).reverse()}-${app.getId()}" // I just made this up
 }
 
 String getOauthAuthorizeUri() {
@@ -176,14 +187,17 @@ def pageMain(){
     Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)         
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
-                
-        String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed OAuth app, "
+        state.remove('apiInstance')
+        
+        String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed application, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
-               comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account."        
+               comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account.<br><br>"
+               comments+= "Unlike the SmartThings Personal Access Token (PAT) that is valid for one year from creation, the OAuth authorization token is valid for 24 hours and must be refreshed. This is normally handled by the application, "
+               comments+= "but if your Hubitat hub is offline for an extended time period, you will need to reauthorize the token manually via the $sSamsungIcon SmartThings OAuth Authorization link." 
         section() { paragraph( getFormat("comments",comments,null,"Gray") ) }
         
         if(!getParent()) {
-            section(menuHeader("${app.getLabel()} Configuration")) {
+            section(menuHeader("${getDefaultLabel()} Configuration")) {
                 input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)            
             }
         }        
@@ -202,7 +216,7 @@ def pageMain(){
                     paragraph("SmartThings API is ${state.installedAppId ? "configured : select 'Delete API' to remove all OAuth authorizations" : "available for OAuth configuration : select link below to continue"}")
                     String status  =  "OAuth Client ID: ${state.oauthClientId}\n"
                         //status += "OAuth Client Secret: ${state.oauthClientSecret}\n"
-                        status += "OAuth Hubitat Cloud Callback: ${state.oauthCallback}\n"
+                        status += "OAuth Hubitat Cloud Callback: ${getFormat("text", state.oauthCallback,null,(state?.oauthCallback=="CONFIRMED"?sColorDarkGrey:sColorDarkRed))}\n"
                         status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n\n"
                     if(state.authTokenExpires!=null) {
                         //status += "Location: ${getSmartLocations()?.items?.get(0)?.name}\n" 
@@ -232,10 +246,12 @@ def pageMain(){
                 Map smartDevices = getSmartDevices() // this could block up to five seconds if we don't have devices cached
                 if(smartDevices) {
                     List smartDevicesSelect = []
-                    smartDevices?.items?.sort{ a,b -> getSmartRoomName(a.roomId) <=> getSmartRoomName(b.roomId) ?: getSmartDeviceName(a.deviceId) <=> getSmartDeviceName(b.deviceId) }?.each {
-                        Map device = [ "${it.deviceId}" : "${getSmartRoomName(it.roomId)} : ${getSmartDeviceName(it.deviceId)}" ]
-                        smartDevicesSelect.add(device)   
-                    }
+                    try {
+                        smartDevices?.items?.sort{ a,b -> getSmartRoomName(a.roomId) <=> getSmartRoomName(b.roomId) ?: getSmartDeviceName(a.deviceId) <=> getSmartDeviceName(b.deviceId) }?.each {
+                            Map device = [ "${it.deviceId}" : "${getSmartRoomName(it.roomId)} : ${getSmartDeviceName(it.deviceId)}" ]
+                            smartDevicesSelect.add(device)   
+                        }
+                    } catch(e) { logInfo e }
                     input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "Enable SmartThings Devices (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
                     if(iSmartAppDeviceLimit >=pageMainSmartDevices?.size()) {
                         Map update = checkSmartSubscriptions()
@@ -249,7 +265,7 @@ def pageMain(){
                         }
                     }
                     else {
-                        paragraph( getFormat("text","Action: Too many SmartThings devices selected! The maximum device count supported is $iSmartAppDeviceLimit per '${app.getLabel()}' instance!",null,sColorDarkRed) )
+                        paragraph( getFormat("text","Action: Too many SmartThings devices selected! The maximum device count supported is $iSmartAppDeviceLimit per '${getDefaultLabel()}' instance!",null,sColorDarkRed) )
                     }                        
                 } 
                 else {
@@ -303,7 +319,7 @@ def installHelper() {
         return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: 0){
             displayHeader()
             section(menuHeader("Complete OAUTH Install $sHubitatIconStatic $sSamsungIconStatic")) {
-                paragraph("Problem with OAUTH installation! Please remove $sHubitatIcon '${app.getLabel()}' and authorize OAUTH in Apps Code source code and reinstall")
+                paragraph("Problem with OAUTH installation! Please remove $sHubitatIcon '${getDefaultLabel()}' and authorize OAUTH in Apps Code source code and reinstall")
 
             }
         }
@@ -316,7 +332,7 @@ void appButtonHandler(String btn) {
     if(g_bAppButtonHandlerLock[app.id]) return
     g_bAppButtonHandlerLock[app.id] = true
     
-    logDebug "${app.getLabel()} executing 'appButtonHandler($btn)'"   
+    logDebug "${getDefaultLabel()} executing 'appButtonHandler($btn)'"   
     if(btn.contains("::")) { 
         List items = btn.tokenize("::")
         if(items && items.size() > 1 && items[1]) {
@@ -357,7 +373,7 @@ void appButtonHandler(String btn) {
 def callback() {   
     Map response = [statusCode:iHttpError]
     def event = new JsonSlurper().parseText(request.body)
-    logDebug "${app.getLabel()} ${event?.messageType}: $event"
+    logDebug "${getDefaultLabel()} ${event?.messageType}: $event"
     switch(event?.messageType) {
         case 'PING':
             response = [statusCode:iHttpSuccess, pingData: [challenge: event?.pingData.challenge]]
@@ -367,13 +383,13 @@ def callback() {
             runIn(2, handleConfirm, [data: event?.confirmationData])
             break;
         case 'EVENT':
-            logDebug "${app.getLabel()} ${event?.messageType}"
-            if(event?.eventData?.events?.find{ it.eventType=="DEVICE_LIFECYCLE_EVENT" }) { runIn(1,refresh) }
+            logDebug "${getDefaultLabel()} ${event?.messageType}"
+            if(event?.eventData?.events?.find{ it.eventType=="DEVICE_LIFECYCLE_EVENT" }) { runIn(1, refreshApp) }
             if(getParent()) getParent().childEvent(app, event); else logInfo request.body
             response.statusCode = iHttpSuccess
             break;        
         default:
-          logWarn "${app.getLabel()} lifecycle ${event?.messageType} not supported"
+          logWarn "${getDefaultLabel()} lifecycle ${event?.messageType} not supported"
     }    
     event.clear()
     event = null
@@ -383,25 +399,25 @@ def callback() {
 }
 
 Map handleConfirm(Map confirmationData) {
-    logDebug "${app.getLabel()} executing 'handleConfirm()' url:${confirmationData?.confirmationUrl}"
+    logDebug "${getDefaultLabel()} executing 'handleConfirm()' url:${confirmationData?.confirmationUrl}"
     Map response = [statusCode:iHttpError]
     
     try {
         httpGet(confirmationData?.confirmationUrl) { resp ->
             logDebug "response data: ${resp?.data}"
             if (resp?.data?.targetUrl == getTargetUrl()) {
-                logInfo "${app.getLabel()} callback confirmation success"
+                logInfo "${getDefaultLabel()} callback confirmation success"
                 state.oauthCallback = "CONFIRMED"
             }
             else {
-                logWarn "${app.getLabel()} callback confirmation failure with url:${resp?.data?.targetUrl}"
+                logWarn "${getDefaultLabel()} callback confirmation failure with url:${resp?.data?.targetUrl}"
                 state.oauthCallback = "ERROR"
             }
             response.statusCode = resp.status
             response['targetUrl'] = resp.data.targetUrl
         }        
     } catch (e) {
-        logWarn "${app.getLabel()} handleConfirm() error: $e"     
+        logWarn "${getDefaultLabel()} handleConfirm() error: $e"     
     }
     return response
 }
@@ -442,18 +458,18 @@ void setSmartDeviceSubscriptions() {
     
     Map update = checkSmartSubscriptions()    
     update?.select?.each{ deviceId ->
-        logDebug "${app.getLabel()} subscribed to $deviceId"
+        logDebug "${getDefaultLabel()} subscribed to $deviceId"
         setSmartDeviceSubscription(deviceId)
     }
     update?.delete?.each{ deviceId ->
-        logDebug "${app.getLabel()} unsubscribe to $deviceId"
+        logDebug "${getDefaultLabel()} unsubscribe to $deviceId"
         deleteSmartSubscriptions("DEVICE", deviceId)
     }
     if(update?.ready) { runIn(2, getSmartSubscriptionList) }
 }
 
 Map deleteSmartSubscriptions(String sourceType, String deviceId=null) {
-    logDebug "${app.getLabel()} executing 'deleteSmartSubscriptions($sourceType, $deviceId)'"
+    logDebug "${getDefaultLabel()} executing 'deleteSmartSubscriptions($sourceType, $deviceId)'"
     Map response = [statusCode:iHttpError]
     String subscriptionId = getSmartSubscriptions()?.items?.find{ it.sourceType==sourceType && (deviceId==null || it.device.deviceId==deviceId) }?.id
 
@@ -464,17 +480,17 @@ Map deleteSmartSubscriptions(String sourceType, String deviceId=null) {
     ]
     try {
         httpDelete(params) { resp ->
-            logInfo "${app.getLabel()} '${deviceId?getSmartDeviceName(deviceId):sourceType}' delete subscription status:${resp.status}"
+            logInfo "${getDefaultLabel()} '${deviceId?getSmartDeviceName(deviceId):sourceType}' delete subscription status:${resp.status}"
             response.statusCode = resp.status
         }
     } catch (e) {
-        logWarn "${app.getLabel()} deleteSmartSubscriptions($sourceType, $deviceId) error: $e"
+        logWarn "${getDefaultLabel()} deleteSmartSubscriptions($sourceType, $deviceId) error: $e"
     }    
     return response
 }
 
 Map setSmartDeviceSubscription(String deviceId) {
-    logDebug "${app.getLabel()} executing 'setSmartDeviceSubscription($deviceId)'"
+    logDebug "${getDefaultLabel()} executing 'setSmartDeviceSubscription($deviceId)'"
     Map response = [statusCode:iHttpError]
     
     Map subscription = [ sourceType: "DEVICE", device: [ deviceId: deviceId, componentId: "main", capability: "*", attribute: "*", stateChangeOnly: true, subscriptionName: deviceId, value: "*" ]]    
@@ -490,7 +506,7 @@ Map setSmartDeviceSubscription(String deviceId) {
 }
 
 Map setSmartHealthSubscription() {
-    logDebug "${app.getLabel()} executing 'setSmartHealthSubscription()'"
+    logDebug "${getDefaultLabel()} executing 'setSmartHealthSubscription()'"
     Map response = [statusCode:iHttpError]
     
     Map health = [ sourceType: "DEVICE_HEALTH", deviceHealth: [ locationId: state?.locationId, subscriptionName: state?.locationId ]]
@@ -505,7 +521,7 @@ Map setSmartHealthSubscription() {
 }
 
 Map setSmartLifecycleSubscription() {
-    logDebug "${app.getLabel()} executing 'setSmartHealthSubscription()'"
+    logDebug "${getDefaultLabel()} executing 'setSmartHealthSubscription()'"
     Map response = [statusCode:iHttpError]
     
     Map health = [ sourceType: "DEVICE_LIFECYCLE", deviceLifecycle: [ locationId: state?.locationId, subscriptionName: state?.locationId ]]
@@ -520,7 +536,7 @@ Map setSmartLifecycleSubscription() {
 }
 
 Map setSmartModeSubscription() {
-    logDebug "${app.getLabel()} executing 'setSmartModeSubscription()'"
+    logDebug "${getDefaultLabel()} executing 'setSmartModeSubscription()'"
     Map response = [statusCode:iHttpError]
     
     Map mode = [ sourceType: "MODE", mode: [ locationId: state?.locationId, subscriptionName: state?.locationId ]]
@@ -535,7 +551,7 @@ Map setSmartModeSubscription() {
 }
 
 private Map asyncHttpPostJson(String callbackMethod, Map data) {
-    logDebug "${app.getLabel()} executing 'asyncHttpPostJson()'"
+    logDebug "${getDefaultLabel()} executing 'asyncHttpPostJson()'"
     Map response = [statusCode:iHttpError]
 	
     Map params = [
@@ -550,13 +566,13 @@ private Map asyncHttpPostJson(String callbackMethod, Map data) {
 	    asynchttpPost(callbackMethod, params, data)
         response.statusCode = iHttpSuccess
 	} catch (e) {
-	    logWarn "${app.getLabel()} asyncHttpPostJson error: $e"
+	    logWarn "${getDefaultLabel()} asyncHttpPostJson error: $e"
 	}    
     return response
 }
 
 void asyncHttpPostCallback(resp, data) {
-    logDebug "${app.getLabel()} executing 'asyncHttpPostCallback()' status: ${resp.status} method: ${data?.method}"
+    logDebug "${getDefaultLabel()} executing 'asyncHttpPostCallback()' status: ${resp.status} method: ${data?.method}"
     
     if(resp.status==iHttpSuccess) {
         resp.headers.each { logTrace "${it.key} : ${it.value}" }
@@ -565,41 +581,41 @@ void asyncHttpPostCallback(resp, data) {
         switch(data?.method) {
             case "setSmartDeviceCommand":
                 Map command = new JsonSlurper().parseText(resp.data)
-                logDebug "${app.getLabel()} successful ${data?.method}:${command}"
+                logDebug "${getDefaultLabel()} successful ${data?.method}:${command}"
                 break
             case "setSmartDeviceSubscription":
                 Map deviceSubscription = new JsonSlurper().parseText(resp.data)
-                logTrace "${app.getLabel()} ${data?.method}: ${deviceSubscription}"
-                logInfo "${app.getLabel()} '${getSmartDeviceName(data?.deviceId)}' DEVICE subscription status:${resp.status}"
+                logTrace "${getDefaultLabel()} ${data?.method}: ${deviceSubscription}"
+                logInfo "${getDefaultLabel()} '${getSmartDeviceName(data?.deviceId)}' DEVICE subscription status:${resp.status}"
                 break            
             case "setSmartHealthSubscription":
                 Map healthSubscription = new JsonSlurper().parseText(resp.data)
-                logTrace "${app.getLabel()} ${data?.method}: ${healthSubscription}"
-                logInfo "${app.getLabel()} HEALTH subscription status:${resp.status}"
+                logTrace "${getDefaultLabel()} ${data?.method}: ${healthSubscription}"
+                logInfo "${getDefaultLabel()} HEALTH subscription status:${resp.status}"
                 break
             case "setSmartLifecycleSubscription":
                 Map deviceLifecycle = new JsonSlurper().parseText(resp.data)
-                logTrace "${app.getLabel()} ${data?.method}: ${deviceLifecycle}"
-                logInfo "${app.getLabel()} DEVICE_LIFECYCLE subscription status:${resp.status}"
+                logTrace "${getDefaultLabel()} ${data?.method}: ${deviceLifecycle}"
+                logInfo "${getDefaultLabel()} DEVICE_LIFECYCLE subscription status:${resp.status}"
                 break
             case "setSmartModeSubscription":
                 Map modeSubscription = new JsonSlurper().parseText(resp.data)
-                logTrace "${app.getLabel()} ${data?.method}: ${modeSubscription}"
-                logInfo "${app.getLabel()} MODE subscription status:${resp.status}"
+                logTrace "${getDefaultLabel()} ${data?.method}: ${modeSubscription}"
+                logInfo "${getDefaultLabel()} MODE subscription status:${resp.status}"
                 break
             default:
-                logWarn "${app.getLabel()} asyncHttpPostCallback ${data?.method} not supported"
+                logWarn "${getDefaultLabel()} asyncHttpPostCallback ${data?.method} not supported"
                 if (resp?.data) { logInfo resp.data }
         }
     }
     else {
         resp.headers.each { logTrace "${it.key} : ${it.value}" }
-        logWarn("${app.getLabel()} asyncHttpPostCallback ${data?.method} status:${resp.status} reason:${resp.errorMessage}")
+        logWarn("${getDefaultLabel()} asyncHttpPostCallback ${data?.method} status:${resp.status} reason:${resp.errorMessage}")
     }
 }
 
 def oauthCallback() {
-    logDebug "${app.getLabel()} oauthCallback() $params"   
+    logDebug "${getDefaultLabel()} oauthCallback() $params"   
     String code = params.code
     String client_id = state.oauthClientId
     String client_secret = state.oauthClientSecret
@@ -628,7 +644,7 @@ def oauthCallback() {
         }
     }
     catch (e) {
-        logWarn "${app.getLabel()} oauthCallback() error: $e"
+        logWarn "${getDefaultLabel()} oauthCallback() error: $e"
     }
 
 	if (state.authToken)
@@ -638,7 +654,7 @@ def oauthCallback() {
 }
 
 Map oauthRefresh() {
-    logDebug "${app.getLabel()} executing 'oauthRefresh()'"
+    logDebug "${getDefaultLabel()} executing 'oauthRefresh()'"
     Map response = [statusCode:iHttpError]
     
     String refresh_token = state.refreshToken
@@ -665,26 +681,25 @@ Map oauthRefresh() {
                 state.refreshToken = respStrJson.refresh_token
                 state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
                 response.statusCode = resp.status
-                logInfo "${app.getLabel()} updated authorization token"
-                refreshApp()
+                logInfo "${getDefaultLabel()} updated authorization token"                
             }
             else {
                 state.authTokenExpires = 0
-                logWarn"${app.getLabel()} could not update authorization token"                
+                logWarn"${getDefaultLabel()} could not update authorization token"                
             }                
          }
     } catch (e) {
-        logWarn "${app.getLabel()} oauthRefresh() error: $e"
         state.authTokenExpires = 0
-        runIn(1*60*60, oauthRefresh) // problem. lets try every hour.
+        logWarn "${getDefaultLabel()} oauthRefresh() error: $e"
     }
     
+    runIn(1, refreshApp)    
     return [statusCode:response.statusCode]
 }
 
 @Field volatile static Map<Long,Map> g_mSmartSubscriptionList = [:]
 Map getSmartSubscriptionList() {
-    logDebug "${app.getLabel()} executing 'getSmartSubscriptionList()'"
+    logDebug "${getDefaultLabel()} executing 'getSmartSubscriptionList()'"
     Map response = [statusCode:iHttpError]   
     Map data = [ uri: sURI, path: "/installedapps/${state.installedAppId}/subscriptions", method: "getSmartSubscriptionList"]
     response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
@@ -693,7 +708,7 @@ Map getSmartSubscriptionList() {
 
 @Field volatile static Map<Long,Map> g_mSmartDeviceList = [:]
 Map getSmartDeviceList() {
-    logDebug "${app.getLabel()} executing 'getSmartDeviceList()'"
+    logDebug "${getDefaultLabel()} executing 'getSmartDeviceList()'"
     Map response = [statusCode:iHttpError]   
 	Map data = [ uri: sURI, path: "/devices", method: "getSmartDeviceList"]
     response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
@@ -707,7 +722,7 @@ String getSmartDeviceName(String deviceId) {
 
 @Field volatile static Map<Long,Map> g_mSmartRoomList = [:]
 Map getSmartRoomList() {
-    logDebug "${app.getLabel()} executing 'getSmartRoomList()'"
+    logDebug "${getDefaultLabel()} executing 'getSmartRoomList()'"
     Map response = [statusCode:iHttpError]   
     Map data = [ uri: sURI, path: "/locations/${state.locationId}/rooms", method: "getSmartRoomList" ]
     response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
@@ -720,7 +735,7 @@ String getSmartRoomName(String roomId) {
 
 @Field volatile static Map<Long,Map> g_mSmartLocationList = [:]
 Map getSmartLocationList() {
-    logDebug "${app.getLabel()} executing 'getSmartLocationList()'"
+    logDebug "${getDefaultLabel()} executing 'getSmartLocationList()'"
     Map response = [statusCode:iHttpError]   
 	Map data = [ uri: sURI, path: "/locations", method: "getSmartLocationList" ]
     response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
@@ -732,7 +747,7 @@ String getSmartLocationName(String locationId) {
 }
     
 private Map asyncHttpGet(String callbackMethod, Map data) {
-    logDebug "${app.getLabel()} executing 'asyncHttpGet()'"
+    logDebug "${getDefaultLabel()} executing 'asyncHttpGet()'"
     Map response = [statusCode:iHttpError]
 	
     Map params = [
@@ -744,13 +759,13 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
 	    asynchttpGet(callbackMethod, params, data)
         response.statusCode = iHttpSuccess
 	} catch (e) {
-	    logWarn "${app.getLabel()} asyncHttpGet error: $e"
+	    logWarn "${getDefaultLabel()} asyncHttpGet error: $e"
 	}
     return response
 }
 
 void asyncHttpGetCallback(resp, data) {
-    logDebug "${app.getLabel()} executing 'asyncHttpGetCallback()' status: ${resp.status} method: ${data?.method}"
+    logDebug "${getDefaultLabel()} executing 'asyncHttpGetCallback()' status: ${resp.status} method: ${data?.method}"
     
     if (resp.status == iHttpSuccess) {       
         switch(data?.method) {
@@ -759,7 +774,8 @@ void asyncHttpGetCallback(resp, data) {
                 if(!(subscriptionList?.sort()?.equals(g_mSmartSubscriptionList[app.getId()]?.sort()))) {
                     g_mSmartSubscriptionList[app.getId()]?.clear()
                     state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList.clone()
-                    logInfo "${app.getLabel()} updated subscription list"
+                    runIn(1, subscriptionListChanged)
+                    logInfo "${getDefaultLabel()} updated subscription list"
                 }
                 setSmartDeviceSubscriptions()
                 break
@@ -768,7 +784,7 @@ void asyncHttpGetCallback(resp, data) {
                 if(!(deviceList?.sort()?.equals(g_mSmartDeviceList[app.getId()]?.sort()))) {
                     g_mSmartDeviceList[app.getId()]?.clear()
                     g_mSmartDeviceList[app.getId()] = deviceList.clone()
-                    logInfo "${app.getLabel()} updated device list"
+                    logInfo "${getDefaultLabel()} updated device list"
                 }
                 break
             case "getSmartRoomList":            
@@ -776,7 +792,7 @@ void asyncHttpGetCallback(resp, data) {
                 if(!(roomList?.sort()?.equals(g_mSmartRoomList[app.getId()]?.sort()))) {
                     g_mSmartRoomList[app.getId()]?.clear()
                     g_mSmartRoomList[app.getId()] = roomList.clone()
-                    logInfo "${app.getLabel()} updated room list"
+                    logInfo "${getDefaultLabel()} updated room list"
                 }
                 getSmartDeviceList()
                 break
@@ -786,20 +802,32 @@ void asyncHttpGetCallback(resp, data) {
                     g_mSmartLocationList[app.getId()]?.clear()
                     g_mSmartLocationList[app.getId()] = locationList.clone()
                     state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
-                    logInfo "${app.getLabel()} updated location list"
+                    logInfo "${getDefaultLabel()} updated location list"
                 }
                 getSmartRoomList()
                 break
             default:
-                logWarn "${app.getLabel()} asyncHttpGetCallback ${data?.method} not supported"
+                logWarn "${getDefaultLabel()} asyncHttpGetCallback ${data?.method} not supported"
                 if (resp?.data) { logInfo resp.data }
         }
         resp.headers.each { logTrace "${it.key} : ${it.value}" }
         logTrace "response data: ${resp.data}"
     }
     else {
-        logWarn("${app.getLabel()} asyncHttpGetCallback '${data?.method}' status:${resp.status} reason:${resp.errorMessage} - refresh scheduled in 15 minutes")
+        logWarn("${getDefaultLabel()} asyncHttpGetCallback '${data?.method}' status:${resp.status} reason:${resp.errorMessage} - rescheduled in 15 minutes")
         runIn(15*60, data?.method)
+    }
+}
+
+void appStatus() {
+    if(state?.oauthCallback=="CONFIRMED" && state?.authTokenExpires!=0) {
+        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorized")}" )
+    }
+    else if (state?.authTokenExpires==0) {
+        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorization Error",null,sColorDarkRed)}" )
+    }
+    else {
+        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()}" )
     }
 }
 
@@ -819,19 +847,28 @@ void stopApp() {
     g_mSmartSubscriptionList[app.getId()] = null
     g_mSmartLocationList[app.getId()] = null
     g_mSmartRoomList[app.getId()] = null
-    g_mSmartDeviceList[app.getId()] = null    
+    g_mSmartDeviceList[app.getId()] = null
+    appStatus()
+}
+
+void refreshApp() {
+    logInfo "${getDefaultLabel()} executing refreshApp"
+    // these are async calls and will not block
+    getSmartLocationList()
+    getSmartSubscriptionList()
+    appStatus()
 }
 
 void startApp() {
-    String crontab = "${Calendar.instance[ Calendar.SECOND ]} ${Calendar.instance[ Calendar.MINUTE ]} */12 * * ?" // every 12 hours from midnight+min+sec
-    schedule(crontab, 'oauthRefresh') // tokens are good for 24 hours
+    runEvery3Hours('oauthRefresh') // tokens are good for 24 hours, refresh every 3 hours to give up to 21 hours offline time worst case.
+    appStatus()
 }
 
 def createApp() {
-    logInfo "${app.getLabel()} creating SmartThings API"
+    logInfo "${getDefaultLabel()} creating SmartThings API"
     def response = [statusCode:iHttpError]
     
-    String displayName = app.getLabel()
+    String displayName = "$sDefaultAppName ${getOauthId()}"
     def app = [
         appName: "${sDefaultAppName.replaceAll("\\s","").toLowerCase()}-${UUID.randomUUID().toString()}",
         displayName: displayName,
@@ -889,7 +926,7 @@ def deleteApp(appNameOrId) {
         httpDelete(params) { resp ->   
             logDebug "deleteApp() response data: ${JsonOutput.toJson(resp.data)}"
             if(resp.status==200 && state.appId==appNameOrId) {
-                logInfo "${app.getLabel()} successfully deleted SmartThings API"
+                logInfo "${getDefaultLabel()} successfully deleted SmartThings API"
                 stopApp()
             }
             response.statusCode = resp.status
@@ -965,7 +1002,6 @@ def appCallback(resp, data) {
     if(resp.status==200) logInfo "response data: ${resp?.data}"      
 }
 
-
 @Field static final String sSamsungIconStatic="""<svg style="display:none" version="2.0"><defs><symbol id="samsung-svg" viewbox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
 <path fill="currentColor" d="m24.016 0.19927c-6.549 0-13.371 1.1088-18.203 5.5609-4.5279 5.1206-5.5614 11.913-5.5614 18.234v1.9451c0 6.5338 1.1094 13.417 5.5614 18.248 5.1509 4.5586 11.973 5.5614 18.324 5.5614h1.7622c6.5641 0 13.478-1.0942 18.34-5.5614 4.5586-5.1509 5.5614-11.988 5.5614-18.339v-1.7632c0-6.5638-1.0942-13.478-5.5614-18.324-5.1202-4.5431-11.897-5.5609-18.218-5.5609zm1.0077 7.2347c2.5689 0 4.6591 2.0435 4.6591 4.5553 0 2.1999-1.4161 4.0808-3.5398 4.5041v3.2794c3.0529 0.44309 5.2173 2.9536 5.2173 6.0591 0 3.416-2.8427 6.1945-6.3366 6.1945-3.4939 0-6.336-2.7785-6.336-6.1945 0-0.35031 0.03655-0.69134 0.09405-1.0258l-3.1724-1.0072c-0.81421 1.41-2.344 2.3115-4.0494 2.3115-0.4886 0-0.97399-0.0758-1.4418-0.22428-2.4433-0.77611-3.7851-3.3512-2.991-5.7402 0.62583-1.8828 2.406-3.1481 4.4302-3.1481 0.48824 0 0.97279 0.0754 1.4402 0.22427 1.1836 0.37606 2.1472 1.1805 2.712 2.265 0.42122 0.80821 0.58276 1.6995 0.47904 2.5797l3.1698 1.0072c0.90699-1.7734 2.8428-2.9998 4.9206-3.3011v-3.2794c-2.1237-0.42334-3.9145-2.3042-3.9145-4.5041 0-2.5118 2.0899-4.5553 4.6591-4.5553zm0 1.8221c-1.5413 0-2.7952 1.2261-2.7952 2.7332s1.2539 2.7326 2.7952 2.7326c1.5416 0 2.7957-1.2256 2.7957-2.7326s-1.2541-2.7332-2.7957-2.7332zm13.467 7.7417c2.0235 0 3.804 1.2655 4.4302 3.1486 0.38418 1.1568 0.28436 2.3906-0.28008 3.4747-0.5655 1.0844-1.5286 1.8889-2.7125 2.265-0.46708 0.14852-0.95146 0.22376-1.4397 0.22376-1.7053 0-3.2355-0.90075-4.0504-2.3104l-1.309 0.41651-0.57619-1.7332 1.3064-0.41496c-0.24412-2.1061 1.0506-4.1659 3.1905-4.8457 0.46814-0.14887 0.95285-0.22427 1.4407-0.22427zm-26.933 1.8221c-1.2143 0-2.2825 0.75934-2.6582 1.8893-0.47625 1.4333 0.32893 2.9781 1.7947 3.4437 0.28152 0.0896 0.57278 0.13539 0.86558 0.13539 1.2139 0 2.2818-0.75986 2.6572-1.8898 0.23107-0.69391 0.17072-1.4341-0.16795-2.0846-0.33937-0.65087-0.91663-1.1333-1.6268-1.3591-0.28152-0.0892-0.57209-0.13487-0.86455-0.13487zm26.933 0c-0.29245 0-0.58355 0.0456-0.86506 0.13487-1.4658 0.46567-2.2715 2.0109-1.7952 3.4442 0.37571 1.13 1.444 1.8888 2.6582 1.8888 0.2921 0 0.58287-0.0456 0.86403-0.13487 0.71085-0.22542 1.2883-0.7077 1.6273-1.3586 0.33867-0.65052 0.39867-1.3911 0.16795-2.0846-0.37571-1.1303-1.4436-1.8898-2.6572-1.8898zm-13.467 3.0034c-2.261 0-4.1 1.7982-4.1 4.008 0 2.2105 1.8391 4.0085 4.1 4.0085 2.2606 0 4.1-1.798 4.1-4.0085 0-2.2098-1.8394-4.008-4.1-4.008zm-5.5805 9.9746 1.509 1.0712-0.8077 1.0873c1.4651 1.5642 1.6559 3.9761 0.33228 5.7573-0.87489 1.1769-2.2862 1.879-3.775 1.879-0.98884 0-1.9356-0.30066-2.7378-0.87075-2.0796-1.4774-2.5419-4.3338-1.0309-6.3665 0.87418-1.1769 2.2852-1.8795 3.775-1.8795 0.67275 0 1.3247 0.14236 1.9265 0.41083zm11.166 0 0.80822 1.0878c0.60148-0.26846 1.2527-0.41135 1.9255-0.41135 1.488 0 2.8985 0.70228 3.7724 1.8784 1.5099 2.0327 1.0474 4.8869-1.0304 6.3629-0.80116 0.56903-1.7473 0.86972-2.7358 0.86972-1.4891 0-2.8986-0.70212-3.7724-1.8779-1.3222-1.7787-1.1316-4.1886 0.33176-5.7521l-0.80719-1.0862zm2.7337 2.4986c-0.59196 0-1.1587 0.18096-1.6402 0.52245-1.2467 0.88618-1.524 2.599-0.61805 3.8179 0.52388 0.70556 1.3702 1.1265 2.2645 1.1265 0.59196 0 1.1597-0.18063 1.6402-0.52141 1.2471-0.88583 1.5241-2.5992 0.61857-3.8184-0.52458-0.7059-1.3714-1.1271-2.265-1.1271zm-16.635 3e-3c-0.89464 0-1.7419 0.42116-2.2665 1.1271-0.90629 1.2203-0.62869 2.9339 0.61908 3.8204 0.48119 0.3422 1.0489 0.52245 1.6412 0.52245 0.89394 0 1.7414-0.42132 2.266-1.1276 0.90664-1.2203 0.62956-2.9339-0.61857-3.8204-0.48084-0.34184-1.0482-0.52193-1.6412-0.52193z">
 </path></symbol></defs><use href="#samsung-svg"/></svg>"""
@@ -995,7 +1031,7 @@ def displayHeader() {
 def displayFooter(){
 	section() {
 		paragraph( getFormat("line") )
-		paragraph "<div style='color:{sColorDarkBlue};text-align:center;font-weight:small;font-size:11px;'>${app.getLabel()}<br><br><a href='${paypal()}' target='_blank'><img src='https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg' border='0' alt='PayPal Logo'></a><br><br>Please consider donating. This application took a lot of work to make.<br>If you find it valuable, I'd certainly appreciate it!</div>"
+		paragraph "<div style='color:{sColorDarkBlue};text-align:center;font-weight:small;font-size:11px;'>${getDefaultLabel()}<br><br><a href='${paypal()}' target='_blank'><img src='https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg' border='0' alt='PayPal Logo'></a><br><br>Please consider donating. This application took a lot of work to make.<br>If you find it valuable, I'd certainly appreciate it!</div>"
 	}       
 }
 
@@ -1010,7 +1046,7 @@ private logError(msg) { log.error  "${msg}" }
 
 void testButton() {  
     def appId = '9d69bc69-850f-4c09-b8bb-3df88676df57'
-    
+
     //logInfo getSmartSubscribedDevices()
 
     //oauthRefresh()    
@@ -1020,7 +1056,7 @@ void testButton() {
     //updateApp(appId)
     //deleteApp(appId)
     
-    //listApps()
+    listApps()
     //listInstalledApps()
     //getParent()?.setSmartDevicesMap( getSmartSubscribedDevices() )
     logInfo userSmartThingsPAT
