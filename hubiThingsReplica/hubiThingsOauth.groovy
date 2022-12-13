@@ -187,7 +187,6 @@ def pageMain(){
     Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)         
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
-        state.remove('apiInstance')
         
         String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed application, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
