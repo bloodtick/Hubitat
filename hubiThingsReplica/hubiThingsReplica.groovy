@@ -224,12 +224,13 @@ def mainPage(){
                 smartDevices?.items?.sort{ it.label }?.each { smartDevice -> 
                     def hubitatDevices = getReplicaDevices(smartDevice.deviceId)
                     for (def i = 0; i ==0 || i < hubitatDevices.size(); i++) {
-                        def deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${hubitatDevices[i]?.getId()}"                            
+                        def deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${hubitatDevices[i]?.getId()}"                        
+                        def appUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
                         //def deviceColor = hubitatDevices[i]?.getDataValue("statuscolor") ?: sColorLightGrey                            
                         devicesTable += "<tr>"
                         devicesTable += "<td>${smartDevice?.label}</td>"                  
                         devicesTable += hubitatDevices[i] ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.getDisplayName()}</a></td>" : "<td></td>"
-                        devicesTable += "<td style='text-align:center;'>${smartDevice?.oauthId}</td>"
+                        devicesTable += "<td style='text-align:center;'><a href='${appUrl}'>${smartDevice?.oauthId}</a></td>"
                         devicesTable += "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${getSmartDeviceEventsStatus(hubitatDevices[i])}</td>"
                         devicesTable += "</tr>"
                     }
