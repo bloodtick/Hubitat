@@ -25,9 +25,10 @@
 *  1.1.04 2022-12-11 Cloning functions to prevent race problems. Fix to table. NO IDEA HOW IT EVEN WORKED.
 *  1.1.05 2022-12-12 Logic updates to help prevent exceeding ST guardrails.
 *  1.1.06 2022-12-13 First pass at Mutli-OAuth support. Both (1) Replica and (2) OAuth must be upgraded together
+*  1.1.07 2022-12-16 Use parent PAT. Better status control. 
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.06"  }
+public static String version() {  return "1.1.07"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -52,21 +53,19 @@ import groovy.transform.Field
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
-@Field static final String  sCodeRelease="Alpha"
 
 definition(
     parent: 'hubitat:HubiThings Replica',
     name: sDefaultAppName,
     namespace: "replica",
     author: "bloodtick",
-    description: "Deprecated Hubitat Child Application to manage SmartThings OAuth",
+    description: "Hubitat Child Application to manage SmartThings OAuth",
     category: "Convenience",
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
     iconUrl: "",
     iconX2Url: "",
     singleInstance: false
 ){}
-
 
 String getDefaultLabel() {
     return pageMainPageAppLabel?:app.getLabel()?:sDefaultAppName
@@ -81,6 +80,8 @@ mappings {
     path("/oauth/callback") { action: [ GET: "oauthCallback" ] }
 }
 
+/************************************** PARENT METHODS START *******************************************************/
+
 def installed() {
     logInfo "${getDefaultLabel()} executing 'installed()'"
     state.isInstalled = true    
@@ -90,10 +91,11 @@ def installed() {
 
 def initialize() {
     logInfo "${getDefaultLabel()} executing 'initialize()'"
-
-    getParent()?.childInitialize( app )?.settings?.each{ key, value ->
-        if(value) app.updateSetting(key, value)
-    }
+    getParent()?.childInitialize( app )
+    
+    //getParent()?.childInitialize( app )?.settings?.each{ key, value ->
+    //    if(value) app.updateSetting(key, value)
+    //}
 }
 
 def updated() {
@@ -111,11 +113,15 @@ def subscriptionListChanged() {
     logInfo "${getDefaultLabel()} executing 'subscriptionListChanged()'" 
     getParent()?.childSubscriptionListChanged( app )
 }
-    
+
+def subscriptionEvent(event) {
+    logDebug "${getDefaultLabel()} executing 'subscriptionEvent()'"
+    getParent().childEvent(app, event)
+}    
 
 public Map getSmartSubscribedDevices() {
     List deviceIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId 
-    List devices = getSmartDevices()?.items?.findAll{ device -> deviceIds?.find{ it==device?.deviceId } }?.each{ device -> device.oauthId=getOauthId() } //add oauthId for multi-auth support
+    List devices = getSmartDevices()?.items?.findAll{ device -> deviceIds?.find{ it==device?.deviceId } }?.each{ device -> device.oauthId=getOauthId(); device.appId=app.getId() } //add oauthId for multi-auth support
     return [items:(devices?:[])]
 }
 
@@ -150,9 +156,24 @@ public Map getSmartSubscriptions() {
     return (g_mSmartSubscriptionList[app.getId()]?.clone() ?: [:])
 }
 
-public String getAuthToken() {
-    return (state?.authToken?:userSmartThingsPAT)
+public String getAuthToken(Boolean usePat=false) {
+    if (getParent()?.getAuthToken()) { app.removeSetting('userSmartThingsPAT') } // remove someday; 1.1.07
+   
+    return (usePat ? (getParent()?.getAuthToken() ?: userSmartThingsPAT) : ( (state.authTokenExpires>now()) ? state?.authToken : getParent()?.getAuthToken() ?: userSmartThingsPAT )) 
 }
+
+public String getAuthStatus() {    
+    String response = "UNKNOWN"    
+    if(state?.oauthCallback=="CONFIRMED" && state?.authTokenError==false && state.authTokenExpires>now())
+        response = "AUTHORIZED"
+    if((state?.oauthCallback!="CONFIRMED" || state?.authTokenError==true) && (state.authTokenExpires>0))
+        response = "FAILURE"    
+    if(!state?.authTokenExpires)
+        response = "PENDING"    
+    return response
+}
+
+/************************************** PARENT METHODS STOP ********************************************************/
 
 String getTargetUrl() {
     return "${getApiServerUrl()}/${getHubUID()}/apps/${app.id}/callback?access_token=${state.accessToken}"
@@ -202,7 +223,7 @@ def pageMain(){
         }        
         //if(getHubUID()=="bb6472bd-e232-4cbe-83a6-ecab1592d889") { section() { input(name: "pageMain::test", type: "button", width: 2, title: "Test", style:"width:75%;") } }
         
-        if(userSmartThingsPAT) {
+        if(getAuthToken()) {
             section(menuHeader("SmartThings API ${refreshInterval?"[Auto Refresh]":""} $sHubitatIconStatic $sSamsungIconStatic")) {
                 if(!state.appId) {
                     input(name: "pageMain::createApp", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
@@ -213,16 +234,14 @@ def pageMain(){
                     input(name: "pageMain::deleteApp", type: "button", width: 2, title: "Delete API", style:"width:75%;")                
                 
                     paragraph("SmartThings API is ${state.installedAppId ? "configured : select 'Delete API' to remove all OAuth authorizations" : "available for OAuth configuration : select link below to continue"}")
-                    String status  =  "OAuth Client ID: ${state.oauthClientId}\n"
-                        //status += "OAuth Client Secret: ${state.oauthClientSecret}\n"
-                        status += "OAuth Hubitat Cloud Callback: ${getFormat("text", state.oauthCallback,null,(state?.oauthCallback=="CONFIRMED"?sColorDarkGrey:sColorDarkRed))}\n"
-                        status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n\n"
-                    if(state.authTokenExpires!=null) {
-                        //status += "Location: ${getSmartLocations()?.items?.get(0)?.name}\n" 
-                        status += "Location: ${getSmartLocationName(state.locationId)}\n" 
-                        status += "Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
-                        status += "Device Count: ${getSmartDevices()?.items?.size()?:0}\n"
-                        status += "Token Expiration Date: ${state.authTokenExpires==0 ? getFormat("text","Action: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : (new Date(state.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
+                    String status = "OAuth Client ID: ${state.oauthClientId}\n"
+                          status += "OAuth Hubitat Cloud Callback: ${getFormat("text", state.oauthCallback,null,(state?.oauthCallback=="CONFIRMED"?sColorDarkGrey:sColorDarkRed))}\n"
+                          status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n\n"
+                    if(state?.authTokenExpires) {
+                          status += "Device Count: ${getSmartDevices()?.items?.size()?:0}\n" //this needs to be first since it will fetch location, rooms, devices, in that order
+                          status += "Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
+                          status += "Location: ${getSmartLocationName(state.locationId)}\n"     
+                          status += "Token Expiration Date: ${(getAuthStatus()=="FAILURE") ? getFormat("text","Action: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : (new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
                     }
                     paragraph(status)                      
                 
@@ -373,18 +392,21 @@ def callback() {
     Map response = [statusCode:iHttpError]
     def event = new JsonSlurper().parseText(request.body)
     logDebug "${getDefaultLabel()} ${event?.messageType}: $event"
+    
     switch(event?.messageType) {
         case 'PING':
             response = [statusCode:iHttpSuccess, pingData: [challenge: event?.pingData.challenge]]
 		    break;
         case 'CONFIRMATION':
             response = [statusCode:iHttpSuccess, targetUrl: getTargetUrl()]
-            runIn(2, handleConfirm, [data: event?.confirmationData])
+            runIn(2, confirmation, [data: event?.confirmationData])
             break;
         case 'EVENT':
             logDebug "${getDefaultLabel()} ${event?.messageType}"
-            if(event?.eventData?.events?.find{ it.eventType=="DEVICE_LIFECYCLE_EVENT" }) { runIn(1, refreshApp) }
-            if(getParent()) getParent().childEvent(app, event); else logInfo request.body
+            if(event?.eventData?.events?.find{ it.eventType=="DEVICE_LIFECYCLE_EVENT" }) { 
+                runIn(1, refreshApp)
+            }
+            subscriptionEvent(event)
             response.statusCode = iHttpSuccess
             break;        
         default:
@@ -397,8 +419,8 @@ def callback() {
     return render(status:response.statusCode, data:JsonOutput.toJson(response))    
 }
 
-Map handleConfirm(Map confirmationData) {
-    logDebug "${getDefaultLabel()} executing 'handleConfirm()' url:${confirmationData?.confirmationUrl}"
+Map confirmation(Map confirmationData) {
+    logDebug "${getDefaultLabel()} executing 'confirmation()' url:${confirmationData?.confirmationUrl}"
     Map response = [statusCode:iHttpError]
     
     try {
@@ -416,7 +438,7 @@ Map handleConfirm(Map confirmationData) {
             response['targetUrl'] = resp.data.targetUrl
         }        
     } catch (e) {
-        logWarn "${getDefaultLabel()} handleConfirm() error: $e"     
+        logWarn "${getDefaultLabel()} confirmation() error: $e"     
     }
     return response
 }
@@ -613,89 +635,6 @@ void asyncHttpPostCallback(resp, data) {
     }
 }
 
-def oauthCallback() {
-    logDebug "${getDefaultLabel()} oauthCallback() $params"   
-    String code = params.code
-    String client_id = state.oauthClientId
-    String client_secret = state.oauthClientSecret
-    String redirect_uri = getRedirectUri()
-       
-    Map params = [
-        uri: sOauthURI,
-        path: "/oauth/token", 
-        query: [ grant_type:"authorization_code", code:code, client_id:client_id, redirect_uri:redirect_uri ],
-        contentType: "application/x-www-form-urlencoded",
-        requestContentType: "application/json",
-		headers: [ Authorization: "Basic ${("${client_id}:${client_secret}").bytes.encodeBase64().toString()}" ]
-    ]
-
-    try { 
-        httpPost(params) { resp ->
-            if (resp && resp.data && resp.success) {
-                String respStr = resp.data.toString().replace("[{","{").replace("}:null]","}")
-                Map respStrJson = new JsonSlurper().parseText(respStr)
-                state.installedAppId = respStrJson.installed_app_id
-                state.authToken = respStrJson.access_token
-                state.refreshToken = respStrJson.refresh_token
-                state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
-                runIn(1,startApp)
-            }
-        }
-    }
-    catch (e) {
-        logWarn "${getDefaultLabel()} oauthCallback() error: $e"
-    }
-
-	if (state.authToken)
-        return render(status:iHttpSuccess, contentType: 'text/html', data: """<p>Your SmartThings Account is now connected to Hubitat</p><p>Close this window and press refresh continue setup.</p>""")
-	else
-        return render(status:iHttpError, contentType: 'text/html', data: """<p>The SmartThings connection could not be established!</p><p>Close this window to try again.</p>""")
-}
-
-Map oauthRefresh() {
-    logDebug "${getDefaultLabel()} executing 'oauthRefresh()'"
-    Map response = [statusCode:iHttpError]
-    
-    String refresh_token = state.refreshToken
-    String client_id = state.oauthClientId
-    String client_secret = state.oauthClientSecret
-  
-    Map params = [
-        uri: sOauthURI,
-        path: "/oauth/token",  
-        query: [ grant_type:"refresh_token", client_id:client_id, refresh_token:refresh_token ],
-        contentType: "application/x-www-form-urlencoded",
-        requestContentType: "application/json",
-		headers: [ Authorization: "Basic ${("${client_id}:${client_secret}").bytes.encodeBase64().toString()}" ]
-    ] 
-    
-    try {
-        httpPost(params) { resp ->
-            if (resp && resp.data && resp.success) {
-                // strange json'y response. this works good enough to solve. 
-                String respStr = resp.data.toString().replace("[{","{").replace("}:null]","}")
-                Map respStrJson = new JsonSlurper().parseText(respStr)
-                state.installedAppId = respStrJson.installed_app_id
-                state.authToken = respStrJson.access_token
-                state.refreshToken = respStrJson.refresh_token
-                state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
-                response.statusCode = resp.status
-                logInfo "${getDefaultLabel()} updated authorization token"                
-            }
-            else {
-                state.authTokenExpires = 0
-                logWarn"${getDefaultLabel()} could not update authorization token"                
-            }                
-         }
-    } catch (e) {
-        state.authTokenExpires = 0
-        logWarn "${getDefaultLabel()} oauthRefresh() error: $e"
-    }
-    
-    runIn(1, refreshApp)    
-    return [statusCode:response.statusCode]
-}
-
 @Field volatile static Map<Long,Map> g_mSmartSubscriptionList = [:]
 Map getSmartSubscriptionList() {
     logDebug "${getDefaultLabel()} executing 'getSmartSubscriptionList()'"
@@ -818,23 +757,124 @@ void asyncHttpGetCallback(resp, data) {
     }
 }
 
-void appStatus() {
-    if(state?.oauthCallback=="CONFIRMED" && state?.authTokenExpires!=0) {
-        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorized")}" )
+def oauthCallback() {
+    logDebug "${getDefaultLabel()} oauthCallback() $params"   
+    String code = params.code
+    String client_id = state.oauthClientId
+    String client_secret = state.oauthClientSecret
+    String redirect_uri = getRedirectUri()
+       
+    Map params = [
+        uri: sOauthURI,
+        path: "/oauth/token", 
+        query: [ grant_type:"authorization_code", code:code, client_id:client_id, redirect_uri:redirect_uri ],
+        contentType: "application/x-www-form-urlencoded",
+        requestContentType: "application/json",
+		headers: [ Authorization: "Basic ${("${client_id}:${client_secret}").bytes.encodeBase64().toString()}" ]
+    ]
+
+    try { 
+        httpPost(params) { resp ->
+            if (resp && resp.data && resp.success) {
+                String respStr = resp.data.toString().replace("[{","{").replace("}:null]","}")
+                Map respStrJson = new JsonSlurper().parseText(respStr)
+                state.installedAppId = respStrJson.installed_app_id
+                state.authToken = respStrJson.access_token
+                state.refreshToken = respStrJson.refresh_token
+                state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
+                state.authTokenError = false
+                runIn(1,startApp)
+            }
+        }
     }
-    else if (state?.authTokenExpires==0) {
-        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorization Error",null,sColorDarkRed)}" )
+    catch (e) {
+        logWarn "${getDefaultLabel()} oauthCallback() error: $e"
+    }
+
+	if (state.authToken)
+        return render(status:iHttpSuccess, contentType: 'text/html', data: """<p>Your SmartThings Account is now connected to Hubitat</p><p>Close this window and press refresh continue setup.</p>""")
+	else
+        return render(status:iHttpError, contentType: 'text/html', data: """<p>The SmartThings connection could not be established!</p><p>Close this window to try again.</p>""")
+}
+
+Map oauthRefresh() {
+    logDebug "${getDefaultLabel()} executing 'oauthRefresh()'"
+    Map response = [statusCode:iHttpError]
+    
+    String refresh_token = state.refreshToken
+    String client_id = state.oauthClientId
+    String client_secret = state.oauthClientSecret
+  
+    Map params = [
+        uri: sOauthURI,
+        path: "/oauth/token",  
+        query: [ grant_type:"refresh_token", client_id:client_id, refresh_token:refresh_token ],
+        contentType: "application/x-www-form-urlencoded",
+        requestContentType: "application/json",
+		headers: [ Authorization: "Basic ${("${client_id}:${client_secret}").bytes.encodeBase64().toString()}" ]
+    ] 
+    
+    try {
+        httpPost(params) { resp ->
+            if (resp && resp.data && resp.success) {
+                // strange json'y response. this works good enough to solve. 
+                String respStr = resp.data.toString().replace("[{","{").replace("}:null]","}")
+                Map respStrJson = new JsonSlurper().parseText(respStr)
+                state.installedAppId = respStrJson.installed_app_id
+                state.authToken = respStrJson.access_token
+                state.refreshToken = respStrJson.refresh_token
+                state.authTokenExpires = (now() + (respStrJson.expires_in * 1000))
+                state.authTokenError = false
+                response.statusCode = resp.status
+                logInfo "${getDefaultLabel()} updated authorization token"                
+            }
+            else {
+                state.authTokenError = true
+                logWarn"${getDefaultLabel()} could not update authorization token"                
+            }                
+         }
+    } catch (e) {
+        state.authTokenError = true
+        logWarn "${getDefaultLabel()} oauthRefresh() error: $e"
+    }
+    
+    runIn(1, refreshApp)    
+    return response
+}
+
+void appStatus() {
+    if(getAuthStatus()=="AUTHORIZED") {
+        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorized")}" ) // this will send updated() command
+    }
+    else if (getAuthStatus()=="FAILURE") {
+        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorization Error",null,sColorDarkRed)}" ) // this will send updated() command
     }
     else {
-        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()}" )
+        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()}" ) // this will send updated() command
     }
 }
 
-void stopApp() {
+void startApp() { // called by oauthCallback() in runIn
+    logDebug "${getDefaultLabel()} executing startApp"
+    runEvery3Hours('oauthRefresh') // tokens are good for 24 hours, refresh every 3 hours to give up to 21 hours offline time worst case.
+    appStatus()
+} 
+
+void refreshApp() { // called by oauthRefresh() && callback()==DEVICE_LIFECYCLE_EVENT in runIn(1)
+    logInfo "${getDefaultLabel()} executing refreshApp"
+    // these are async calls and will not block
+    getSmartLocationList()
+    getSmartSubscriptionList()
+    appStatus()
+}
+
+void stopApp() { // called by deleteApp() directly.
+    logDebug "${getDefaultLabel()} executing stopApp"
     unschedule() 
     state.remove('appId') 
     state.remove('appName') 
     state.remove('authToken')
+    state.remove('authTokenError')
     state.remove('authTokenExpires')
     state.remove('installedAppId')
     state.remove('locationId')
@@ -847,20 +887,7 @@ void stopApp() {
     g_mSmartLocationList[app.getId()] = null
     g_mSmartRoomList[app.getId()] = null
     g_mSmartDeviceList[app.getId()] = null
-    appStatus()
-}
-
-void refreshApp() {
-    logInfo "${getDefaultLabel()} executing refreshApp"
-    // these are async calls and will not block
-    getSmartLocationList()
-    getSmartSubscriptionList()
-    appStatus()
-}
-
-void startApp() {
-    runEvery3Hours('oauthRefresh') // tokens are good for 24 hours, refresh every 3 hours to give up to 21 hours offline time worst case.
-    appStatus()
+    runIn(1,appStatus)
 }
 
 def createApp() {
@@ -888,7 +915,7 @@ def createApp() {
         uri: sURI,
         path: "/apps",
         body: JsonOutput.toJson(app),
-        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]        
+        headers: [ Authorization: "Bearer ${getAuthToken(true)}" ]        
     ]
 
     try {
@@ -909,7 +936,7 @@ def createApp() {
         logWarn "createApp() error: $e"
         state.createAppError = e.toString()
     }
-    return [statusCode:response.statusCode]
+    return response
 }
 
 def deleteApp(appNameOrId) {
@@ -919,7 +946,7 @@ def deleteApp(appNameOrId) {
     def params = [
         uri: sURI,
         path: "/apps/$appNameOrId",
-        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]        
+        headers: [ Authorization: "Bearer ${getAuthToken(true)}" ]        
     ]
     try {
         httpDelete(params) { resp ->   
@@ -941,7 +968,7 @@ def getApp(appNameOrId) {
 	def params = [
         uri: sURI,
 		path: "/apps/$appNameOrId",
-        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]
+        headers: [ Authorization: "Bearer ${getAuthToken(true)}" ]
 		]    
     def data = [method:"getApp"]
 	try {
@@ -956,7 +983,7 @@ def getInstalledApp(installedAppId) {
 	def params = [
         uri: sURI,
 		path: "installedapps/$installedAppId",
-        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]
 		]    
     def data = [method:"getInstalledApp"]
 	try {
@@ -971,7 +998,7 @@ def listApps() {
 	def params = [
         uri: sURI,
 		path: "/apps",
-        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]
+        headers: [ Authorization: "Bearer ${getAuthToken(true)}" ]
 		]    
     def data = [method:"listApps"]
 	try {
@@ -986,7 +1013,7 @@ def listInstalledApps() {
 	def params = [
         uri: sURI,
         path: "/installedapps",
-        headers: [ Authorization: "Bearer ${userSmartThingsPAT}" ]
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]
 		]    
     def data = [method:"listInstalledApps"]
 	try {
@@ -1044,8 +1071,8 @@ private logError(msg) { log.error  "${msg}" }
 
 
 void testButton() {  
-    def appId = '9d69bc69-850f-4c09-b8bb-3df88676df57'
-
+    //def appId = '9d69bc69-850f-4c09-b8bb-3df88676df57'
+    oauthRefresh()
     //logInfo getSmartSubscribedDevices()
 
     //oauthRefresh()    
@@ -1055,9 +1082,9 @@ void testButton() {
     //updateApp(appId)
     //deleteApp(appId)
     
-    listApps()
+    //listApps()
     //listInstalledApps()
     //getParent()?.setSmartDevicesMap( getSmartSubscribedDevices() )
-    logInfo userSmartThingsPAT
+    logInfo getAuthToken(true)
     return
 }
