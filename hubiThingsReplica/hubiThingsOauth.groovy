@@ -25,10 +25,11 @@
 *  1.1.04 2022-12-11 Cloning functions to prevent race problems. Fix to table. NO IDEA HOW IT EVEN WORKED.
 *  1.1.05 2022-12-12 Logic updates to help prevent exceeding ST guardrails.
 *  1.1.06 2022-12-13 First pass at Mutli-OAuth support. Both (1) Replica and (2) OAuth must be upgraded together
-*  1.1.07 2022-12-16 Use parent PAT. Better status control. 
+*  1.1.07 2022-12-16 Use parent PAT. Better status control.
+*  1.1.08 2022-12-17 Updates to support Mode events (Replia SmartThings Hub Device Handler). Requires Replica 1.1.08+
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.07"  }
+public static String version() {  return "1.1.08"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -84,7 +85,7 @@ mappings {
 
 def installed() {
     logInfo "${getDefaultLabel()} executing 'installed()'"
-    state.isInstalled = true    
+    state.isInstalled = now()    
     if(pageMainPageAppLabel) { app.updateLabel( pageMainPageAppLabel ) }
     initialize()
 }
@@ -141,6 +142,10 @@ public Map getSmartDevices() {
 public Map getSmartRooms() {
     getSmartDevices()
     return (g_mSmartRoomList[app.getId()]?.clone() ?: [:])
+}
+
+public String getLocationId() {
+    return state?.locationId
 }
 
 public Map getSmartLocations() {
@@ -204,17 +209,24 @@ def pageMain(){
         def install = installHelper()
         if(install) return install
     }
+    if(state.isInstalled==true) state.isInstalled = now() //remove someday; 1.1.007
     
-    Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)         
+    Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)
+    String refreshTime = "${(new Date( now()+refreshInterval*1000 ).format("h:mm:ss a"))}"
+    
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
         
         String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed application, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
                comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account.<br><br>"
-               comments+= "Unlike the SmartThings Personal Access Token (PAT) that is valid for one year from creation, the OAuth authorization token is valid for 24 hours and must be refreshed. This is normally handled by the application, "
-               comments+= "but if your Hubitat hub is offline for an extended time period, you will need to reauthorize the token manually via the $sSamsungIcon SmartThings OAuth Authorization link." 
-        section() { paragraph( getFormat("comments",comments,null,"Gray") ) }
+               comments+= "Unlike the SmartThings Personal Access Token (PAT) that is valid for one year from creation, the OAuth authorization token is valid for 24 hours and must be refreshed. "
+               comments+= "<b>The authorization token refresh is automatically handled by the ${getDefaultLabel()} application every three hours</b>, "
+               comments+= "but if your Hubitat hub is offline for an extended time period, you will need to reauthorize the token manually via the $sSamsungIcon SmartThings OAuth Authorization link."
+               comments+= "${refreshInterval ? "<div style='text-align:right';>Repaint: $refreshTime</div>" : ""}"
+        section() { 
+            paragraph( getFormat("comments",comments,null,"Gray") )            
+        }
         
         if(!getParent()) {
             section(menuHeader("${getDefaultLabel()} Configuration")) {
@@ -224,7 +236,7 @@ def pageMain(){
         //if(getHubUID()=="bb6472bd-e232-4cbe-83a6-ecab1592d889") { section() { input(name: "pageMain::test", type: "button", width: 2, title: "Test", style:"width:75%;") } }
         
         if(getAuthToken()) {
-            section(menuHeader("SmartThings API ${refreshInterval?"[Auto Refresh]":""} $sHubitatIconStatic $sSamsungIconStatic")) {
+            section(menuHeader("SmartThings API $sHubitatIconStatic $sSamsungIconStatic")) {
                 if(!state.appId) {
                     input(name: "pageMain::createApp", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
                     paragraph( getFormat("text", "Select 'Create API' to begin initialization of SmartThings API") )
@@ -241,7 +253,8 @@ def pageMain(){
                           status += "Device Count: ${getSmartDevices()?.items?.size()?:0}\n" //this needs to be first since it will fetch location, rooms, devices, in that order
                           status += "Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
                           status += "Location: ${getSmartLocationName(state.locationId)}\n"     
-                          status += "Token Expiration Date: ${(getAuthStatus()=="FAILURE") ? getFormat("text","Action: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : (new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
+                          status += "Token Expiration Date: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
+                          status += "${(getAuthStatus()=="FAILURE") ? getFormat("text","\nAction: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : ""}"
                     }
                     paragraph(status)                      
                 
@@ -293,8 +306,8 @@ def pageMain(){
                     smartDevicesTable()
                 } catch(e) { logInfo e }
             }
-        }        
-    }
+        }
+    }    
 }
 
 def smartDevicesTable(){
@@ -851,7 +864,8 @@ void appStatus() {
     }
     else {
         app.updateLabel( "$pageMainPageAppLabel ${getOauthId()}" ) // this will send updated() command
-    }
+    }    
+    getParent()?.childHealthChanged( app )
 }
 
 void startApp() { // called by oauthCallback() in runIn
@@ -1072,7 +1086,8 @@ private logError(msg) { log.error  "${msg}" }
 
 void testButton() {  
     //def appId = '9d69bc69-850f-4c09-b8bb-3df88676df57'
-    oauthRefresh()
+    //oauthRefresh()
+    appStatus()
     //logInfo getSmartSubscribedDevices()
 
     //oauthRefresh()    
