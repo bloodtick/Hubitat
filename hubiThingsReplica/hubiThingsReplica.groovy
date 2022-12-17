@@ -26,7 +26,7 @@
 *  1.1.05 2022-12-12 Not released
 *  1.1.06 2022-12-13 First pass at Mutli-OAuth support. Both (1) Replica and (2) OAuth must be upgraded together
 *  1.1.07 2022-12-16 Updates to refresh. Support for objects & arrays from Device Handlers.
-*  1.1.08 2022-12-17 Updates to support Mode events (Replia SmartThings Hub Device Handler). Requires OAuth 1.1.08+
+*  1.1.08 2022-12-17 Updates to support Mode events (Replica SmartThings Hub Device Handler). Requires OAuth 1.1.08+
 LINE 30 MAX */ 
 
 public static String version() {  return "1.1.08"  }
