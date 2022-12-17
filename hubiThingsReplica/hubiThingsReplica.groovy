@@ -17,7 +17,6 @@
 *
 *  1.0.0  2022-10-01 First pass.
 *  ...    Deleted
-*  1.0.29 2022-11-21 Update rules to version 1. Prepare for parent->child replica device handlers. Capability fix for mult-device support.
 *  1.0.30 2022-11-25 Updated to support new Replica format. Force devcies to rules version 1.
 *  1.1.00 2022-12-10 Complete rebuilt to support OAuth solutions.
 *  1.1.01 2022-12-10 Add solution to delete old SmartApp
@@ -26,10 +25,11 @@
 *  1.1.04 2022-12-12 Removed 600 lines of code migrated to HubiThings OAuth (or deprecated)
 *  1.1.05 2022-12-12 Not released
 *  1.1.06 2022-12-13 First pass at Mutli-OAuth support. Both (1) Replica and (2) OAuth must be upgraded together
-*  1.1.07 2022-12-14 Updates to refresh. Support for objects & arrays from Device Handlers.
+*  1.1.07 2022-12-16 Updates to refresh. Support for objects & arrays from Device Handlers.
+*  1.1.08 2022-12-17 Updates to support Mode events (Replia SmartThings Hub Device Handler). Requires OAuth 1.1.08+
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.07"  }
+public static String version() {  return "1.1.08"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 public static String paypal() { return "https://www.paypal.com/donate/?business=QHNE3ZVSRYWDA&no_recurring=1&currency_code=USD" }
@@ -91,7 +91,8 @@ preferences {
 }
 
 def installed() {
-    state.isInstalled = true
+    state.isInstalled = now()
+    app.updateSetting("pageMainShowConfig", true)
     initialize()
 }
 
@@ -102,6 +103,7 @@ def updated() {
 def initialize() {
     logInfo "${app.getLabel()} executing 'initialize()'"
     if(pageMainPageAppLabel && pageMainPageAppLabel!=app.getLabel()) { app.updateLabel( pageMainPageAppLabel ) }
+    subscribe(location, "mode", locationModeHandler)
 }
 
 def uninstalled() {
@@ -113,7 +115,7 @@ def uninstalled() {
 }
 
 public void childEvent( childApp, event ) {
-    handleEvent( event?.eventData, now() )
+    oauthEventHandler( event?.eventData, now() )
 }
 
 public Map childInitialize( childApp ) {
@@ -135,8 +137,38 @@ public void childSubscriptionListChanged( childApp ) {
     allSmartDeviceRefresh()
 }
 
+public void childHealthChanged( childApp ) {
+    logInfo "${app.getLabel()} executing 'childHealthChanged($childApp.id)'"
+    String locationId = childApp?.getLocationId()
+    String oauthStatus = "UNKNOWN"    
+    getChildApps().each{ 
+        logTrace "${it?.getAuthStatus()?.toLowerCase()} ${it?.getLocationId()}"
+        if(it?.getLocationId() == locationId) {
+            if(it?.getAuthStatus()=="FAILURE")
+                oauthStatus = "FAILURE"
+            else if (oauthStatus!="FAILURE" && it?.getAuthStatus()=="PENDING")
+                oauthStatus = "PENDING"            
+            else if(oauthStatus!="FAILURE" && oauthStatus!="PENDING" && it?.getAuthStatus()=="AUTHORIZED")
+                oauthStatus = "AUTHORIZED"            
+        }    
+    }   
+    getAllReplicaDevices()?.each { replicaDevice ->
+        if(hasCommand(replicaDevice, 'setOauthStatusValue')) {
+            Map description = getReplicaDataJsonValue(replicaDevice, "description")
+            if(description?.locationId == locationId) {
+                replicaDevice.setOauthStatusValue(oauthStatus?.toLowerCase())
+            }
+        }
+   }
+}
+
 public String getAuthToken() {
     return (userSmartThingsPAT)
+}
+
+public void setLocationMode(String mode) {
+    logInfo "${app.getLabel()} executing 'setLocationMode($mode)'"
+    app.setLocationMode(mode)
 }
 
 Map getSmartDevicesMap() {
@@ -157,7 +189,7 @@ void setSmartDevicesMap(Map deviceList) {
 }
 
 def mainPage(){
-    if(!state?.isInstalled && !state?.accessToken) {        
+    if(!state?.isInstalled) {        
         return dynamicPage(name: "mainPage", install: true, refreshInterval: 0){
             displayHeader()
             section(menuHeader("Complete Install $sHubitatIconStatic $sSamsungIconStatic")) {
@@ -168,23 +200,23 @@ def mainPage(){
     }    
     app.removeSetting('mainPageShowConfig') // remove someday; 1.0.31
     app.removeSetting('clientSecretPAT') // remove someday; 1.0.31
+    app.removeSetting('appLogEnable') // remove someday; 1.1.008
+    if(state.isInstalled==true) state.isInstalled = now() //remove someday; 1.1.008 
+    subscribe(location, "mode", locationModeHandler) //remove someday; 1.1.008
     
     Map smartDevices = getSmartDevicesMap()
     Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
     
-    if(!pageMainPageAppLabel || !pageMainShowConfig) { app.updateSetting( "pageMainPageAppLabel", app.getLabel()) }
-    
-    return dynamicPage(name: "mainPage", install: true,  refreshInterval: 0){
+    return dynamicPage(name: "mainPage", install: true,  refreshInterval:60*60){
         displayHeader()
         
         section(menuHeader("${app.getLabel()} Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
             
-            if(pageMainShowConfig==null) pageMainShowConfig=true
             input(name: "pageMainShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: true, submitOnChange: true)
             paragraph( getFormat("line") )            
             if(pageMainShowConfig) {
                 String comments = "This application uses the SmartThings Cloud API to create, delete and query devices. You must supply a SmartThings Personal Access Token (PAT) with all permissions to enable functionality. "
-                       comments+= "SmartThings enforces a <b>maximum valid duration of one year from creation date of the PAT</b>. Click the ${sSamsungIcon} link below to be directed to the SmartThings website."
+                       comments+= "<b>SmartThings enforces a maximum valid duration of one year from creation date of the PAT</b>. Click the ${sSamsungIcon} link below to be directed to the SmartThings website."
                 paragraph( getFormat("comments",comments,null,"Gray") )
                 
                 input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)
@@ -205,18 +237,39 @@ def mainPage(){
                     }
                 }
             }
-            else {
-                if(state?.user=="bloodtick") { 
+        }
+        
+        if(pageMainShowConfig) {            
+            section(menuHeader("Application Logging")) {
+                input(name: "appLogEventEnable", type: "bool", title: "Enable Event and Status Info logging", required: false, defaultValue: false, submitOnChange: true)
+                if(appLogEventEnable) {
+                    List smartDevicesSelect = []
+                    smartDevices?.items?.sort{ it.label }?.each {    
+                        def device = [ "${it.deviceId}" : "${it.label} &ensp; (deviceId: ${it.deviceId})" ]
+                        smartDevicesSelect.add(device)   
+                    }
+                    input(name: "appLogEventEnableDevice", type: "enum", title: getFormat("text","$sSamsungIcon Selective SmartThings Info Logging:"), description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
+                    paragraph( getFormat("line") )
+                } else { 
+                    app.removeSetting("appLogEventEnableDevice")
+                }
+                input(name: "appInfoDisable", type: "bool", title: "Disable info logging", required: false, defaultValue: false, submitOnChange: true)
+                input(name: "appDebugEnable", type: "bool", title: "Enable debug logging", required: false, defaultValue: false, submitOnChange: true)
+                input(name: "appTraceEnable", type: "bool", title: "Enable trace logging", required: false, defaultValue: false, submitOnChange: true)
+            }
+        }
+        else {
+            if(state?.user=="bloodtick") {
+                section(menuHeader("Application Development")) {
                     input(name: "mainPage::testButton",    type: "button", width: 2, title: "$sSamsungIcon Test Button", style:"width:75%;")
                     input(name: "mainPage::status",        type: "button", width: 2, title: "$sSamsungIcon Status", style:"width:75%;")
                     input(name: "mainPage::description",   type: "button", width: 2, title: "$sSamsungIcon Description", style:"width:75%;")
                     input(name: "mainPage::health",        type: "button", width: 2, title: "$sSamsungIcon Health", style:"width:75%;")
-                }               
-            }                
-        }
+                }
+            }
+        }       
             
-        section(menuHeader("HubiThings Device List")){            
-            
+        section(menuHeader("HubiThings Device List")){           
             if (smartDevices) {
                 String devicesTable = "<table style='width:100%;'>"
                 devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sHubitatIcon OAuth ID</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
@@ -258,28 +311,14 @@ def mainPage(){
             href "pageConfigureDevice", title: "Configure HubiThings Rules", description: "Click to show"
             href "pageDeleteDevice", title: "Delete HubiThings Device", description: "Click to show"
             if(deviceAuthCount>0) href "pageMirrorDevice", title: "Mirror Hubitat Device (Advanced)", description: "Click to show"
-        }        
-        
-        section(menuHeader("Application Logging")) {
-            input(name: "appLogEventEnable", type: "bool", title: "Enable Event and Status Info logging", required: false, defaultValue: false, submitOnChange: true)
-            if(appLogEventEnable) {
-                List smartDevicesSelect = []
-                smartDevices?.items?.sort{ it.label }?.each {    
-                    def device = [ "${it.deviceId}" : "${it.label} &ensp; (deviceId: ${it.deviceId})" ]
-                    smartDevicesSelect.add(device)   
-                }
-                input(name: "appLogEventEnableDevice", type: "enum", title: getFormat("text","$sSamsungIcon Selective SmartThings Info Logging:"), description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
-                paragraph( getFormat("line") )
-            } else { app.removeSetting("appLogEventEnableDevice") }
-            input(name: "appLogEnable", type: "bool", title: "Enable debug logging", required: false, defaultValue: false, submitOnChange: true)
-            input(name: "appTraceEnable", type: "bool", title: "Enable trace logging", required: false, defaultValue: false, submitOnChange: true)
         }
-        if(pageMainShowConfig || appLogEnable || appTraceEnable) {
+        
+        if(pageMainShowConfig || appDebugEnable || appTraceEnable) {
             runIn(30*60, updateMainPage)
         } else {
             unschedule('updateMainPage')
         }
-        
+       
         displayFooter()
     }    
 }
@@ -288,7 +327,7 @@ void updateMainPage() {
     logInfo "${app.getLabel()} disabling debug and trace logs"
     app.updateSetting("pageMainShowConfig", false)
     app.updateSetting("pageMainShowAdvanceConfiguration", false)
-    app.updateSetting("appLogEnable", false)
+    app.updateSetting("appDebugEnable", false)
     app.updateSetting("appTraceEnable", false)    
 }
 
@@ -517,7 +556,7 @@ void replicaDeviceSubscribe(replicaDevice) {
     if(replicaDevice) {
         Map replicaDeviceRules = getReplicaDataJsonValueRules(replicaDevice, "rules")
         List<String> ruleAttributes = replicaDeviceRules?.components?.findAll{ it.type == "hubitatTrigger" && it?.trigger?.type == "attribute" }?.collect{ rule -> rule?.trigger?.name }?.unique()
-        List<String> appSubscriptions = app.getSubscriptions()?.findAll{ it?.deviceId.toInteger() == replicaDevice?.id.toInteger() }?.collect{ it?.data }?.unique()
+        List<String> appSubscriptions = app.getSubscriptions()?.findAll{ it?.deviceId?.toInteger() == replicaDevice?.id?.toInteger() }?.collect{ it?.data }?.unique()
         
         if(ruleAttributes) { appSubscriptions?.intersect(ruleAttributes)?.each{ appSubscriptions?.remove(it); ruleAttributes?.remove(it) } }        
         appSubscriptions?.each{ attribute ->
@@ -763,7 +802,7 @@ def pageConfigureDevice() {
             }
             input(name: "pageConfigureDevice::refreshDevice",     type: "button", title: "Refresh", width: 2, style:"width:75%;")            
             input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;")
-            if(replicaDevice?.hasCommand('replicaRules') || replicaDevice?.hasCommand('configure')) input(name: "pageConfigureDevice::configDeviceRules",  type: "button", title: "Configure", width: 2, style:"width:75%;")
+            if(replicaDevice?.hasCommand('configure')) input(name: "pageConfigureDevice::configDeviceRules",  type: "button", title: "Configure", width: 2, style:"width:75%;")
             paragraph( getFormat("line") )
             
             Map hubitatAttributeOptions = getHubitatAttributeOptions(replicaDevice)                      
@@ -890,7 +929,6 @@ Map getHubitatAttributeOptions(replicaDevice) {
             hubitatAttributeOptions[attributeJson.label].remove('values')
         }
     }
-
     return hubitatAttributeOptions
 }
 
@@ -971,7 +1009,7 @@ Map getSmartAttributeOptions(replicaDevice) {
         }
     }
     // not sure why SmartThings treats health different. But everything reports healthStatus. So gonna make it look the same to the user configuration page.
-    if(smartAttributeOptions.size()) {
+    if(capabilities?.size()) {
         smartAttributeOptions["attribute: healthStatus.*"] = new JsonSlurper().parseText("""{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"}""")
         smartAttributeOptions["attribute: healthStatus.offline"] = new JsonSlurper().parseText("""{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","value":"offline","attribute":"healthStatus","dataType":"ENUM","label":"attribute: healthStatus.offline"}""")
         smartAttributeOptions["attribute: healthStatus.online"] =  new JsonSlurper().parseText("""{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","value":"online","attribute":"healthStatus","dataType":"ENUM","label":"attribute: healthStatus.online"}""")
@@ -1074,6 +1112,16 @@ void allSmartDeviceRefresh() {
     allSmartDeviceStatus(10)
     allSmartDeviceHealth(20)
     allSmartDeviceDescription(30)    
+}
+
+void locationModeHandler(def event) {
+    //subscribe(location, "mode", locationModeHandler)
+    logDebug "${app.getLabel()} executing 'locationModeHandler($event.value)'"
+    getAllReplicaDevices()?.each { replicaDevice ->
+        if(replicaDevice?.hasCommand('setLocationMode')) {
+            replicaDevice.setLocationMode(event.value,true)
+        }
+    }   
 }
 
 void deviceTriggerHandler(def event) {
@@ -1616,8 +1664,8 @@ Map getSmartDeviceStatusMap(deviceId) {
     return response
 }
 
-Map handleEvent(Map eventData, Long eventPostTime=null) {
-    logDebug "${app.getLabel()} executing 'handleEvent()'"
+Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
+    logDebug "${app.getLabel()} executing 'oauthEventHandler()'"
     Map response = [statusCode:iHttpSuccess]
 
     eventData?.events?.each { event ->
@@ -1639,17 +1687,17 @@ Map handleEvent(Map eventData, Long eventPostTime=null) {
                 }
                 break
             case 'MODE_EVENT':
-                logDebug "${app.getLabel()} mode event: $event"
+                logInfo "${app.getLabel()} mode event: $event"
                 getAllReplicaDevices()?.each { replicaDevice ->
-                    if(replicaDevice?.hasCommand('getHubMode')) {
+                    if(hasCommand(replicaDevice, 'setModeValue')) {
                         Map description = getReplicaDataJsonValue(replicaDevice, "description")
                         if(event?.modeEvent?.locationId==description?.locationId)
-                            replicaDevice.getHubMode()
+                            replicaDevice.setModeValue(event?.modeEvent?.modeId)
                     }
                 }            
                 break
             default:
-                logInfo "${app.getLabel()} 'handleEvent()' did not handle $event"
+                logInfo "${app.getLabel()} 'oauthEventHandler()' did not handle $event"
         }
     }
    
@@ -1695,11 +1743,11 @@ def displayFooter(){
 
 def menuHeader(titleText){"<div style=\"width:102%;background-color:#696969;color:white;padding:4px;font-weight: bold;box-shadow: 1px 2px 2px #bababa;margin-left: -10px\">${titleText}</div>"}
 
-private logInfo(msg)  { log.info "${msg}" }
-private logDebug(msg) { if(appLogEnable == true) { log.debug "${msg}" } }
-private logTrace(msg) { if(appTraceEnable == true) { log.trace "${msg}" } }
+private logInfo(msg)  { if(!appInfoDisable) { log.info "${msg}"  } }
+private logDebug(msg) { if(appDebugEnable)  { log.debug "${msg}" } }
+private logTrace(msg) { if(appTraceEnable)  { log.trace "${msg}" } }
 private logWarn(msg)  { log.warn  "${msg}" } 
-private logError(msg) { log.error  "${msg}" }
+private logError(msg) { log.error "${msg}" }
 
 // ******** Child and Mirror Device get Functions - Start ********
 List<com.hubitat.app.DeviceWrapper> getAllDevices() {    
@@ -1898,6 +1946,6 @@ Map getDriverList() {
 // ******** Thanks to Dominick Meglio for the code above! - End ********
 
 void testButton() {
-
+    logWarn getAuthToken()
     return
 }
