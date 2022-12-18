@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.2.1"}
+public static String version() {return "1.2.2"}
 
 metadata 
 {
@@ -34,6 +34,8 @@ metadata
         attribute "oauthStatus", "enum", ["unknown", "authorized", "failure", "pending"]
         attribute "healthStatus", "enum", ["offline", "online"]        
 
+        command "deleteLocationMode", [[name: "modeName*", type: "STRING", description: "Delete mode name"]]
+        command "createLocationMode", [[name: "modeName*", type: "STRING", description: "Create mode name"]]
         command "setLocationMode", [[name: "modeName*", type: "STRING", description: "Set mode string"]]
     }
     preferences {
@@ -161,14 +163,14 @@ Map setLocationMode(String modeName, event=false) {
     logDebug "${device.displayName} executing 'setLocationMode($modeName)'"
     Map response = [statusCode:iHttpError]
     
-    if(!state?.modes) getLocationModes()
+    getLocationModes()
     String modeId = state?.modes?.find{ it?.label?.toLowerCase()==modeName?.toLowerCase() }?.id
     if(!modeId || (event && !deviceModeSmartThingsFollows)) return response
     
     Map params = [
         uri: sURI,
         path: "/locations/${getLocationId()}/modes/current",
-        body: JsonOutput.toJson([modeId:modeId]),
+        body: groovy.json.JsonOutput.toJson([modeId:modeId]),
         contentType: "application/json",
         requestContentType: "application/json",
         headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
@@ -178,7 +180,7 @@ Map setLocationMode(String modeName, event=false) {
             logDebug "response data: ${resp.data}"
             response.data = resp.data
             response.statusCode = resp.status
-            logInfo "${device.displayName} set SmartThings mode to ${resp.data.label}"
+            logInfo "${device.displayName} set SmartThings mode to '${resp.data.label}'"
         }
     } catch (e) {
         logWarn "${device.displayName} has setLocationMode('$modeName' : '$modeId') error: $e"        
@@ -204,6 +206,58 @@ Map getLocationMode() {
         }
     } catch (e) {
         logWarn "${device.displayName} has getLocationMode() error: $e"        
+    }
+    return response
+}
+
+Map createLocationMode(String modeName) {
+    logDebug "${device.displayName} executing 'createLocationMode()'"
+    Map response = [statusCode:iHttpError]
+    
+    Map params = [
+        uri: sURI,
+        body: groovy.json.JsonOutput.toJson([label:modeName,name:modeName]), 
+        path: "/locations/${getLocationId()}/modes",
+        contentType: "application/json",
+        requestContentType: "application/json",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    try {
+        httpPost(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status
+            logInfo "${device.displayName} created SmartThings mode '${resp.data.label}'"
+            getLocationModes()
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has createLocationMode() error: $e"        
+    }
+    return response
+}
+
+Map deleteLocationMode(String modeName) {
+    logDebug "${device.displayName} executing 'deleteLocationMode()'"
+    Map response = [statusCode:iHttpError]
+    
+    String modeId = state?.modes?.find{ it?.label?.toLowerCase()==modeName?.toLowerCase() }?.id
+    if(!modeId) return response
+    
+    Map params = [
+        uri: sURI,
+        path: "/locations/${getLocationId()}/modes/$modeId",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    try {
+        httpDelete(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status
+            logInfo "${device.displayName} deleted SmartThings mode '$modeName'"
+            getLocationModes()
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has deleteLocationMode() error: $e"        
     }
     return response
 }
@@ -255,5 +309,5 @@ Map getLocationInfo() {
 private logInfo(msg)  { if(settings?.deviceInfoEnable == true)  { log.info  "${msg}" } }
 private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
 private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
-private logWarn(msg)  { log.warn  "${msg}" }
+private logWarn(msg)  { log.warn   "${msg}" }
 private logError(msg) { log.error  "${msg}" }
