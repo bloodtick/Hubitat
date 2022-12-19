@@ -16,8 +16,7 @@
 *  Date: 2022-12-04
 *
 *  1.0.00 2022-12-04 First pass.
-*  1.0.01 2022-12-04 Updated to hide PAT as a password
-*  1.0.02 2022-12-08 Fixes getting ready to integrate with Replica
+*  ...    Deleted
 *  1.1.00 2022-12-10 Fixes for first release. Right now only single instance support.
 *  1.1.01 2022-12-10 Allow multiple copies of OAuth
 *  1.1.02 2022-12-11 Keep track of appName & put lock around button
@@ -27,11 +26,13 @@
 *  1.1.06 2022-12-13 First pass at Mutli-OAuth support. Both (1) Replica and (2) OAuth must be upgraded together
 *  1.1.07 2022-12-16 Use parent PAT. Better status control.
 *  1.1.08 2022-12-17 Updates to support Mode events (Replica SmartThings Hub Device Handler). Requires Replica 1.1.08+
+*  1.1.09 2022-12-19 Updates to control OAuth location subscriptions, remove devices from secondary OAuths if selected in another.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.1.08"  }
+public static String version() {  return "1.1.09"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
+
 
 import groovy.json.*
 import java.util.*
@@ -49,7 +50,7 @@ import groovy.transform.Field
 @Field static final Integer iRefreshInterval=0
 @Field static final String  sURI="https://api.smartthings.com"
 @Field static final String  sOauthURI="https://auth-global.api.smartthings.com"
-@Field static final List    lOauthScope=["r:locations:*", "x:locations:*", "r:devices:*", "x:devices:*"]
+@Field static final List    lOauthScope=["r:locations:*", "x:locations:*", "r:devices:*", "x:devices:*", "r:scenes:*", "x:scenes:*"]
 @Field static final String  sColorDarkBlue="#1A77C9"
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
@@ -111,14 +112,22 @@ def uninstalled() {
 }
 
 def subscriptionListChanged() {
-    logInfo "${getDefaultLabel()} executing 'subscriptionListChanged()'" 
+    logInfo "${getDefaultLabel()} executing 'subscriptionListChanged()'"
+    if(!state?.oneTimeWorkaround && getParent()) {     
+        updateLocationSubscriptionSettings(false) // remove this someday 1.1.09     
+    }        
     getParent()?.childSubscriptionListChanged( app )
 }
 
 def subscriptionEvent(event) {
     logDebug "${getDefaultLabel()} executing 'subscriptionEvent()'"
-    getParent().childEvent(app, event)
-}    
+    getParent()?.childSubscriptionEvent(app, event)
+}
+
+List getOtherSubscribedDeviceIds() {
+    logDebug "${getDefaultLabel()} executing 'getOtherSubscribedDevices()'" 
+    return getParent()?.childGetOtherSubscribedDeviceIds( app )
+}
 
 public Map getSmartSubscribedDevices() {
     List deviceIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId 
@@ -178,6 +187,14 @@ public String getAuthStatus() {
     return response
 }
 
+public void updateLocationSubscriptionSettings(Boolean value) {
+    state.oneTimeWorkaround = true  // remove this someday 1.1.09
+    app.updateSetting('enableDeviceLifecycleSubscription', value)
+    app.updateSetting('enableHealthSubscription', value)
+    app.updateSetting('enableModeSubscription', value)
+    app.updateSetting('enableSceneLifecycleSubscription', false) // not supported yet
+}
+
 /************************************** PARENT METHODS STOP ********************************************************/
 
 String getTargetUrl() {
@@ -217,10 +234,10 @@ def pageMain(){
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
         
-        String comments = "This application uses the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed application, "
+        String comments = "This application utilizes the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed application, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
                comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account.<br><br>"
-               comments+= "Unlike the SmartThings Personal Access Token (PAT) that is valid for one year from creation, the OAuth authorization token is valid for 24 hours and must be refreshed. "
+               comments+= "Unlike the SmartThings Personal Access Token (PAT) that is valid for 50 years from creation, the OAuth authorization token is valid for 24 hours and must be refreshed. "
                comments+= "<b>The authorization token refresh is automatically handled by the ${getDefaultLabel()} application every three hours</b>, "
                comments+= "but if your Hubitat hub is offline for an extended time period, you will need to reauthorize the token manually via the $sSamsungIcon SmartThings OAuth Authorization link."
                comments+= "${refreshInterval ? "<div style='text-align:right';>Repaint: $refreshTime</div>" : ""}"
@@ -245,15 +262,15 @@ def pageMain(){
                 else {
                     input(name: "pageMain::deleteApp", type: "button", width: 2, title: "Delete API", style:"width:75%;")                
                 
-                    paragraph("SmartThings API is ${state.installedAppId ? "configured : select 'Delete API' to remove all OAuth authorizations" : "available for OAuth configuration : select link below to continue"}")
-                    String status = "OAuth Client ID: ${state.oauthClientId}\n"
-                          status += "OAuth Hubitat Cloud Callback: ${getFormat("text", state.oauthCallback,null,(state?.oauthCallback=="CONFIRMED"?sColorDarkGrey:sColorDarkRed))}\n"
-                          status += "Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n\n"
+                    paragraph("SmartThings API is ${state.installedAppId ? "configured: <i>select 'Delete API' to remove all OAuth authorizations</i>" : "available for OAuth configuration: <i>select link below to continue</i>"}")
+                    String status = "• OAuth Client ID: ${state.oauthClientId}\n"
+                          status += "• OAuth Hubitat Cloud Callback: ${getFormat("text", state.oauthCallback,null,(state?.oauthCallback=="CONFIRMED"?sColorDarkGrey:sColorDarkRed))}\n"
+                          status += "• Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n\n"
                     if(state?.authTokenExpires) {
-                          status += "Device Count: ${getSmartDevices()?.items?.size()?:0}\n" //this needs to be first since it will fetch location, rooms, devices, in that order
-                          status += "Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
-                          status += "Location: ${getSmartLocationName(state.locationId)}\n"     
-                          status += "Token Expiration Date: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
+                          status += "• Device Count: ${getSmartDevices()?.items?.size()?:0}\n" //this needs to be first since it will fetch location, rooms, devices, in that order
+                          status += "• Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
+                          status += "• Location: ${getSmartLocationName(state.locationId)}\n"     
+                          status += "• Token Expiration Date: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
                           status += "${(getAuthStatus()=="FAILURE") ? getFormat("text","\nAction: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : ""}"
                     }
                     paragraph(status)                      
@@ -270,20 +287,33 @@ def pageMain(){
         }
   
         if(state.installedAppId) {
-            section(menuHeader("SmartThings Subscriptions")) {                               
-                input(name: "enableHealthSubscription", type: "bool", title: getFormat("text","Enable SmartThings Health Subscription"), defaultValue: false, submitOnChange: true)
-                input(name: "enableModeSubscription", type: "bool", title: getFormat("text","Enable SmartThings Mode Subscription"), defaultValue: false, submitOnChange: true)     
+            section(menuHeader("SmartThings Subscriptions")) {
+                if(!getParent()) {
+                    input(name: "enableDeviceLifecycleSubscription", type: "bool", title: getFormat("text","Enable SmartThings Device Lifecycle Subscription"), defaultValue: false, submitOnChange: true)
+                    input(name: "enableHealthSubscription", type: "bool", title: getFormat("text","Enable SmartThings Health Subscription"), defaultValue: false, submitOnChange: true)
+                    input(name: "enableModeSubscription", type: "bool", title: getFormat("text","Enable SmartThings Mode Subscription"), defaultValue: false, submitOnChange: true)
+                    input(name: "enableSceneLifecycleSubscription", type: "bool", title: getFormat("text","Enable SmartThings Scene Lifecycle Subscription"), defaultValue: false, submitOnChange: true)
+                }
+                String controller = getParent() ? "<i>${getParent()?.getLabel()} managed</i>" : ""
+                String status  = "$sSamsungIcon <b>SmartThings Location Subscriptions:</b> $controller\n"
+                       status += "• SmartThings Device Lifecycle is ${!!getSmartSubscriptionId("DEVICE_LIFECYCLE")?"":"not "}subscribed<br>"
+                       status += "• SmartThings Device Health is ${!!getSmartSubscriptionId("DEVICE_HEALTH")?"":"not "}subscribed<br>"
+                       status += "• SmartThings Mode is ${!!getSmartSubscriptionId("MODE")?"":"not "}subscribed<br>"
+                       status += "• SmartThings Scene Lifecycle is ${!!getSmartSubscriptionId("SCENE_LIFECYCLE")?"":"not "}subscribed"
+                paragraph(status)                
 
                 Map smartDevices = getSmartDevices() // this could block up to five seconds if we don't have devices cached
                 if(smartDevices) {
                     List smartDevicesSelect = []
+                    List removeDevices = getOtherSubscribedDeviceIds()
                     try {
                         smartDevices?.items?.sort{ a,b -> getSmartRoomName(a.roomId) <=> getSmartRoomName(b.roomId) ?: getSmartDeviceName(a.deviceId) <=> getSmartDeviceName(b.deviceId) }?.each {
                             Map device = [ "${it.deviceId}" : "${getSmartRoomName(it.roomId)} : ${getSmartDeviceName(it.deviceId)}" ]
-                            smartDevicesSelect.add(device)   
+                            if( !removeDevices?.find{ removeDevice -> removeDevice==it.deviceId } )
+                                smartDevicesSelect.add(device)   
                         }
                     } catch(e) { logInfo e }
-                    input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "Enable SmartThings Devices (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
+                    input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "$sSamsungIcon SmartThings Device Subscriptions (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
                     if(iSmartAppDeviceLimit >=pageMainSmartDevices?.size()) {
                         Map update = checkSmartSubscriptions()
                         if(update?.ready && !state.refreshInterval) {
@@ -383,6 +413,7 @@ void appButtonHandler(String btn) {
                             setSmartDeviceSubscriptions()
                             break                        
                         case "createApp":
+                            if(getParent()) updateLocationSubscriptionSettings(false) // do this here since we can change locations
                             createApp()
                             break
                         case "deleteApp":
@@ -456,34 +487,52 @@ Map confirmation(Map confirmationData) {
     return response
 }
 
+String getSmartSubscriptionId(String sourceType, String deviceId=null) {
+    return getSmartSubscriptions()?.items?.find{ it.sourceType==sourceType && (deviceId==null || it.device.deviceId==deviceId) }?.id
+}
+
 Map checkSmartSubscriptions() {
     List currentIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId
     List selectIds = pageMainSmartDevices?.clone()
     List deleteIds = currentIds?.clone()
     if(selectIds) { deleteIds?.intersect(selectIds)?.each{ deleteIds?.remove(it); selectIds?.remove(it) } }
     
-    Boolean health = !!getSmartSubscriptions()?.items?.find{ it.sourceType=="DEVICE_HEALTH" }
-    Boolean mode = !!getSmartSubscriptions()?.items?.find{ it.sourceType=="MODE" }    
-    Boolean ready = (selectIds?.size() || deleteIds?.size() || health!=enableHealthSubscription || mode!=enableModeSubscription)
+    Boolean deviceLifecycle = !!getSmartSubscriptionId("DEVICE_LIFECYCLE")
+    Boolean health = !!getSmartSubscriptionId("DEVICE_HEALTH")
+    Boolean mode = !!getSmartSubscriptionId("MODE")
+    Boolean sceneLifecycle = !!getSmartSubscriptionId("SCENE_LIFECYCLE")
+    Boolean ready = (selectIds?.size() || deleteIds?.size() || health!=enableHealthSubscription || mode!=enableModeSubscription 
+                     || deviceLifecycle!=enableDeviceLifecycleSubscription || sceneLifecycle!=enableSceneLifecycleSubscription)
     
     return ([current:(currentIds?:[]), select:(selectIds?:[]), delete:(deleteIds?:[]), ready:ready])
 }
 
 void setSmartSubscriptions() {
-    if(getSmartSubscriptions()?.items?.find{ it.sourceType=="DEVICE_LIFECYCLE" }==null)    
-        setSmartLifecycleSubscription()
+    
+    Boolean deviceLifecycle = !!getSmartSubscriptionId("DEVICE_LIFECYCLE")
+    if(!deviceLifecycle && enableDeviceLifecycleSubscription)   
+        setSmartDeviceLifecycleSubscription()
+    else if (deviceLifecycle && !enableDeviceLifecycleSubscription)
+        deleteSmartSubscriptions("DEVICE_LIFECYCLE")    
 
-    Boolean health = !!getSmartSubscriptions()?.items?.find{ it.sourceType=="DEVICE_HEALTH" }
+    Boolean health = !!getSmartSubscriptionId("DEVICE_HEALTH")
     if(!health && enableHealthSubscription)   
         setSmartHealthSubscription()
     else if (health && !enableHealthSubscription)
         deleteSmartSubscriptions("DEVICE_HEALTH")
     
-    Boolean mode = !!getSmartSubscriptions()?.items?.find{ it.sourceType=="MODE" }
+    Boolean mode = !!getSmartSubscriptionId("MODE")
     if(!mode && enableModeSubscription)    
         setSmartModeSubscription()
     else if (mode && !enableModeSubscription)
         deleteSmartSubscriptions("MODE")
+
+    Boolean sceneLifecycle = !!getSmartSubscriptionId("SCENE_LIFECYCLE")
+    if(!sceneLifecycle && enableSceneLifecycleSubscription)   
+        setSmartSceneLifecycleSubscription()
+    else if (sceneLifecycle && !enableSceneLifecycleSubscription)
+        deleteSmartSubscriptions("SCENE_LIFECYCLE")
+   
 }
 
 void setSmartDeviceSubscriptions() {
@@ -505,7 +554,7 @@ void setSmartDeviceSubscriptions() {
 Map deleteSmartSubscriptions(String sourceType, String deviceId=null) {
     logDebug "${getDefaultLabel()} executing 'deleteSmartSubscriptions($sourceType, $deviceId)'"
     Map response = [statusCode:iHttpError]
-    String subscriptionId = getSmartSubscriptions()?.items?.find{ it.sourceType==sourceType && (deviceId==null || it.device.deviceId==deviceId) }?.id
+    String subscriptionId = getSmartSubscriptionId(sourceType, deviceId) 
 
     Map params = [
         uri: sURI,
@@ -554,7 +603,7 @@ Map setSmartHealthSubscription() {
     return response
 }
 
-Map setSmartLifecycleSubscription() {
+Map setSmartDeviceLifecycleSubscription() {
     logDebug "${getDefaultLabel()} executing 'setSmartHealthSubscription()'"
     Map response = [statusCode:iHttpError]
     
@@ -563,7 +612,7 @@ Map setSmartLifecycleSubscription() {
         uri: sURI,
         path: "/installedapps/${state?.installedAppId}/subscriptions",
         body: JsonOutput.toJson(health),
-        method: "setSmartLifecycleSubscription",       
+        method: "setSmartDeviceLifecycleSubscription",       
     ]
     response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", data).statusCode    
     return response
@@ -579,6 +628,21 @@ Map setSmartModeSubscription() {
         path: "/installedapps/${state?.installedAppId}/subscriptions",
         body: JsonOutput.toJson(mode),
         method: "setSmartModeSubscription",        
+    ]
+    response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", data).statusCode    
+    return response
+}
+
+Map setSmartSceneLifecycleSubscription() {
+    logDebug "${getDefaultLabel()} executing 'setSmartSceneLifecycleSubscription()'"
+    Map response = [statusCode:iHttpError]
+    
+    Map mode = [ sourceType: "SCENE_LIFECYCLE", sceneLifecycle: [ locationId: state?.locationId, subscriptionName: state?.locationId ]]
+    Map data = [
+        uri: sURI,
+        path: "/installedapps/${state?.installedAppId}/subscriptions",
+        body: JsonOutput.toJson(mode),
+        method: "setSmartSceneLifecycleSubscription",        
     ]
     response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", data).statusCode    
     return response
@@ -618,24 +682,29 @@ void asyncHttpPostCallback(resp, data) {
                 logDebug "${getDefaultLabel()} successful ${data?.method}:${command}"
                 break
             case "setSmartDeviceSubscription":
-                Map deviceSubscription = new JsonSlurper().parseText(resp.data)
-                logTrace "${getDefaultLabel()} ${data?.method}: ${deviceSubscription}"
+                Map subscription = new JsonSlurper().parseText(resp.data)
+                logTrace "${getDefaultLabel()} ${data?.method}: ${subscription}"
                 logInfo "${getDefaultLabel()} '${getSmartDeviceName(data?.deviceId)}' DEVICE subscription status:${resp.status}"
                 break            
             case "setSmartHealthSubscription":
-                Map healthSubscription = new JsonSlurper().parseText(resp.data)
-                logTrace "${getDefaultLabel()} ${data?.method}: ${healthSubscription}"
+                Map subscription = new JsonSlurper().parseText(resp.data)
+                logTrace "${getDefaultLabel()} ${data?.method}: ${subscription}"
                 logInfo "${getDefaultLabel()} HEALTH subscription status:${resp.status}"
                 break
-            case "setSmartLifecycleSubscription":
-                Map deviceLifecycle = new JsonSlurper().parseText(resp.data)
-                logTrace "${getDefaultLabel()} ${data?.method}: ${deviceLifecycle}"
+            case "setSmartDeviceLifecycleSubscription":
+                Map subscription = new JsonSlurper().parseText(resp.data)
+                logTrace "${getDefaultLabel()} ${data?.method}: ${subscription}"
                 logInfo "${getDefaultLabel()} DEVICE_LIFECYCLE subscription status:${resp.status}"
                 break
             case "setSmartModeSubscription":
-                Map modeSubscription = new JsonSlurper().parseText(resp.data)
-                logTrace "${getDefaultLabel()} ${data?.method}: ${modeSubscription}"
+                Map subscription = new JsonSlurper().parseText(resp.data)
+                logTrace "${getDefaultLabel()} ${data?.method}: ${subscription}"
                 logInfo "${getDefaultLabel()} MODE subscription status:${resp.status}"
+                break
+             case "setSmartSceneLifecycleSubscription":
+                Map subscription = new JsonSlurper().parseText(resp.data)
+                logTrace "${getDefaultLabel()} ${data?.method}: ${subscription}"
+                logInfo "${getDefaultLabel()} SCENE_LIFECYCLE subscription status:${resp.status}"
                 break
             default:
                 logWarn "${getDefaultLabel()} asyncHttpPostCallback ${data?.method} not supported"
@@ -771,7 +840,7 @@ void asyncHttpGetCallback(resp, data) {
 }
 
 def oauthCallback() {
-    logDebug "${getDefaultLabel()} oauthCallback() $params"   
+    logInfo "${getDefaultLabel()} oauthCallback() $params"   
     String code = params.code
     String client_id = state.oauthClientId
     String client_secret = state.oauthClientSecret
@@ -804,10 +873,10 @@ def oauthCallback() {
         logWarn "${getDefaultLabel()} oauthCallback() error: $e"
     }
 
-	if (state.authToken)
-        return render(status:iHttpSuccess, contentType: 'text/html', data: """<p>Your SmartThings Account is now connected to Hubitat</p><p>Close this window and press refresh continue setup.</p>""")
+    if (state.authToken)
+        return render(status:iHttpSuccess, contentType: 'text/html', data: getHtmlResponse(true))
 	else
-        return render(status:iHttpError, contentType: 'text/html', data: """<p>The SmartThings connection could not be established!</p><p>Close this window to try again.</p>""")
+        return render(status:iHttpError, contentType: 'text/html', data: getHtmlResponse(false))
 }
 
 Map oauthRefresh() {
@@ -1042,6 +1111,32 @@ def appCallback(resp, data) {
     if(resp.status==200) logInfo "response data: ${resp?.data}"      
 }
 
+def getHtmlResponse(Boolean success=false) {
+"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+  <title>${getDefaultLabel()}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { line-height: 1.2; margin: 0;}
+    html { color: #888; display: table; font-family: sans-serif; height: 100%; text-align: center; width: 100%; }
+    body { display: table-cell; vertical-align: middle; margin: 2em auto; }
+    h1 { color: #555; font-size: 2em; font-weight: 400; }
+    p { margin: 0 auto; }
+    @media only screen and (max-width: 280px) { body, p { width: 95%; } h1 { font-size: 1.5em; margin: 0 0 0.3em; } }
+  </style>
+</head>
+<body>
+<h1>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has successfully authorized ${getDefaultLabel()}" : "The SmartThings connection could not be established!"}</h1>
+  <p>${success ? "Close this window and press 'refresh' to continue configuration" : "Close this window and retry authorization"}</p>
+</body>
+</html>
+"""
+}
+
 @Field static final String sSamsungIconStatic="""<svg style="display:none" version="2.0"><defs><symbol id="samsung-svg" viewbox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
 <path fill="currentColor" d="m24.016 0.19927c-6.549 0-13.371 1.1088-18.203 5.5609-4.5279 5.1206-5.5614 11.913-5.5614 18.234v1.9451c0 6.5338 1.1094 13.417 5.5614 18.248 5.1509 4.5586 11.973 5.5614 18.324 5.5614h1.7622c6.5641 0 13.478-1.0942 18.34-5.5614 4.5586-5.1509 5.5614-11.988 5.5614-18.339v-1.7632c0-6.5638-1.0942-13.478-5.5614-18.324-5.1202-4.5431-11.897-5.5609-18.218-5.5609zm1.0077 7.2347c2.5689 0 4.6591 2.0435 4.6591 4.5553 0 2.1999-1.4161 4.0808-3.5398 4.5041v3.2794c3.0529 0.44309 5.2173 2.9536 5.2173 6.0591 0 3.416-2.8427 6.1945-6.3366 6.1945-3.4939 0-6.336-2.7785-6.336-6.1945 0-0.35031 0.03655-0.69134 0.09405-1.0258l-3.1724-1.0072c-0.81421 1.41-2.344 2.3115-4.0494 2.3115-0.4886 0-0.97399-0.0758-1.4418-0.22428-2.4433-0.77611-3.7851-3.3512-2.991-5.7402 0.62583-1.8828 2.406-3.1481 4.4302-3.1481 0.48824 0 0.97279 0.0754 1.4402 0.22427 1.1836 0.37606 2.1472 1.1805 2.712 2.265 0.42122 0.80821 0.58276 1.6995 0.47904 2.5797l3.1698 1.0072c0.90699-1.7734 2.8428-2.9998 4.9206-3.3011v-3.2794c-2.1237-0.42334-3.9145-2.3042-3.9145-4.5041 0-2.5118 2.0899-4.5553 4.6591-4.5553zm0 1.8221c-1.5413 0-2.7952 1.2261-2.7952 2.7332s1.2539 2.7326 2.7952 2.7326c1.5416 0 2.7957-1.2256 2.7957-2.7326s-1.2541-2.7332-2.7957-2.7332zm13.467 7.7417c2.0235 0 3.804 1.2655 4.4302 3.1486 0.38418 1.1568 0.28436 2.3906-0.28008 3.4747-0.5655 1.0844-1.5286 1.8889-2.7125 2.265-0.46708 0.14852-0.95146 0.22376-1.4397 0.22376-1.7053 0-3.2355-0.90075-4.0504-2.3104l-1.309 0.41651-0.57619-1.7332 1.3064-0.41496c-0.24412-2.1061 1.0506-4.1659 3.1905-4.8457 0.46814-0.14887 0.95285-0.22427 1.4407-0.22427zm-26.933 1.8221c-1.2143 0-2.2825 0.75934-2.6582 1.8893-0.47625 1.4333 0.32893 2.9781 1.7947 3.4437 0.28152 0.0896 0.57278 0.13539 0.86558 0.13539 1.2139 0 2.2818-0.75986 2.6572-1.8898 0.23107-0.69391 0.17072-1.4341-0.16795-2.0846-0.33937-0.65087-0.91663-1.1333-1.6268-1.3591-0.28152-0.0892-0.57209-0.13487-0.86455-0.13487zm26.933 0c-0.29245 0-0.58355 0.0456-0.86506 0.13487-1.4658 0.46567-2.2715 2.0109-1.7952 3.4442 0.37571 1.13 1.444 1.8888 2.6582 1.8888 0.2921 0 0.58287-0.0456 0.86403-0.13487 0.71085-0.22542 1.2883-0.7077 1.6273-1.3586 0.33867-0.65052 0.39867-1.3911 0.16795-2.0846-0.37571-1.1303-1.4436-1.8898-2.6572-1.8898zm-13.467 3.0034c-2.261 0-4.1 1.7982-4.1 4.008 0 2.2105 1.8391 4.0085 4.1 4.0085 2.2606 0 4.1-1.798 4.1-4.0085 0-2.2098-1.8394-4.008-4.1-4.008zm-5.5805 9.9746 1.509 1.0712-0.8077 1.0873c1.4651 1.5642 1.6559 3.9761 0.33228 5.7573-0.87489 1.1769-2.2862 1.879-3.775 1.879-0.98884 0-1.9356-0.30066-2.7378-0.87075-2.0796-1.4774-2.5419-4.3338-1.0309-6.3665 0.87418-1.1769 2.2852-1.8795 3.775-1.8795 0.67275 0 1.3247 0.14236 1.9265 0.41083zm11.166 0 0.80822 1.0878c0.60148-0.26846 1.2527-0.41135 1.9255-0.41135 1.488 0 2.8985 0.70228 3.7724 1.8784 1.5099 2.0327 1.0474 4.8869-1.0304 6.3629-0.80116 0.56903-1.7473 0.86972-2.7358 0.86972-1.4891 0-2.8986-0.70212-3.7724-1.8779-1.3222-1.7787-1.1316-4.1886 0.33176-5.7521l-0.80719-1.0862zm2.7337 2.4986c-0.59196 0-1.1587 0.18096-1.6402 0.52245-1.2467 0.88618-1.524 2.599-0.61805 3.8179 0.52388 0.70556 1.3702 1.1265 2.2645 1.1265 0.59196 0 1.1597-0.18063 1.6402-0.52141 1.2471-0.88583 1.5241-2.5992 0.61857-3.8184-0.52458-0.7059-1.3714-1.1271-2.265-1.1271zm-16.635 3e-3c-0.89464 0-1.7419 0.42116-2.2665 1.1271-0.90629 1.2203-0.62869 2.9339 0.61908 3.8204 0.48119 0.3422 1.0489 0.52245 1.6412 0.52245 0.89394 0 1.7414-0.42132 2.266-1.1276 0.90664-1.2203 0.62956-2.9339-0.61857-3.8204-0.48084-0.34184-1.0482-0.52193-1.6412-0.52193z">
 </path></symbol></defs><use href="#samsung-svg"/></svg>"""
@@ -1087,7 +1182,7 @@ private logError(msg) { log.error  "${msg}" }
 void testButton() {  
     //def appId = '9d69bc69-850f-4c09-b8bb-3df88676df57'
     //oauthRefresh()
-    appStatus()
+    //appStatus()
     //logInfo getSmartSubscribedDevices()
 
     //oauthRefresh()    
