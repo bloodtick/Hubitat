@@ -19,10 +19,10 @@
 *  ...    Deleted
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires Replica 1.2.00+
 *  1.2.01 2022-12-22 Changes to allow for larger datasets.
-*  1.2.02 2022-12-22 Debug to help troubleshoot large datasets.
+*  1.2.03 2022-12-22 Debug to help troubleshoot large datasets.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.02"  }
+public static String version() {  return "1.2.03"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -127,17 +127,17 @@ public Map getSmartDevices() {
         if(state?.installedAppId) {
             getSmartLocationList() // this will update location, rooms, devices in order
             Integer count=0
-            while(count<200 && g_mSmartDeviceList[appId]==[:] ) { pauseExecution(250); count++ } // wait a max of 10 seconds
-            if(count==200) logWarn "${getDefaultLabel()} getSmartDevices() timeout"
+            while(count<40 && g_mSmartDeviceList[appId]==[:] ) { pauseExecution(250); count++ } // wait a max of 10 seconds
+            if(count==40) logWarn "${getDefaultLabel()} getSmartDevices() timeout"
         }
     }
-    return g_mSmartDeviceList[appId]?.clone()
+    return g_mSmartDeviceList[appId]
 }
 
 public Map getSmartRooms() {
     if(g_mSmartRoomList[app.getId()]==null) {
         g_mSmartRoomList[app.getId()] = (state.rooms ?: [:])
-        getSmartRoomList() // does not block
+        //getSmartRoomList() // does not block
     }   
     return (g_mSmartRoomList[app.getId()]?.clone() ?: [:])
 }
@@ -291,19 +291,24 @@ def pageMain(){
                 paragraph(status)                
 
                 Map smartDevices = getSmartDevices()?.clone() // this could block up to ten seconds if we don't have devices cached
-                if(smartDevices) {
+                if(smartDevices?.items) {
                     List smartDevicesSelect = []
-                    List removeDevices = getOtherSubscribedDeviceIds()
+                    List removeDevices = getOtherSubscribedDeviceIds()?.clone() ?: []
                     try {
                         smartDevices?.items?.sort{ a,b -> getSmartRoomName(a.roomId) <=> getSmartRoomName(b.roomId) ?: getSmartDeviceName(a.deviceId) <=> getSmartDeviceName(b.deviceId) }?.each {
                             Map device = [ "${it.deviceId}" : "${getSmartRoomName(it.roomId)} : ${getSmartDeviceName(it.deviceId)}" ]
                             if( !removeDevices?.find{ removeDevice -> removeDevice==it.deviceId } )
                                 smartDevicesSelect.add(device)   
                         }
-                    } catch(e) { logInfo "${getDefaultLabel()} pageMainSmartDevices $e" }
+                    } catch(e) { 
+                        logWarn "${getDefaultLabel()} pageMainSmartDevices $e"
+                        logInfo "smartDevices size = ${smartDevices?.items ? smartDevices?.items?.size()?.toString() : "unknown"}"
+                        logInfo "removeDevices size = ${removeDevices?.size()?.toString() ?: "unknown"}"
+                    }
+                    
                     input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "$sSamsungIcon SmartThings Device Subscriptions (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
                     if(iSmartAppDeviceLimit >=pageMainSmartDevices?.size()) {
-                        Map update = checkSmartSubscriptions()
+                        Map update = checkSmartSubscriptions() 
                         if(update?.ready && !state.refreshInterval) {
                             input(name: "pageMain::configure", type: "button", width: 2, title: "Configure", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
                             paragraph( getFormat("text", "Select 'Configure' to update SmartThings subscriptions") )
@@ -324,6 +329,11 @@ def pageMain(){
                     smartDevicesTable()
                 } catch(e) { logInfo "${getDefaultLabel()} smartDevicesTable $e" }
             }
+        }
+        section(menuHeader("Application Logging")) {
+            input(name: "appInfoDisable", type: "bool", title: "Disable info logging", required: false, defaultValue: false, submitOnChange: true)
+            input(name: "appDebugEnable", type: "bool", title: "Enable debug logging", required: false, defaultValue: false, submitOnChange: true)
+            //input(name: "appTraceEnable", type: "bool", title: "Enable trace logging", required: false, defaultValue: false, submitOnChange: true)
         }
     }    
 }
@@ -724,7 +734,7 @@ Map getSmartDeviceList() {
 }
 String getSmartDeviceName(String deviceId) {
     Map smartDeviceList = g_mSmartDeviceList[app.getId()]?.clone()
-    Map device = smartDeviceList ? smartDeviceList?.items?.find{ it.deviceId==deviceId } ?: [label:"Name Not Defined"] : [label:deviceId]
+    Map device = smartDeviceList?.items ? smartDeviceList?.items?.find{ it.deviceId==deviceId } ?: [label:"Name Not Defined"] : [label:deviceId]
     return (device?.label ?: device?.name) 
 }
 
@@ -738,7 +748,7 @@ Map getSmartRoomList() {
 }
 String getSmartRoomName(String roomId) {
     Map smartRoomList = g_mSmartRoomList[app.getId()]?.clone()
-    return smartRoomList ? smartRoomList?.items?.find{ it.roomId==roomId }?.name ?: "Room Not Defined" : roomId
+    return smartRoomList?.items ? smartRoomList?.items?.find{ it.roomId==roomId }?.name ?: "Room Not Defined" : roomId
 }
 
 @Field volatile static Map<Long,Map> g_mSmartLocationList = [:]
@@ -751,7 +761,7 @@ Map getSmartLocationList() {
 }
 String getSmartLocationName(String locationId) {
     Map smartLocationList = g_mSmartLocationList[app.getId()]?.clone()
-    return smartLocationList ? smartLocationList?.items?.find{ it.locationId==locationId }?.name ?: "Location Not Defined" : locationId
+    return smartLocationList?.items ? smartLocationList?.items?.find{ it.locationId==locationId }?.name ?: "Location Not Defined" : locationId
 }
     
 private Map asyncHttpGet(String callbackMethod, Map data) {
@@ -779,39 +789,34 @@ void asyncHttpGetCallback(resp, data) {
         switch(data?.method) {
             case "getSmartSubscriptionList":            
                 Map subscriptionList = new JsonSlurper().parseText(resp.data)
-                if(!(subscriptionList?.sort()?.equals(g_mSmartSubscriptionList[app.getId()]?.sort()))) {
-                    g_mSmartSubscriptionList[app.getId()]?.clear()
-                    state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList.clone()
-                    runIn(1, subscriptionListChanged)
-                    logInfo "${getDefaultLabel()} updated subscription list"
-                }
+                List currentIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId ?: []
+                List nextIds = subscriptionList?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId ?: []
+                g_mSmartSubscriptionList[app.getId()]?.clear()
+                state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList.clone()
+                // notify parent if we changed
+                if( !nextIds?.sort()?.equals(currentIds?.sort()) ) runIn(1, subscriptionListChanged)
+                logInfo "${getDefaultLabel()} updated subscription list"
                 setSmartDeviceSubscriptions()
                 break
             case "getSmartDeviceList":            
                 Map deviceList = new JsonSlurper().parseText(resp.data)
-                if(!(deviceList?.sort()?.equals(g_mSmartDeviceList[app.getId()]?.sort()))) {
-                    g_mSmartDeviceList[app.getId()]?.clear()
-                    g_mSmartDeviceList[app.getId()] = deviceList.clone()
-                    logInfo "${getDefaultLabel()} updated device list"
-                }
+                g_mSmartDeviceList[app.getId()]?.clear()
+                g_mSmartDeviceList[app.getId()] = deviceList
+                logInfo "${getDefaultLabel()} updated device list"
                 break
             case "getSmartRoomList":            
                 Map roomList = new JsonSlurper().parseText(resp.data)
-                if(!(roomList?.sort()?.equals(g_mSmartRoomList[app.getId()]?.sort()))) {
-                    g_mSmartRoomList[app.getId()]?.clear()
-                    state.rooms = g_mSmartRoomList[app.getId()] = roomList.clone()
-                    logInfo "${getDefaultLabel()} updated room list"
-                }
+                g_mSmartRoomList[app.getId()]?.clear()
+                state.rooms = g_mSmartRoomList[app.getId()] = roomList
+                logInfo "${getDefaultLabel()} updated room list"
                 getSmartDeviceList()
                 break
             case "getSmartLocationList":            
                 Map locationList = new JsonSlurper().parseText(resp.data)
-                if(!locationList?.equals(g_mSmartLocationList[app.getId()])) {
-                    g_mSmartLocationList[app.getId()]?.clear()
-                    state.location = g_mSmartLocationList[app.getId()] = locationList.clone()
-                    state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
-                    logInfo "${getDefaultLabel()} updated location list"
-                }
+                g_mSmartLocationList[app.getId()]?.clear()
+                state.location = g_mSmartLocationList[app.getId()] = locationList
+                state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
+                logInfo "${getDefaultLabel()} updated location list"
                 getSmartRoomList()
                 break
             default:
@@ -1162,11 +1167,11 @@ def displayFooter(){
 
 def menuHeader(titleText){"<div style=\"width:102%;background-color:#696969;color:white;padding:4px;font-weight: bold;box-shadow: 1px 2px 2px #bababa;margin-left: -10px\">${titleText}</div>"}
 
-private logInfo(msg)  { log.info "${msg}" }
-private logDebug(msg) { if(appLogEnable == true) { log.debug "${msg}" } }
-private logTrace(msg) { if(appTraceEnable == true) { log.trace "${msg}" } }
+private logInfo(msg)  { if(!appInfoDisable) { log.info "${msg}"  } }
+private logDebug(msg) { if(appDebugEnable)  { log.debug "${msg}" } }
+private logTrace(msg) { if(appTraceEnable)  { log.trace "${msg}" } }
 private logWarn(msg)  { log.warn  "${msg}" } 
-private logError(msg) { log.error  "${msg}" }
+private logError(msg) { log.error "${msg}" }
 
 
 void testButton() {  
