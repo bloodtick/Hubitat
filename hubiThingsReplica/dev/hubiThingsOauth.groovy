@@ -947,11 +947,13 @@ void stopApp() { // called by deleteApp() directly.
     state.remove('authTokenError')
     state.remove('authTokenExpires')
     state.remove('installedAppId')
+    state.remove('location')
     state.remove('locationId')
     state.remove('oauthCallback')
     state.remove('oauthClientId')
     state.remove('oauthClientSecret')
-    state.remove('refreshToken') 
+    state.remove('refreshToken')
+    state.remove('rooms')
     state.remove('subscriptions')       
     g_mSmartSubscriptionList[app.getId()] = null
     g_mSmartLocationList[app.getId()] = null
