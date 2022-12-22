@@ -19,9 +19,10 @@
 *  ...    Deleted
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires Replica 1.2.00+
 *  1.2.01 2022-12-22 Changes to allow for larger datasets.
+*  1.2.02 2022-12-22 Debug to help troubleshoot large datasets.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.01"  }
+public static String version() {  return "1.2.02"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -289,7 +290,7 @@ def pageMain(){
                        status += "• SmartThings Scene Lifecycle is ${!!getSmartSubscriptionId("SCENE_LIFECYCLE")?"":"not "}subscribed"
                 paragraph(status)                
 
-                Map smartDevices = getSmartDevices() // this could block up to ten seconds if we don't have devices cached
+                Map smartDevices = getSmartDevices()?.clone() // this could block up to ten seconds if we don't have devices cached
                 if(smartDevices) {
                     List smartDevicesSelect = []
                     List removeDevices = getOtherSubscribedDeviceIds()
@@ -299,7 +300,7 @@ def pageMain(){
                             if( !removeDevices?.find{ removeDevice -> removeDevice==it.deviceId } )
                                 smartDevicesSelect.add(device)   
                         }
-                    } catch(e) { logInfo e }
+                    } catch(e) { logInfo "${getDefaultLabel()} pageMainSmartDevices $e" }
                     input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "$sSamsungIcon SmartThings Device Subscriptions (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
                     if(iSmartAppDeviceLimit >=pageMainSmartDevices?.size()) {
                         Map update = checkSmartSubscriptions()
@@ -321,7 +322,7 @@ def pageMain(){
                 }
                 try {
                     smartDevicesTable()
-                } catch(e) { logInfo e }
+                } catch(e) { logInfo "${getDefaultLabel()} smartDevicesTable $e" }
             }
         }
     }    
