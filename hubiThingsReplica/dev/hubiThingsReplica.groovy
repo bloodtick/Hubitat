@@ -18,10 +18,11 @@
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires OAuth 1.2.00+
-*  1.2.01 2022-12-22 Hide device selection on create page, Rule alert on main page.
+*  1.2.02 2022-12-22 Hide device selection on create page, Rule alert on main page.
+*  1.2.03 2022-12-22 Change timing for OAuth large datasets
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.01"  }
+public static String version() {  return "1.2.03"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -109,22 +110,22 @@ def uninstalled() {
 /************************************** CHILD METHODS START *******************************************************/
 
 public void childInitialize( childApp ) {
-    logInfo "${app.getLabel()} executing 'childInitialize($childApp.id)'"
+    logDebug "${app.getLabel()} executing 'childInitialize($childApp.id)'"
 }
 
 public void childUpdated( childApp ) {
-    logInfo "${app.getLabel()} executing 'childUpdated($childApp.id)'"
+    logDebug "${app.getLabel()} executing 'childUpdated($childApp.id)'"
 }
 
 public void childUninstalled( childApp ) {
-    logInfo "${app.getLabel()} executing 'childUninstalled($childApp.id)'"
+    logDebug "${app.getLabel()} executing 'childUninstalled($childApp.id)'"
     runIn(2, allSmartDeviceRefresh)
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
 public void childSubscriptionListChanged( childApp ) {
-    logInfo "${app.getLabel()} executing 'childSubscriptionListChanged($childApp.id)'"
-    runIn(2, allSmartDeviceRefresh)
+    logDebug "${app.getLabel()} executing 'childSubscriptionListChanged($childApp.id)'"
+    runIn(10, allSmartDeviceRefresh)
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
@@ -144,7 +145,7 @@ public void childSubscriptionEvent( childApp, event ) {
 }
 
 public void childHealthChanged( childApp ) {
-    logInfo "${app.getLabel()} executing 'childHealthChanged($childApp.id)'"
+    logDebug "${app.getLabel()} executing 'childHealthChanged($childApp.id)'"
     String locationId = childApp?.getLocationId()
     String oauthStatus = "UNKNOWN"    
     getChildApps().each{ 
@@ -173,7 +174,7 @@ public String getAuthToken() {
 }
 
 public void setLocationMode(String mode) {
-    logInfo "${app.getLabel()} executing 'setLocationMode($mode)'"
+    logDebug "${app.getLabel()} executing 'setLocationMode($mode)'"
     app.setLocationMode(mode)
 }
 
@@ -1119,7 +1120,7 @@ void allSmartDeviceRefresh() {
         smartDevices.items.addAll( it.getSmartSubscribedDevices()?.items )
     }
     setSmartDevicesMap( smartDevices )
-    // check that everything is subscribed
+    // check that everything is Hubitat subscribed 
     getAllReplicaDevices()?.each { replicaDevice ->
         replicaDeviceSubscribe(replicaDevice)
     }
