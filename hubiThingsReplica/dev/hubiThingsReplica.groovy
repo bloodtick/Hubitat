@@ -20,9 +20,10 @@
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires OAuth 1.2.00+
 *  1.2.02 2022-12-22 Hide device selection on create page, Rule alert on main page.
 *  1.2.03 2022-12-22 Change timing for OAuth large datasets
+*  1.2.04 2022-12-23 Check rules and display red
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.03"  }
+public static String version() {  return "1.2.04"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -773,6 +774,8 @@ void replicaDevicesRuleSection(){
         String disableStatusFlag = rule?.disableStatus ? "$sNoStatusIcon" : ""
         String trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.label}"
         String command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.label} $muteflag $disableStatusFlag"
+        trigger = checkTrigger(replicaDevice, rule?.type, rule?.trigger?.label) ? trigger : "<span style='color:$sColorDarkRed;'>$trigger</span>"
+        command = checkTrigger(replicaDevice, rule?.type, rule?.trigger?.label) ? command : "<span style='color:$sColorDarkRed;'>$command</span>"
         replicaDeviceRulesList += "<tr><td>$trigger</td><td>$command</td></tr>"
     }
     replicaDeviceRulesList +="</table>"
@@ -790,6 +793,16 @@ void replicaDevicesRuleSection(){
         //input(name: "pageConfigureDevice::storeCapability",     type: "button", title: "Store", width: 2, style:"width:75%;")
     //}
 }
+
+Boolean checkTrigger(replicaDevice, type, triggerLabel) {
+    Map trigger = type=='hubitatTrigger' ? getHubitatAttributeOptions(replicaDevice) : getSmartAttributeOptions(replicaDevice)
+    return trigger?.get(triggerLabel)
+}
+
+Boolean checkCommand(replicaDevice, type, commandLabel) {
+    Map commands = type!='hubitatTrigger' ? getHubitatCommandOptions(replicaDevice) : getSmartCommandOptions(replicaDevice)
+    return commands?.get(commandLabel)
+}       
 
 def pageConfigureDevice() {
     
