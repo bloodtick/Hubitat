@@ -425,7 +425,7 @@ void appButtonHandler(String btn) {
                             deleteApp(state.appId)
                             break
                         case "refreshApp":
-                            runIn(1,refreshApp())
+                            runIn(1,refreshApp)
                             break
                     }                            
                     break                  
