@@ -20,10 +20,10 @@
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires OAuth 1.2.00+
 *  1.2.02 2022-12-22 Hide device selection on create page, Rule alert on main page.
 *  1.2.03 2022-12-22 Change timing for OAuth large datasets
-*  1.2.04 2022-12-23 Check rules and display red
+*  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present. 
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.04"  }
+public static String version() {  return "1.2.05"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -831,7 +831,8 @@ def pageConfigureDevice() {
             }
             input(name: "pageConfigureDevice::refreshDevice",     type: "button", title: "Refresh", width: 2, style:"width:75%;")            
             input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;")
-            if(replicaDevice?.hasCommand('configure')) input(name: "pageConfigureDevice::configDeviceRules",  type: "button", title: "Configure", width: 2, style:"width:75%;")
+            if(replicaDevice?.hasCommand('configure') && !getReplicaDataJsonValue(replicaDevice, "rules" )?.components) 
+                input(name: "pageConfigureDevice::configDeviceRules",  type: "button", title: "Configure", width: 2, style:"width:75%;")
             paragraph( getFormat("line") )
             
             Map hubitatAttributeOptions = getHubitatAttributeOptions(replicaDevice)                      
