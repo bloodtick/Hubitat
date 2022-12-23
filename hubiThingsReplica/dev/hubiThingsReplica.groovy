@@ -243,7 +243,7 @@ def pageMain(){
                 paragraph("") 
                 
                 if(userSmartThingsPAT) {
-                    app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: getFormat("text","$sSamsungIcon Authorize SmartThings Devices (Create OAuth Apps)"), multiple: true)                
+                    app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: "${getFormat("text","$sSamsungIcon Authorize SmartThings Devices")}  (Create OAuth Applications)", multiple: true)                
                     paragraph( getFormat("line") )
   
                     input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: getFormat("text","$sHubitatIcon Advanced Configuration"), defaultValue: false, submitOnChange: true)                
