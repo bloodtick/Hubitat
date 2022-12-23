@@ -19,7 +19,7 @@
 *  ...    Deleted
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires Replica 1.2.00+
 *  1.2.01 2022-12-22 Changes to allow for larger datasets.
-*  1.2.04 2022-12-22 Debug to help troubleshoot large datasets.
+*  1.2.04 2022-12-23 Debug to help troubleshoot large datasets.
 LINE 30 MAX */ 
 
 public static String version() {  return "1.2.04"  }
