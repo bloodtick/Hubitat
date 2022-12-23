@@ -19,10 +19,10 @@
 *  ...    Deleted
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires Replica 1.2.00+
 *  1.2.01 2022-12-22 Changes to allow for larger datasets.
-*  1.2.03 2022-12-22 Debug to help troubleshoot large datasets.
+*  1.2.04 2022-12-22 Debug to help troubleshoot large datasets.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.03"  }
+public static String version() {  return "1.2.04"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -295,8 +295,10 @@ def pageMain(){
                     List smartDevicesSelect = []
                     List removeDevices = getOtherSubscribedDeviceIds()?.clone() ?: []
                     try {
-                        smartDevices?.items?.sort{ a,b -> getSmartRoomName(a.roomId) <=> getSmartRoomName(b.roomId) ?: getSmartDeviceName(a.deviceId) <=> getSmartDeviceName(b.deviceId) }?.each {
-                            Map device = [ "${it.deviceId}" : "${getSmartRoomName(it.roomId)} : ${getSmartDeviceName(it.deviceId)}" ]
+                        //smartDevices?.items?.each{
+                        smartDevices?.items?.sort{ "${getSmartRoomName(it?.roomId)?:""}${getSmartDeviceName(it?.deviceId)?:""}" }?.each {
+                        //smartDevices?.items?.sort{ a,b -> getSmartRoomName(a.roomId) <=> getSmartRoomName(b.roomId) ?: getSmartDeviceName(a.deviceId) <=> getSmartDeviceName(b.deviceId) }?.each {
+                            Map device = [ "${it.deviceId}" : "${getSmartRoomName(it?.roomId)?:""} : ${getSmartDeviceName(it?.deviceId)?:""}" ]
                             if( !removeDevices?.find{ removeDevice -> removeDevice==it.deviceId } )
                                 smartDevicesSelect.add(device)   
                         }
@@ -314,7 +316,10 @@ def pageMain(){
                             paragraph( getFormat("text", "Select 'Configure' to update SmartThings subscriptions") )
                         }
                         else {
-                            input(name: "pageMain::refreshApp", type: "button", width: 2, title: "Refresh", style:"width:75%;")
+                            if(refreshInterval)
+                                input(name: "pageMain::noop", type: "button", width: 2, title: "Wait...", style:"width:75%;")
+                            else
+                                input(name: "pageMain::refreshApp", type: "button", width: 2, title: "Refresh", style:"width:75%;")
                             state.remove('refreshInterval')
                         }
                     }
@@ -342,14 +347,16 @@ def smartDevicesTable(){
     Map update = checkSmartSubscriptions()
     
     List deviceIds = (update?.current + update?.select + update?.delete).unique()
-    List smartDevices = deviceIds?.collect{ deviceId -> getSmartDevices()?.items?.find{ it.deviceId==deviceId } }
+    List smartDevices = deviceIds?.collect{ deviceId -> getSmartDevices()?.clone().items?.find{ it.deviceId==deviceId } }
 
     String smartDeviceList = "<span><table style='width:100%;'>"
-    smartDeviceList += "<tr><th>SmartThings Device</th><th>SmartThings Room</th><th style='text-align:center;'>Device Subscription</th></tr>"
-    smartDevices?.sort{ a,b -> getSmartRoomName(a?.roomId) <=> getSmartRoomName(b?.roomId) ?: getSmartDeviceName(a?.deviceId) <=> getSmartDeviceName(b?.deviceId) }.each { device ->
-        String status = (update?.select?.find{it==device?.deviceId}) ? "Pending Select" : (update?.delete?.find{it==device?.deviceId}) ? "Pending Delete" : "Subscribed"        
-        smartDeviceList += "<tr><td>${getSmartDeviceName(device?.deviceId)}</td>"
-        smartDeviceList += "<td>${getSmartRoomName(device?.roomId)}</td>"
+    smartDeviceList += "<tr><th>SmartThings Room</th><th>SmartThings Device</th><th style='text-align:center;'>Device Subscription</th></tr>"
+    //smartDevices?.each { device ->
+    smartDevices?.sort{ "${getSmartRoomName(it?.roomId)?:""}${getSmartDeviceName(it?.deviceId)?:""}" }?.each { device ->
+    //smartDevices?.sort{ a,b -> getSmartRoomName(a?.roomId) <=> getSmartRoomName(b?.roomId) ?: getSmartDeviceName(a?.deviceId) <=> getSmartDeviceName(b?.deviceId) }.each { device ->
+        String status = (update?.select?.find{it==device?.deviceId}) ? "Pending Subscribe" : (update?.delete?.find{it==device?.deviceId}) ? "Pending Unsubscribe" : "Subscribed"        
+        smartDeviceList += "<tr><td>${getSmartRoomName(device?.roomId)}</td>"
+        smartDeviceList += "<td>${getSmartDeviceName(device?.deviceId)}</td>"
         smartDeviceList += "<td style='text-align:center;'>$status</td></tr>"
     }
     smartDeviceList +="</table>"
@@ -418,7 +425,7 @@ void appButtonHandler(String btn) {
                             deleteApp(state.appId)
                             break
                         case "refreshApp":
-                            refreshApp()
+                            runIn(1,refreshApp())
                             break
                     }                            
                     break                  
