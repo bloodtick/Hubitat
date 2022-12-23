@@ -775,7 +775,7 @@ void replicaDevicesRuleSection(){
         String trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.label}"
         String command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.label} $muteflag $disableStatusFlag"
         trigger = checkTrigger(replicaDevice, rule?.type, rule?.trigger?.label) ? trigger : "<span style='color:$sColorDarkRed;'>$trigger</span>"
-        command = checkTrigger(replicaDevice, rule?.type, rule?.trigger?.label) ? command : "<span style='color:$sColorDarkRed;'>$command</span>"
+        command = checkCommand(replicaDevice, rule?.type, rule?.command?.label) ? command : "<span style='color:$sColorDarkRed;'>$command</span>"
         replicaDeviceRulesList += "<tr><td>$trigger</td><td>$command</td></tr>"
     }
     replicaDeviceRulesList +="</table>"
