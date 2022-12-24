@@ -18,9 +18,12 @@
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires OAuth 1.2.00+
+*  1.2.02 2022-12-22 Hide device selection on create page, Rule alert on main page.
+*  1.2.03 2022-12-22 Change timing for OAuth large datasets
+*  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present. 
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.00"  }
+public static String version() {  return "1.2.05"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -61,7 +64,7 @@ definition(
     name: sDefaultAppName,
     namespace: "replica",
     author: "bloodtick",
-    description: "Hubitat Application to manage SmartThings SmartApp Devices",
+    description: "Hubitat Application to manage SmartThings Devices",
     category: "Convenience",
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsReplica.groovy",
     iconUrl: "",
@@ -108,22 +111,22 @@ def uninstalled() {
 /************************************** CHILD METHODS START *******************************************************/
 
 public void childInitialize( childApp ) {
-    logInfo "${app.getLabel()} executing 'childInitialize($childApp.id)'"
+    logDebug "${app.getLabel()} executing 'childInitialize($childApp.id)'"
 }
 
 public void childUpdated( childApp ) {
-    logInfo "${app.getLabel()} executing 'childUpdated($childApp.id)'"
+    logDebug "${app.getLabel()} executing 'childUpdated($childApp.id)'"
 }
 
 public void childUninstalled( childApp ) {
-    logInfo "${app.getLabel()} executing 'childUninstalled($childApp.id)'"
+    logDebug "${app.getLabel()} executing 'childUninstalled($childApp.id)'"
     runIn(2, allSmartDeviceRefresh)
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
 public void childSubscriptionListChanged( childApp ) {
-    logInfo "${app.getLabel()} executing 'childSubscriptionListChanged($childApp.id)'"
-    runIn(2, allSmartDeviceRefresh)
+    logDebug "${app.getLabel()} executing 'childSubscriptionListChanged($childApp.id)'"
+    runIn(10, allSmartDeviceRefresh)
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
@@ -143,7 +146,7 @@ public void childSubscriptionEvent( childApp, event ) {
 }
 
 public void childHealthChanged( childApp ) {
-    logInfo "${app.getLabel()} executing 'childHealthChanged($childApp.id)'"
+    logDebug "${app.getLabel()} executing 'childHealthChanged($childApp.id)'"
     String locationId = childApp?.getLocationId()
     String oauthStatus = "UNKNOWN"    
     getChildApps().each{ 
@@ -172,7 +175,7 @@ public String getAuthToken() {
 }
 
 public void setLocationMode(String mode) {
-    logInfo "${app.getLabel()} executing 'setLocationMode($mode)'"
+    logDebug "${app.getLabel()} executing 'setLocationMode($mode)'"
     app.setLocationMode(mode)
 }
 
@@ -240,7 +243,7 @@ def pageMain(){
                 paragraph("") 
                 
                 if(userSmartThingsPAT) {
-                    app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: getFormat("text","$sSamsungIcon Authorize SmartThings Devices"), multiple: true)                
+                    app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: "${getFormat("text","$sSamsungIcon Authorize SmartThings Devices")} : Create OAuth Applications", multiple: true)                
                     paragraph( getFormat("line") )
   
                     input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: getFormat("text","$sHubitatIcon Advanced Configuration"), defaultValue: false, submitOnChange: true)                
@@ -291,14 +294,15 @@ def pageMain(){
                 smartDevices?.items?.sort{ it.label }?.each { smartDevice -> 
                     List hubitatDevices = getReplicaDevices(smartDevice.deviceId)
                     for (def i = 0; i ==0 || i < hubitatDevices.size(); i++) {
-                        String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${hubitatDevices[i]?.getId()}"                        
+                        def replicaDevice = hubitatDevices[i]?:null
+                        String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
                         String appUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
-                        //def deviceColor = hubitatDevices[i]?.getDataValue("statuscolor") ?: sColorLightGrey                            
+                        String noRules = getReplicaDataJsonValue(replicaDevice, "rules")?.components ? "" : "<span style='color:$sColorDarkRed;'> ${sNoStatusIcon}Rules</span>"                     
                         devicesTable += "<tr>"
                         devicesTable += smartDevice?.label   ? "<td>${smartDevice?.label}</td>" : "<td>--</td>"                  
-                        devicesTable += hubitatDevices[i]    ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${hubitatDevices[i]?.getDisplayName()}</a></td>" : "<td>--</td>"
+                        devicesTable += replicaDevice        ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}$noRules</a></td>" : "<td>--</td>"
                         devicesTable += smartDevice?.oauthId ? "<td style='text-align:center;'><a href='${appUrl}'>${smartDevice?.oauthId}</a></td>" : "<td>--</td>"
-                        devicesTable += hubitatDevices[i]    ? "<td style='text-align:center;' id='${hubitatDevices[i]?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(hubitatDevices[i])}</td>" : "<td style='text-align:center;'>--</td>"
+                        devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>--</td>"
                         devicesTable += "</tr>"
                     }
 		        }                
@@ -396,7 +400,8 @@ def pageCreateDevice(){
     List smartDevicesSelect = []
     smartDevices?.items?.sort{ it.label }?.each {    
         Map device = [ "${it.deviceId}" : "${it.label} &ensp; (deviceId: ${it.deviceId})" ]
-        smartDevicesSelect.add(device)   
+        if(pageCreateDeviceShowAllDevices || !getReplicaDevices(it.deviceId))
+            smartDevicesSelect.add(device)   
     }   
      
     List hubitatDeviceTypes = []
@@ -415,6 +420,7 @@ def pageCreateDevice(){
  
             input(name: "pageCreateDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
             paragraph( smartStats )
+            input(name: "pageCreateDeviceShowAllDevices", type: "bool", title: "Show All Authorized SmartThings Devices", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
             paragraph( getFormat("line") )
             
             input(name: "pageCreateDeviceType", type: "enum", title: "$sHubitatIcon Create Hubitat Device Type:", description: "Choose a Hubitat device type", options: hubitatDeviceTypes, required: false, submitOnChange:true, width: 6, newLineAfter:true)
@@ -768,6 +774,8 @@ void replicaDevicesRuleSection(){
         String disableStatusFlag = rule?.disableStatus ? "$sNoStatusIcon" : ""
         String trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.label}"
         String command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.label} $muteflag $disableStatusFlag"
+        trigger = checkTrigger(replicaDevice, rule?.type, rule?.trigger?.label) ? trigger : "<span style='color:$sColorDarkRed;'>$trigger</span>"
+        command = checkCommand(replicaDevice, rule?.type, rule?.command?.label) ? command : "<span style='color:$sColorDarkRed;'>$command</span>"
         replicaDeviceRulesList += "<tr><td>$trigger</td><td>$command</td></tr>"
     }
     replicaDeviceRulesList +="</table>"
@@ -785,6 +793,16 @@ void replicaDevicesRuleSection(){
         //input(name: "pageConfigureDevice::storeCapability",     type: "button", title: "Store", width: 2, style:"width:75%;")
     //}
 }
+
+Boolean checkTrigger(replicaDevice, type, triggerLabel) {
+    Map trigger = type=='hubitatTrigger' ? getHubitatAttributeOptions(replicaDevice) : getSmartAttributeOptions(replicaDevice)
+    return trigger?.get(triggerLabel)
+}
+
+Boolean checkCommand(replicaDevice, type, commandLabel) {
+    Map commands = type!='hubitatTrigger' ? getHubitatCommandOptions(replicaDevice) : getSmartCommandOptions(replicaDevice)
+    return commands?.get(commandLabel)
+}       
 
 def pageConfigureDevice() {
     
@@ -813,7 +831,8 @@ def pageConfigureDevice() {
             }
             input(name: "pageConfigureDevice::refreshDevice",     type: "button", title: "Refresh", width: 2, style:"width:75%;")            
             input(name: "pageConfigureDevice::clearDeviceRules",  type: "button", title: "Clear Rules", width: 2, style:"width:75%;")
-            if(replicaDevice?.hasCommand('configure')) input(name: "pageConfigureDevice::configDeviceRules",  type: "button", title: "Configure", width: 2, style:"width:75%;")
+            if(replicaDevice?.hasCommand('configure') && !getReplicaDataJsonValue(replicaDevice, "rules" )?.components) 
+                input(name: "pageConfigureDevice::configDeviceRules",  type: "button", title: "Configure", width: 2, style:"width:75%;")
             paragraph( getFormat("line") )
             
             Map hubitatAttributeOptions = getHubitatAttributeOptions(replicaDevice)                      
@@ -1115,7 +1134,7 @@ void allSmartDeviceRefresh() {
         smartDevices.items.addAll( it.getSmartSubscribedDevices()?.items )
     }
     setSmartDevicesMap( smartDevices )
-    // check that everything is subscribed
+    // check that everything is Hubitat subscribed 
     getAllReplicaDevices()?.each { replicaDevice ->
         replicaDeviceSubscribe(replicaDevice)
     }
