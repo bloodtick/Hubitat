@@ -1632,7 +1632,7 @@ void asyncHttpGetCallback(resp, data) {
         }
     }
     else {
-        logWarn("${app.getLabel()} asyncHttpGetCallback ${data?.method} status:${resp.status} reason:${resp.errorMessage}")
+        logWarn("${app.getLabel()} asyncHttpGetCallback ${data?.method} ${data?.deviceId ? getReplicaDevices(data.deviceId) : ""}  status:${resp.status} reason:${resp.errorMessage}")
     }
 }
 
