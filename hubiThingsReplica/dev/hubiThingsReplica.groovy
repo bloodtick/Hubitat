@@ -1,5 +1,5 @@
 /**
-*  Copyright 2022 Bloodtick
+*  Copyright 2023 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -20,10 +20,11 @@
 *  1.2.00 2022-12-20 Beta release. Namespace change. Requires OAuth 1.2.00+
 *  1.2.02 2022-12-22 Hide device selection on create page, Rule alert on main page.
 *  1.2.03 2022-12-22 Change timing for OAuth large datasets
-*  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present. 
+*  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present.
+*  1.2.06 2023-01-01 device table now a jquery DataTables object, remove pattern from rule.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.05"  }
+public static String version() {  return "1.2.06"  }
 public static String copyright() {"&copy; 2022 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -289,11 +290,12 @@ def pageMain(){
             
         section(menuHeader("HubiThings Device List")){           
             if (smartDevices) {
-                String devicesTable = "<table style='width:100%;'>"
-                devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sHubitatIcon OAuth ID</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>" 
+                String devicesTable = "<table id='devicesTable' role='table' class='compact' style='width:100%'><thead>"
+                devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sHubitatIcon OAuth ID</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
+                devicesTable += "</thead><tbody>"  
                 smartDevices?.items?.sort{ it.label }?.each { smartDevice -> 
                     List hubitatDevices = getReplicaDevices(smartDevice.deviceId)
-                    for (def i = 0; i ==0 || i < hubitatDevices.size(); i++) {
+                    for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
                         def replicaDevice = hubitatDevices[i]?:null
                         String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
                         String appUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
@@ -306,19 +308,19 @@ def pageMain(){
                         devicesTable += "</tr>"
                     }
 		        }                
-                devicesTable +="</table>"
-                paragraph("${devicesTable}")
-                paragraph("<span style='color:${sColorDarkRed}' id='socketstatus'></span>")
+                devicesTable +="</tbody></table>"
+                paragraph( devicesTable )
                 
-                def html =  """<style>.dot{height:20px; width:20px; background:${sColorDarkBlue}; border-radius:50%; display:inline-block;}</style>"""
-                    html += """<style>th,td{border-bottom:3px solid #ddd;}</style>"""                
-                    html += """<style>table{ table-layout: fixed;width: 100%;}</style>"""
-                    //html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(2),td:nth-of-type(2),th:nth-of-type(5),td:nth-of-type(5) { display: none; } }</style>"""
-                    html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
-                    html += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { updatedot(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
-                    //html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='statuscolor' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).style.background = evt.value;}}</script>"""
-                    html += """<script>function updatedot(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerText = evt.value; }}</script>"""
-                    html += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
+                String html = """<span style='color:${sColorDarkRed}' id='socketstatus'></span>"""
+                // Hubitat includes jquery DataTables in web code. https://datatables.net
+                html += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ]} );});</script>"""                
+                html += """<style>#devicesTable tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
+                //html += """<style>th,td{border-bottom:3px solid #ddd;}</style>"""                
+                //html += """<style>table{ table-layout: fixed;width: 100%;}</style>"""
+                html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
+                html += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { smartEvent(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
+                html += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerText = evt.value; }}</script>"""
+                html += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
                 paragraph( html )
             }            
             input(name: "pageMain::refresh",  type: "button", width: 2, title: "$sSamsungIcon Refresh", style:"width:75%;")
@@ -420,7 +422,7 @@ def pageCreateDevice(){
  
             input(name: "pageCreateDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
             paragraph( smartStats )
-            input(name: "pageCreateDeviceShowAllDevices", type: "bool", title: "Show All Authorized SmartThings Devices", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
+            input(name: "pageCreateDeviceShowAllDevices", type: "bool", title: "Show All Authorized SmartThings Devices", defaultValue: false, submitOnChange: true, newLineAfter:true)
             paragraph( getFormat("line") )
             
             input(name: "pageCreateDeviceType", type: "enum", title: "$sHubitatIcon Create Hubitat Device Type:", description: "Choose a Hubitat device type", options: hubitatDeviceTypes, required: false, submitOnChange:true, width: 6, newLineAfter:true)
@@ -442,8 +444,9 @@ def pageCreateDevice(){
 
 def replicaDevicesSection(){
     
-    String childDeviceList = "<span><table style='width:100%;'>"
+    String childDeviceList = "<table style='width:100%;'>"
     childDeviceList += "<tr><th>$sHubitatIcon Hubitat Device</th><th>$sHubitatIcon Hubitat Type</th><th style='text-align:center;'>$sHubitatIcon Configuration</th></tr>"
+
     getAllReplicaDevices()?.sort{ it.getDisplayName() }.each { replicaDevice ->
         Boolean isChildDevice = (getChildDevice( replicaDevice?.deviceNetworkId ) != null)
         //example: "http://192.168.1.160/device/edit/1430"
@@ -750,6 +753,7 @@ void updateRuleList(action, type) {
     else if(triggerKey && commandKey && !replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.label?.trim()==triggerKey && it?.command?.label?.trim()==commandKey }) {
         Map newRule = [ trigger:trigger, command:command, type:type]  
         newRule?.command?.parameters?.each{ parameter -> if(parameter?.description) {  parameter.remove('description') } } //junk
+        newRule?.command?.arguments?.each{ arguments -> if(arguments?.schema?.pattern) {  arguments.schema.remove('pattern') } } //junk
         if(newRule?.trigger?.properties?.value?.enum) newRule.trigger.properties.value.remove('enum') //junk
         if(muteTriggerRuleInfo) newRule['mute'] = true
         if(disableStatusUpdate) newRule['disableStatus'] = true
@@ -767,7 +771,7 @@ void replicaDevicesRuleSection(){
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
     Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules" )
     
-    String replicaDeviceRulesList = "<span><table style='width:100%;'>"
+    String replicaDeviceRulesList = "<table style='width:100%;'>"
     replicaDeviceRulesList += "<tr><th>Trigger</th><th>Action</th></tr>"
     replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.label <=> b?.trigger?.label ?: a?.command?.label <=> b?.command?.label }?.each { rule ->    
         String muteflag = rule?.mute ? "$sLogMuteIcon" : ""
@@ -788,8 +792,8 @@ void replicaDevicesRuleSection(){
     }
     
     //section(menuHeader("Replica Handler Development")) {
-        app.removeSetting('pageConfigureDeviceStoreCapabilityText')
-        //input(name: "pageConfigureDeviceStoreCapabilityText", type: "textarea", rows: 10, width:50, title: "Replica Capability Loader:", description: "Load Capability JSON Here", submitOnChange: true, newLineAfter:true)
+        app.removeSetting('pageConfigureDeviceStoreCapabilityText2')
+        //input(name: "pageConfigureDeviceStoreCapabilityText2", type: "textarea", title: "Replica Capability Loader:", description: "Load Capability JSON Here", rows: 20, width: 6)//, submitOnChange: true, newLineAfter:true)
         //input(name: "pageConfigureDevice::storeCapability",     type: "button", title: "Store", width: 2, style:"width:75%;")
     //}
 }
