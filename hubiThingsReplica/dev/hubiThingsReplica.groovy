@@ -21,11 +21,11 @@
 *  1.2.02 2022-12-22 Hide device selection on create page, Rule alert on main page.
 *  1.2.03 2022-12-22 Change timing for OAuth large datasets
 *  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present.
-*  1.2.06 2023-01-01 device table now a jquery DataTables object, remove pattern from rule.
+*  1.2.06 2023-01-02 device table now a jquery DataTables object, remove pattern from rule.
 LINE 30 MAX */ 
 
 public static String version() {  return "1.2.06"  }
-public static String copyright() {"&copy; 2022 ${author()}"}
+public static String copyright() {"&copy; 2023 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
@@ -298,11 +298,10 @@ def pageMain(){
                     for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
                         def replicaDevice = hubitatDevices[i]?:null
                         String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
-                        String appUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
-                        String noRules = getReplicaDataJsonValue(replicaDevice, "rules")?.components ? "" : "<span style='color:$sColorDarkRed;'> ${sNoStatusIcon}Rules</span>"                     
+                        String appUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"              
                         devicesTable += "<tr>"
                         devicesTable += smartDevice?.label   ? "<td>${smartDevice?.label}</td>" : "<td>--</td>"                  
-                        devicesTable += replicaDevice        ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}$noRules</a></td>" : "<td>--</td>"
+                        devicesTable += replicaDevice        ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"
                         devicesTable += smartDevice?.oauthId ? "<td style='text-align:center;'><a href='${appUrl}'>${smartDevice?.oauthId}</a></td>" : "<td>--</td>"
                         devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>--</td>"
                         devicesTable += "</tr>"
@@ -319,7 +318,7 @@ def pageMain(){
                 //html += """<style>table{ table-layout: fixed;width: 100%;}</style>"""
                 html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
                 html += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { smartEvent(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
-                html += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerText = evt.value; }}</script>"""
+                html += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
                 html += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
                 paragraph( html )
             }            
@@ -1344,13 +1343,15 @@ Map getSmartDeviceEventsCache(deviceId) {
     return response
 }
 
+
 String updateSmartDeviceEventsStatus(replicaDevice) {
     String value = "--"
     if(replicaDevice) {
-        String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase() 
+        String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
+        String noRules = getReplicaDataJsonValue(replicaDevice, "rules")?.components ? "" : "<span style='color:$sColorDarkRed;'>$sNoStatusIcon rules</span>"
             
         String eventCount = (getReplicaDeviceEventsCache(replicaDevice)?.eventCount ?: 0).toString()
-        value = (healthState=='offline' ? healthState : eventCount)
+        value = (healthState=='offline' ? "<span style='color:$sColorDarkRed;'>$sNoStatusIcon $healthState</span>" : noRules ?: eventCount)
         if(state.pageMainLastRefresh && (state.pageMainLastRefresh + (iPageMainRefreshInterval*1000)) > now()) { //only send if someone is watching 
             sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
         }
@@ -1778,7 +1779,7 @@ def displayFooter(){
     if(now()>(state.isInstalled+day14ms)) {
 	    section() {
 		    paragraph( getFormat("line") )
-		    paragraph "<div style='color:{sColorDarkBlue};text-align:center;font-weight:small;font-size:11px;'>${app.getLabel()}<br><br><a href='${paypal()}' target='_blank'><img src='https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg' border='0' alt='PayPal Logo'></a><br><br>Please consider donating. This application took a lot of work to make.<br>If you find it valuable, I'd certainly appreciate it!</div>"
+		    paragraph "<div style='color:{sColorDarkBlue};text-align:center;font-weight:small;font-size:11px;'>$sDefaultAppName<br><br><a href='${paypal()}' target='_blank'><img src='https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg' border='0' alt='PayPal Logo'></a><br><br>Please consider donating. This application took a lot of work to make.<br>If you find it valuable, I'd certainly appreciate it!</div>"
 	    }
     }
 }
