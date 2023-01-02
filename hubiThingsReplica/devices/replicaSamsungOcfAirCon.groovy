@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.2.1"}
+public static String version() {return "1.2.2"}
 
 metadata 
 {
@@ -26,7 +26,10 @@ metadata
         capability "TemperatureMeasurement"
         capability "ThermostatCoolingSetpoint"
         capability "Refresh"
-        //capability "Thermostat"
+        // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
+        // Use Hubitat 'Button Controller' built in app to set commands to run. Defaults to 10 commands increased or decreased by setNumberOfButtons.
+        capability "PushableButton"
+        command "setNumberOfButtons", [[name: "numberOfButtons*", type: "NUMBER", description: "Set the numberOfButtons this device support"]]
         
         attribute "airConditionerMode", "string" //capability "airConditionerMode" in SmartThings
         attribute "supportedAcModes", "JSON_OBJECT" //capability "airConditionerMode" in SmartThings
@@ -97,8 +100,17 @@ metadata
     }
 }
 
+def push(buttonNumber) {
+    sendEvent(name: "pushed", value: buttonNumber, isStateChange: true)
+}
+
+def setNumberOfButtons(buttonNumber) {
+    sendEvent(name: "numberOfButtons", value: buttonNumber)
+}
+
 def installed() {
 	initialize()
+    setNumberOfButtons(10)
 }
 
 def updated() {
