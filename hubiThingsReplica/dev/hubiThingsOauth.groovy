@@ -1,5 +1,5 @@
 /**
-*  Copyright 2022 Bloodtick
+*  Copyright 2023 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -21,10 +21,12 @@
 *  1.2.01 2022-12-22 Changes to allow for larger datasets.
 *  1.2.04 2022-12-23 Debug to help troubleshoot large datasets.
 *  1.2.05 2022-12-23 Exception code around room/device sort pattern. Lock query during execution
+*  1.2.06 2023-01-02 Not released
+*  1.2.07 2023-01-04 initial support for componentID. Code adds to support Virtual ST devices (not completed)
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.05"  }
-public static String copyright() {"&copy; 2022 ${author()}"}
+public static String version() {  return "1.2.07"  }
+public static String copyright() {"&copy; 2023 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
@@ -68,6 +70,7 @@ String getDefaultLabel() {
 
 preferences {
     page name:"pageMain"
+    page name:"pageVirtualDevice"
 }
 
 mappings { 
@@ -334,6 +337,11 @@ def pageMain(){
                 } catch(e) { logInfo "${getDefaultLabel()} smartDevicesTable $e" }
             }
         }
+        /*
+        section(menuHeader("SmartThings Virtual Device Control")){	
+            href "pageVirtualDevice", title: "Create and Delete SmartThings Virtual Devices", description: "Click to show"
+        }
+        */
         section(menuHeader("Application Logging")) {
             input(name: "appInfoDisable", type: "bool", title: "Disable info logging", required: false, defaultValue: false, submitOnChange: true)
             input(name: "appDebugEnable", type: "bool", title: "Enable debug logging", required: false, defaultValue: false, submitOnChange: true)
@@ -404,6 +412,68 @@ def installHelper() {
         }
     }
     return null
+}
+
+def pageVirtualDevice(){    
+    List hubitatDevicesSelect = []
+    /*
+    getAllReplicaDevices()?.sort{ it.getDisplayName() }?.each {
+        Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
+        hubitatDevicesSelect.add(device)   
+    }*/
+   
+    return dynamicPage(name: "pageVirtualDevice", uninstall: false) {
+        displayHeader()
+        
+        String comments = "This application utilizes the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed application, "
+               comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
+               comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account.<br><br>"
+               comments+= "Unlike the SmartThings Personal Access Token (PAT) that is valid for 50 years from creation, the OAuth authorization token is valid for 24 hours and must be refreshed. "
+               comments+= "<b>The authorization token refresh is automatically handled by the ${getDefaultLabel()} application every three hours</b>, "
+               comments+= "but if your Hubitat hub is offline for an extended time period, you will need to reauthorize the token manually via the $sSamsungIcon SmartThings OAuth Authorization link."
+               comments+= "${refreshInterval ? "<div style='text-align:right';>Repaint: $refreshTime</div>" : ""}"
+        section() { 
+            paragraph( getFormat("comments",comments,null,"Gray") )            
+        }
+
+        section(menuHeader("Create SmartThings Virtual Devices $sHubitatIconStatic $sSamsungIconStatic")) {
+           /*
+           input(name: "pageDeleteDeviceHubitatDevice", type: "enum",  title: "Delete HubiThings Device:", description: "Choose a HubiThings device", multiple: false, options: hubitatDevicesSelect, submitOnChange: true)
+           def replicaDevice = getDevice( pageDeleteDeviceHubitatDevice )
+           if(replicaDevice) {
+               Boolean isChild = getChildDevice( replicaDevice?.deviceNetworkId )
+               String title = (isChild ? "➢ Click to delete $sHubitatIcon Hubitat device" : "➢ Click to detach $sSamsungIcon SmartThings from $sHubitatIcon Hubitat device")
+               href "pageDeleteDevice2", title: title, description: "Device '$replicaDevice' will ${isChild ? 'be deleted' : 'not be deleted'}" 
+           }*/
+        }
+        section(menuHeader("Delete SmartThings Virtual Devices")) {
+        
+        }
+        VirtualDevicesSection()
+    }
+}
+
+def VirtualDevicesSection(){
+    
+    String childDeviceList = "<table style='width:100%;'>"
+    childDeviceList += "<tr><th>$sHubitatIcon Hubitat Device</th><th>$sHubitatIcon Hubitat Type</th><th style='text-align:center;'>$sHubitatIcon Configuration</th></tr>"
+    /*
+    getAllReplicaDevices()?.sort{ it.getDisplayName() }.each { replicaDevice ->
+        Boolean isChildDevice = (getChildDevice( replicaDevice?.deviceNetworkId ) != null)
+        //example: "http://192.168.1.160/device/edit/1430"
+        String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
+        childDeviceList += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
+        childDeviceList += "<td>${replicaDevice.typeName}</td><td style='text-align:center;'>${isChildDevice?'Child':'Mirror'}</td></tr>"
+    }
+    childDeviceList +="</table>"
+    
+    if (getAllReplicaDevices().size){        
+        section(menuHeader("HubiThings Devices")) {
+            paragraph( childDeviceList )
+            paragraph("<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>")            
+        }
+    }
+*/
 }
 
 @Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
@@ -594,7 +664,7 @@ Map setSmartDeviceSubscription(String deviceId) {
     logDebug "${getDefaultLabel()} executing 'setSmartDeviceSubscription($deviceId)'"
     Map response = [statusCode:iHttpError]
     
-    Map subscription = [ sourceType: "DEVICE", device: [ deviceId: deviceId, componentId: "main", capability: "*", attribute: "*", stateChangeOnly: true, subscriptionName: deviceId, value: "*" ]]    
+    Map subscription = [ sourceType: "DEVICE", device: [ deviceId: deviceId, componentId: "*", capability: "*", attribute: "*", stateChangeOnly: true, subscriptionName: deviceId, value: "*" ]]    
     Map data = [
         uri: sURI,
         path: "/installedapps/${state?.installedAppId}/subscriptions",        
@@ -1096,21 +1166,6 @@ def getApp(appNameOrId) {
 	}
 }
 
-def getInstalledApp(installedAppId) {
-    logInfo "executing 'getInstalledApp($installedAppId)'"
-	def params = [
-        uri: sURI,
-		path: "installedapps/$installedAppId",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]
-		]    
-    def data = [method:"getInstalledApp"]
-	try {
-	    asynchttpGet("appCallback", params, data)
-	} catch (e) {
-	    logWarn "getInstalledApp() error: $e"
-	}
-}
-
 def listApps() {
     logInfo "executing 'listApps()'"
 	def params = [
@@ -1126,19 +1181,109 @@ def listApps() {
 	}
 }
 
-def listInstalledApps() {
-    logInfo "executing 'listInstalledApps()'"
-	def params = [
+/*
+export const allPrototypes = [
+	{ name: 'Switch', id: 'VIRTUAL_SWITCH' },
+	{ name: 'Dimmer Switch', id: 'VIRTUAL_DIMMER_SWITCH' },
+	{ name: 'Button', id: 'VIRTUAL_BUTTON' },
+	{ name: 'Camera', id: 'VIRTUAL_CAMERA' },
+	{ name: 'Color Bulb', id: 'VIRTUAL_COLOR_BULB' },
+	{ name: 'Contact Sensor', id: 'VIRTUAL_CONTACT_SENSOR' },
+	{ name: 'Dimmer (no switch)', id: 'VIRTUAL_DIMMER' },
+	{ name: 'Garage Door Opener', id: 'VIRTUAL_GARAGE_DOOR_OPENER' },
+	{ name: 'Lock', id: 'VIRTUAL_LOCK' },
+	{ name: 'Metered Switch', id: 'VIRTUAL_METERED_SWITCH' },
+	{ name: 'Motion Sensor', id: 'VIRTUAL_MOTION_SENSOR' },
+	{ name: 'Multi-Sensor', id: 'VIRTUAL_MULTI_SENSOR' },
+	{ name: 'Presence Sensor', id: 'VIRTUAL_PRESENCE_SENSOR' },
+	{ name: 'Refrigerator', id: 'VIRTUAL_REFRIGERATOR' },
+	{ name: 'RGBW Bulb', id: 'VIRTUAL_RGBW_BULB' },
+	{ name: 'Siren', id: 'VIRTUAL_SIREN' },
+	{ name: 'Thermostat', id: 'VIRTUAL_THERMOSTAT' },
+]
+*/
+// https://community.smartthings.com/t/smartthings-virtual-devices-using-cli/244347
+// https://raw.githubusercontent.com/SmartThingsCommunity/smartthings-cli/eb1aab896d4248d293c662317056097aad777438/packages/cli/src/lib/commands/virtualdevices-util.ts
+
+Map createVirtualDevice() {
+    logDebug "${device.displayName} executing 'createVirtualDevice()'"
+    Map response = [statusCode:iHttpError]
+
+    def device = [
+      name: "Virtual Dimmer Switch",
+      //roomId: "{{Room ID}}",
+      prototype: "VIRTUAL_DIMMER_SWITCH",
+      owner: [
+        ownerType: "LOCATION",
+        ownerId: getLocationId()
+      ]
+    ]
+    logInfo device
+    Map params = [
         uri: sURI,
-        path: "/installedapps",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]
-		]    
-    def data = [method:"listInstalledApps"]
-	try {
-	    asynchttpGet("appCallback", params, data)
-	} catch (e) {
-	    logWarn "listInstalledApps() error: $e"
-	}
+        body: groovy.json.JsonOutput.toJson(device), 
+        path: "/virtualdevices/prototypes",
+        contentType: "application/json",
+        requestContentType: "application/json",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    logInfo params
+    try {
+        httpPost(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status
+            logInfo "${device.displayName} created SmartThings create virtual device '${resp.data.label}'"
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has createVirtualDevice() error: $e"        
+    }
+    return response
+}
+
+Map deleteVirtualDevice(String deviceId) {
+    logDebug "${device.displayName} executing 'deleteVirtualDevice()'"
+    Map response = [statusCode:iHttpError]
+    
+    Map params = [
+        uri: sURI,
+        path: "/devices/$deviceId",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    logInfo params
+    try {
+        httpDelete(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status
+            logInfo "${device.displayName} deleted SmartThings Virtual Device '$deviceId'"
+
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has deleteVirtualDevice() error: $e"        
+    }
+    return response
+}
+
+Map getVirtualDevices() {
+    logDebug "${device.displayName} executing 'getVirtualDevices()'"
+    Map response = [statusCode:iHttpError]
+
+    Map params = [
+        uri: sURI,
+        path: "/virtualdevices",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    try {
+        httpGet(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status         
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has getVirtualDevices() error: $e"        
+    }
+    return response
 }
 
 def appCallback(resp, data) {
