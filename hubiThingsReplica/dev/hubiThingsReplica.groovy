@@ -23,10 +23,11 @@
 *  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present.
 *  1.2.06 2023-01-02 device table now a jquery DataTables object, remove pattern from rule.
 *  1.2.07 2023-01-04 initial support for componentID, fixes for non-Replica DH, fixes for debug
+*  1.2.08 2023-01-05 'status' support for componentID, fixes for Create & Mirror UI to support componentID
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.07"  }
-public static String copyright() {"&copy; 2023 ${author()}"}
+public static String version() {  return "1.2.08"  }
+public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
@@ -404,20 +405,20 @@ def pageCreateDevice(){
             if( !smartDevicesSelect?.find{ smartDevice.deviceId==it.keySet().getAt(0) } && (pageCreateDeviceShowAllDevices || !getReplicaDevices(smartDevice.deviceId, component?.id)) )
                 smartDevicesSelect.add([ "$smartDevice.deviceId" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])       
         }
-    }
-    
-    List smartComponentsSelect = []
+    }    
+   
+    List smartComponentsSelect = []       
     smartDevices?.items?.find{it.deviceId == pageCreateDeviceSmartDevice}?.components.each { component ->
         if(pageCreateDeviceShowAllDevices || !getReplicaDevices(pageCreateDeviceSmartDevice, component?.id))
             smartComponentsSelect.add(component.id)
-    }  
+    }
      
     List hubitatDeviceTypes = []
     getDeviceHandlers()?.items?.sort{ a,b -> b?.namespace <=> a?.namespace ?: a?.name <=> b?.name }?.each {    
         hubitatDeviceTypes.add([ "$it.id" : "$it.name &ensp; (namespace: $it.namespace)" ])   
     }
 
-    if( !pageCreateDeviceSmartDeviceComponent && smartComponentsSelect?.size() ) { 
+    if(smartComponentsSelect?.size()==1) { 
         app.updateSetting( "pageCreateDeviceSmartDeviceComponent", [type:"enum", value: smartComponentsSelect?.get(0)] )
     }
     
@@ -432,7 +433,7 @@ def pageCreateDevice(){
  
             input(name: "pageCreateDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
             if(pageCreateDeviceSmartDevice && smartComponentsSelect?.size()>1)
-                input(name: "pageCreateDeviceSmartDeviceComponent", type: "enum", title: "$sSamsungIcon Select SmartThings Device Component:", description: "Choose a Device Component", options: smartComponentsSelect, required: false, submitOnChange:true, width: 3, newLineAfter:true)
+                input(name: "pageCreateDeviceSmartDeviceComponent", type: "enum", title: "$sSamsungIcon Select SmartThings Device Component:", description: "Choose a Device Component", options: smartComponentsSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
             paragraph( smartStats )
             input(name: "pageCreateDeviceShowAllDevices", type: "bool", title: "Show All Authorized SmartThings Devices", defaultValue: false, submitOnChange: true, newLineAfter:true)
             paragraph( getFormat("line") )
@@ -620,15 +621,15 @@ def pageMirrorDevice(){
     List smartComponentsSelect = []
     smartDevices?.items?.find{it.deviceId == smartDeviceId}?.components.each { component ->
         smartComponentsSelect.add(component.id)
-    } 
-    
+    }
+
     List hubitatDevicesSelect = []
     getAuthorizedDevices().sort{ it.getDisplayName() }?.each {
         if(pageMirrorDeviceShowAllDevices || !getReplicaDataJsonValue(it, "replica"))
             hubitatDevicesSelect.add([ "$it.deviceNetworkId" : "${it.getDisplayName()} &ensp; (deviceNetworkId: $it.deviceNetworkId)" ])
     }
     
-    if( !pageMirrorDeviceSmartDeviceComponent && smartComponentsSelect?.size() ) { 
+    if(smartComponentsSelect?.size()==1) { 
         app.updateSetting( "pageMirrorDeviceSmartDeviceComponent", [type:"enum", value: smartComponentsSelect?.get(0)] )
     }
 
@@ -643,7 +644,7 @@ def pageMirrorDevice(){
  
             input(name: "pageMirrorDeviceSmartDevice", type: "enum", title: "$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
             if(pageMirrorDeviceSmartDevice && smartComponentsSelect?.size()>1)
-                input(name: "pageMirrorDeviceSmartDeviceComponent", type: "enum", title: "$sSamsungIcon Select SmartThings Device Component:", description: "Choose a Device Component", options: smartComponentsSelect, required: false, submitOnChange:true, width: 3, newLineAfter:true)
+                input(name: "pageMirrorDeviceSmartDeviceComponent", type: "enum", title: "$sSamsungIcon Select SmartThings Device Component:", description: "Choose a Device Component", options: smartComponentsSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
             paragraph( smartStats )
             paragraph( getFormat("line") )
             
@@ -1401,7 +1402,8 @@ Map smartStatusHandler(replicaDevice, String deviceId, Map statusEvent, Long eve
         log.info "Status: ${JsonOutput.toJson(statusEvent)}"
     }    
     setReplicaDataJsonValue(replicaDevice, "status", statusEvent)
-    statusEvent?.components?.main?.each { capability, attributes ->
+    String componentId = getReplicaDataJsonValue(replicaDevice, "replica")?.componentId ?: "main" //componentId was not added until v1.2.06    
+    statusEvent?.components?.get(componentId)?.each { capability, attributes ->
         response.statusCode = smartTriggerHandler(replicaDevice, [ "$capability":attributes ], "status", eventPostTime).statusCode
     }
     
