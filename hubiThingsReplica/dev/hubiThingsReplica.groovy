@@ -24,9 +24,10 @@
 *  1.2.06 2023-01-02 device table now a jquery DataTables object, remove pattern from rule.
 *  1.2.07 2023-01-04 initial support for componentID, fixes for non-Replica DH, fixes for debug
 *  1.2.08 2023-01-05 'status' support for componentID, fixes for Create & Mirror UI to support componentID
+*  1.2.09 2023-01-05 update tables to jquery.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.08"  }
+public static String version() {  return "1.2.09"  }
 public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -457,9 +458,8 @@ def pageCreateDevice(){
 
 def replicaDevicesSection(){
     
-    String childDeviceList = "<table style='width:100%;'>"
-    childDeviceList += "<tr><th>$sHubitatIcon Hubitat Device</th><th>$sHubitatIcon Hubitat Type</th><th style='text-align:center;'>$sHubitatIcon Configuration</th></tr>"
-
+    String childDeviceList = "<table id='childDeviceList' role='table' class='compact' style='width:100%;'>"
+    childDeviceList += "<thead><tr><th>$sHubitatIcon Hubitat Device</th><th>$sHubitatIcon Hubitat Type</th><th style='text-align:center;'>$sHubitatIcon Configuration</th></tr></thead><tbody>"
     getAllReplicaDevices()?.sort{ it.getDisplayName() }.each { replicaDevice ->
         Boolean isChildDevice = (getChildDevice( replicaDevice?.deviceNetworkId ) != null)
         //example: "http://192.168.1.160/device/edit/1430"
@@ -467,12 +467,15 @@ def replicaDevicesSection(){
         childDeviceList += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
         childDeviceList += "<td>${replicaDevice.typeName}</td><td style='text-align:center;'>${isChildDevice?'Child':'Mirror'}</td></tr>"
     }
-    childDeviceList +="</table>"
+    childDeviceList +="</tbody></table>"
     
     if (getAllReplicaDevices().size){        
         section(menuHeader("HubiThings Devices")) {
-            paragraph( childDeviceList )
-            paragraph("<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>")            
+            String html = childDeviceList            
+                   html += """<script>\$(document).ready(function () { \$('#childDeviceList').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ]} );});</script>"""                
+                   html += """<style>#childDeviceList tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
+            paragraph( html )
+            //paragraph("<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>")
         }
     }
 }
@@ -608,7 +611,6 @@ void replicaDeviceSubscribe(replicaDevice) {
 
 def pageMirrorDevice(){    
     Map smartDevices = getSmartDevicesMap()
-    String smartDeviceId = pageMirrorDeviceSmartDevice
     
     List smartDevicesSelect = []
     smartDevices?.items?.sort{ it.label }?.each { smartDevice ->
@@ -619,7 +621,7 @@ def pageMirrorDevice(){
     }
     
     List smartComponentsSelect = []
-    smartDevices?.items?.find{it.deviceId == smartDeviceId}?.components.each { component ->
+    smartDevices?.items?.find{it.deviceId == pageMirrorDeviceSmartDevice}?.components.each { component ->
         smartComponentsSelect.add(component.id)
     }
 
@@ -635,7 +637,7 @@ def pageMirrorDevice(){
 
     def hubitatDevice = getDevice( pageMirrorDeviceHubitatDevice )
     String hubitatStats =  getHubitatDeviceStats(hubitatDevice)
-    String smartStats = getSmartDeviceStats(smartDeviceId, pageMirrorDeviceSmartDeviceComponent)
+    String smartStats = getSmartDeviceStats(pageMirrorDeviceSmartDevice, pageMirrorDeviceSmartDeviceComponent)
 
     return dynamicPage(name: "pageMirrorDevice", uninstall: false) {
         displayHeader()        
@@ -667,7 +669,7 @@ def pageMirrorDevice(){
 
 def pageMirrorDevice2() {    
     Map smartDevices = getSmartDevicesMap()
-    def deviceId = pageMirrorDeviceSmartDevice
+    String deviceId = pageMirrorDeviceSmartDevice
     
     return dynamicPage(name: "pageMirrorDevice2", uninstall: false) {
         displayHeader()
@@ -1377,7 +1379,6 @@ Map getSmartDeviceEventsCache(deviceId) {
     }
     return response
 }
-
 
 String updateSmartDeviceEventsStatus(replicaDevice) {
     String value = "--"
