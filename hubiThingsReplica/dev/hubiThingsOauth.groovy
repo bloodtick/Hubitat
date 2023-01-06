@@ -23,9 +23,11 @@
 *  1.2.05 2022-12-23 Exception code around room/device sort pattern. Lock query during execution
 *  1.2.06 2023-01-02 Not released
 *  1.2.07 2023-01-04 initial support for componentID. Code adds to support Virtual ST devices (not completed)
+*  1.2.08 2023-01-04 Not released
+*  1.2.09 2023-01-05 Align version to Replica for next Beta release.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.07"  }
+public static String version() {  return "1.2.09"  }
 public static String copyright() {"&copy; 2023 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
