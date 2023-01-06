@@ -27,7 +27,7 @@ metadata
         attribute "signalMetrics", "string" //custom capability
         attribute "healthStatus", "enum", ["offline", "online"]
         
-        command "setSignalMetrics", [[name: "value*", type: "NUMBER", description: "Set Signal Metrics"]] //custom capability
+        command "setSignalMetrics", [[name: "value*", type: "NUMBER", description: "Set Signal Metrics (custom)"]] //custom capability
     }
     preferences {   
     }
