@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.2.3"}
+public static String version() {return "1.2.4"}
 
 metadata 
 {
@@ -148,7 +148,7 @@ Map getReplicaCommands() {
 //capability "Switch"
 def setSwitchValue(value) {
     String descriptionText = "${device.displayName} was turned $value"
-    sendEvent(name: "switch", value: (value=="enabled"?"on":value), descriptionText: descriptionText)
+    sendEvent(name: "switch", value: value, descriptionText: descriptionText)
     log.info descriptionText
 }
 
