@@ -28,7 +28,7 @@
 *  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.09"  }
+public static String version() {  return "1.2.10"  }
 public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
