@@ -4,7 +4,7 @@
     {
       "name": "HubiThings Replica",
       "category": "Convenience",
-      "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubitat-packages/master/replicaPackageManifest.json",
+      "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubitat-packages/master/packageManifestHubiThings.json",
       "description": "Hubitat Application to manage SmartThings Devices",
       "tags": [
         "Convenience",
