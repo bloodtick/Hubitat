@@ -25,9 +25,10 @@
 *  1.2.07 2023-01-04 initial support for componentID. Code adds to support Virtual ST devices (not completed)
 *  1.2.08 2023-01-04 Not released
 *  1.2.09 2023-01-05 Align version to Replica for next Beta release.
+*  1.2.10 2023-01-07 Align version to Replica for next Beta release.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.09"  }
+public static String version() {  return "1.2.10"  }
 public static String copyright() {"&copy; 2023 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
