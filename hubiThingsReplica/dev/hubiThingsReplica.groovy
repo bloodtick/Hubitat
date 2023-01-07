@@ -25,6 +25,7 @@
 *  1.2.07 2023-01-04 initial support for componentID, fixes for non-Replica DH, fixes for debug
 *  1.2.08 2023-01-05 'status' support for componentID, fixes for Create & Mirror UI to support componentID
 *  1.2.09 2023-01-05 update tables to jquery.
+*  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
 LINE 30 MAX */ 
 
 public static String version() {  return "1.2.09"  }
@@ -826,7 +827,7 @@ void replicaDevicesRuleSection(){
     }
     
     //section(menuHeader("Replica Handler Development")) {
-        app.removeSetting('pageConfigureDeviceStoreCapabilityText2')
+        //app.removeSetting('pageConfigureDeviceStoreCapabilityText2')
         //input(name: "pageConfigureDeviceStoreCapabilityText2", type: "textarea", title: "Replica Capability Loader:", description: "Load Capability JSON Here", rows: 20, width: 6)//, submitOnChange: true, newLineAfter:true)
         //input(name: "pageConfigureDevice::storeCapability",     type: "button", title: "Store", width: 2, style:"width:75%;")
     //}
@@ -1250,7 +1251,7 @@ void deviceTriggerHandler(def replicaDevice, String eventName, def eventValue, S
                             break
                         case 'object':  // A map of name value pairs, where the values can be of different types.
                             Map map = new JsonSlurper().parseText(eventValue)
-                            arguments = map
+                            arguments = [ map ] //updated version v1.2.10
                             break
                         case 'array':   // A list of values of a single type.
                             List list = new JsonSlurper().parseText(eventValue)
