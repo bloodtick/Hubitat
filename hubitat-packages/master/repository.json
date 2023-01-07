@@ -1,0 +1,17 @@
+{
+  "author": "Bloodtick Jones",
+  "packages": [
+    {
+      "name": "HubiThings Replica",
+      "category": "Convenience",
+      "location": "https://raw.githubusercontent.com/dcmeglio/hubitat-bond/master/packageManifest.json",
+      "description": "Hubitat Application to manage SmartThings Devices",
+      "tags": [
+        "Convenience",
+        "Integrations",
+        "Utility"
+      ],
+      "id": "9034c139-c2c1-4d2c-9ede-feef9812f95c"
+    }
+  ]
+}
