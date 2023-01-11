@@ -26,9 +26,10 @@
 *  1.2.08 2023-01-05 'status' support for componentID, fixes for Create & Mirror UI to support componentID
 *  1.2.09 2023-01-05 update tables to jquery.
 *  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
+*  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.10"  }
+public static String version() {  return "1.2.11"  }
 public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -761,8 +762,8 @@ def pageDeleteDevice2() {
 }
 
 void updateRuleList(action, type) {
-    def trigger = g_mPageConfigureDevice?.hubitatAttribute
-    def command = g_mPageConfigureDevice?.smartCommand
+    Map trigger = g_mPageConfigureDevice?.hubitatAttribute
+    Map command = g_mPageConfigureDevice?.smartCommand
     if(type!='hubitatTrigger') {
         trigger = g_mPageConfigureDevice?.smartAttribute
         command = g_mPageConfigureDevice?.hubitatCommand
@@ -788,7 +789,7 @@ void updateRuleList(action, type) {
     else if(triggerKey && commandKey && !replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.label?.trim()==triggerKey && it?.command?.label?.trim()==commandKey }) {
         Map newRule = [ trigger:trigger, command:command, type:type]  
         newRule?.command?.parameters?.each{ parameter -> if(parameter?.description) {  parameter.remove('description') } } //junk
-        newRule?.command?.arguments?.each{ arguments -> if(arguments?.schema?.pattern) {  arguments.schema.remove('pattern') } } //junk
+        try { newRule?.command?.arguments?.each{ arguments -> if(arguments?.schema?.pattern) { arguments?.schema.remove('pattern') } } } catch(e) {} //junk
         if(newRule?.trigger?.properties?.value?.enum) newRule.trigger.properties.value.remove('enum') //junk
         if(muteTriggerRuleInfo) newRule['mute'] = true
         if(disableStatusUpdate) newRule['disableStatus'] = true
@@ -1058,11 +1059,13 @@ Map getSmartAttributeOptions(replicaDevice) {
             schema["type"] = "attribute"
             if(schema?.properties?.value?.enum) {
                 def label = "attribute: ${attribute}.*"
+                if(smartAttributeOptions[label]) logWarn "Duplicate $schema.label -> id:'$capability.id' and id:'${smartAttributeOptions[label]?.capability}'"
                 smartAttributeOptions[label] = schema.clone()
                 smartAttributeOptions[label].label = label
                 //smartAttributeOptions[label].value = "*"
                 schema?.properties?.value?.enum?.each{ enumValue ->
                     label = "attribute: ${attribute}.${enumValue}"
+                    if(smartAttributeOptions[label]) logWarn "Duplicate $schema.label -> id:'$capability.id' and id:'${smartAttributeOptions[label]?.capability}'"
                     smartAttributeOptions[label] = schema.clone()
                     smartAttributeOptions[label].label = label
                     smartAttributeOptions[label].value = enumValue
@@ -1073,6 +1076,7 @@ Map getSmartAttributeOptions(replicaDevice) {
                 def type = schema?.properties?.value?.type
                 //schema["label"] = "attribute: ${attribute}.[${type}]"
                 schema["label"] = "attribute: ${attribute}.*"
+                if(smartAttributeOptions[schema.label]) logWarn "Duplicate $schema.label -> id:'$capability.id' and id:'${smartAttributeOptions[schema.label]?.capability}'"
                 smartAttributeOptions[schema.label] = schema
             }            
         }
@@ -1316,7 +1320,7 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
     Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")
     event?.each { capability, attributes ->
         attributes?.each{ attribute, value ->
-            logTrace "smartEvent: capability:'$capability' attribute:'$attribute' value:'$value'" 
+            logInfo "smartEvent: capability:'$capability' attribute:'$attribute' value:'$value'" 
             replicaDeviceRules?.components?.findAll{ it?.type == "smartTrigger" }?.each { rule -> 
                 Map trigger = rule?.trigger
                 Map command = rule?.command
@@ -1402,8 +1406,13 @@ Map smartStatusHandler(replicaDevice, String deviceId, Map statusEvent, Long eve
     
     if(appLogEventEnable && statusEvent && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         log.info "Status: ${JsonOutput.toJson(statusEvent)}"
-    }    
-    setReplicaDataJsonValue(replicaDevice, "status", statusEvent)
+    }
+    if(hasCommand(replicaDevice, 'replicaStatus')) {
+        statusEvent.deviceId = deviceId
+        replicaDevice.replicaStatus(app, statusEvent)
+    } else {
+        setReplicaDataJsonValue(replicaDevice, "status", statusEvent)
+    }
     String componentId = getReplicaDataJsonValue(replicaDevice, "replica")?.componentId ?: "main" //componentId was not added until v1.2.06    
     statusEvent?.components?.get(componentId)?.each { capability, attributes ->
         response.statusCode = smartTriggerHandler(replicaDevice, [ "$capability":attributes ], "status", eventPostTime).statusCode
@@ -1419,7 +1428,7 @@ Map smartEventHandler(replicaDevice, Map deviceEvent, Long eventPostTime=null){
     
     if(appLogEventEnable && deviceEvent && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceEvent?.deviceId)) {
         log.info "Event: ${JsonOutput.toJson(deviceEvent)}"
-    }    
+    }   
     //setReplicaDataJsonValue(replicaDevice, "event", deviceEvent)    
     try {
         // events do not carry units. so get it from status. yeah smartthings is great!
@@ -1443,7 +1452,12 @@ Map smartHealthHandler(replicaDevice, String deviceId, Map healthEvent, Long eve
     if(appLogEventEnable && healthEvent && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         log.info "Health: ${JsonOutput.toJson(healthEvent)}"
     }
-    setReplicaDataJsonValue(replicaDevice, "health", healthEvent)
+    if(hasCommand(replicaDevice, 'replicaHealth')) {
+        healthEvent.deviceId = deviceId
+        replicaDevice.replicaHealth(app, healthEvent)
+    } else {
+        setReplicaDataJsonValue(replicaDevice, "health", healthEvent)
+    }
     try {
         //{"deviceId":"2c80c1d7-d05e-430a-9ddb-1630ee457afb","state":"ONLINE","lastUpdatedDate":"2022-09-07T16:47:06.859Z"}
         // status    {"switchLevel":{"level":       {"value":30,                             "unit":"","timestamp":"2022-09-07T21:16:59.576Z" }}}
@@ -1751,6 +1765,12 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
             case 'DEVICE_EVENT':
                 Map device = getSmartDeviceEventsCache(event?.deviceEvent?.deviceId)
                 if(device?.eventCount!=null) device.eventCount += 1
+                // this needs to be done here and not the smartEventHandler to allow for componentId support
+                getReplicaDevices(event?.deviceEvent?.deviceId)?.each{ replicaDevice ->
+                    if(hasCommand(replicaDevice, 'replicaEvent')) {
+                        replicaDevice.replicaEvent(app, event)
+                    }
+                } 
                 getReplicaDevices(event?.deviceEvent?.deviceId, event?.deviceEvent?.componentId)?.each{ replicaDevice ->
                     response.statusCode = smartEventHandler(replicaDevice, event?.deviceEvent, eventPostTime).statusCode
                 }
