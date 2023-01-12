@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.00 2022-12-20 Beta release. Namespace change. Requires OAuth 1.2.00+
 *  1.2.02 2022-12-22 Hide device selection on create page, Rule alert on main page.
 *  1.2.03 2022-12-22 Change timing for OAuth large datasets
 *  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present.
@@ -26,9 +25,11 @@
 *  1.2.08 2023-01-05 'status' support for componentID, fixes for Create & Mirror UI to support componentID
 *  1.2.09 2023-01-05 update tables to jquery.
 *  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
+*  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH if command exists.
+*  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.10"  }
+public static String version() {  return "1.2.12"  }
 public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -761,8 +762,8 @@ def pageDeleteDevice2() {
 }
 
 void updateRuleList(action, type) {
-    def trigger = g_mPageConfigureDevice?.hubitatAttribute
-    def command = g_mPageConfigureDevice?.smartCommand
+    Map trigger = g_mPageConfigureDevice?.hubitatAttribute
+    Map command = g_mPageConfigureDevice?.smartCommand
     if(type!='hubitatTrigger') {
         trigger = g_mPageConfigureDevice?.smartAttribute
         command = g_mPageConfigureDevice?.hubitatCommand
@@ -788,7 +789,7 @@ void updateRuleList(action, type) {
     else if(triggerKey && commandKey && !replicaDeviceRules?.components?.find{ it?.type==type && it?.trigger?.label?.trim()==triggerKey && it?.command?.label?.trim()==commandKey }) {
         Map newRule = [ trigger:trigger, command:command, type:type]  
         newRule?.command?.parameters?.each{ parameter -> if(parameter?.description) {  parameter.remove('description') } } //junk
-        newRule?.command?.arguments?.each{ arguments -> if(arguments?.schema?.pattern) {  arguments.schema.remove('pattern') } } //junk
+        try { newRule?.command?.arguments?.each{ arguments -> if(arguments?.schema?.pattern) { arguments?.schema.remove('pattern') } } } catch(e) {} //junk
         if(newRule?.trigger?.properties?.value?.enum) newRule.trigger.properties.value.remove('enum') //junk
         if(muteTriggerRuleInfo) newRule['mute'] = true
         if(disableStatusUpdate) newRule['disableStatus'] = true
@@ -981,7 +982,6 @@ Map getHubitatAttributeOptions(replicaDevice) {
             def label = "attribute: ${attributeJson?.name}.*"
             hubitatAttributeOptions[label] = attributeJson.clone()
             hubitatAttributeOptions[label].label = label
-            //hubitatAttributeOptions[label].value = "*"
             hubitatAttributeOptions[label].remove('values')
             attributeJson?.values?.each{ enumValue ->
                 label = "attribute: ${attributeJson?.name}.${enumValue}"
@@ -992,7 +992,6 @@ Map getHubitatAttributeOptions(replicaDevice) {
             }
         }
         else {
-            //attributeJson['label'] = "attribute: ${attributeJson?.name}.[${attributeJson?.dataType.toLowerCase()}]"
             attributeJson['label'] = "attribute: ${attributeJson?.name}.*"
             hubitatAttributeOptions[attributeJson.label] = attributeJson
             hubitatAttributeOptions[attributeJson.label].remove('values')
@@ -1032,7 +1031,7 @@ Map getSmartCommandOptions(replicaDevice) {
             value["type"] = "command"
             value["capability"] = capability.id        
             def label = "command: ${command}$parameterText"            
-            if(smartCommandOptions[label]) { // this device has conflicting commands from different capablities.
+            if(smartCommandOptions[label]) { // this device has conflicting commands from different capablities. like alarm & switch
                 def newLabel = "command: ${smartCommandOptions[label].capability}:${command}$parameterText"
                 smartCommandOptions[newLabel] = smartCommandOptions[label]
                 smartCommandOptions[newLabel].label = newLabel
@@ -1058,11 +1057,12 @@ Map getSmartAttributeOptions(replicaDevice) {
             schema["type"] = "attribute"
             if(schema?.properties?.value?.enum) {
                 def label = "attribute: ${attribute}.*"
+                if(smartAttributeOptions[label]) { label = "attribute: ${capability.id}:${attribute}.*" } // duplicate attribute. rare case like TV.
                 smartAttributeOptions[label] = schema.clone()
                 smartAttributeOptions[label].label = label
-                //smartAttributeOptions[label].value = "*"
                 schema?.properties?.value?.enum?.each{ enumValue ->
                     label = "attribute: ${attribute}.${enumValue}"
+                    if(smartAttributeOptions[label]) { label = "attribute: ${capability.id}:${attribute}.${enumValue}" } // duplicate attribute. rare case like TV.
                     smartAttributeOptions[label] = schema.clone()
                     smartAttributeOptions[label].label = label
                     smartAttributeOptions[label].value = enumValue
@@ -1071,8 +1071,8 @@ Map getSmartAttributeOptions(replicaDevice) {
             }
             else {
                 def type = schema?.properties?.value?.type
-                //schema["label"] = "attribute: ${attribute}.[${type}]"
                 schema["label"] = "attribute: ${attribute}.*"
+                if(smartAttributeOptions[schema.label]) { schema.label = "attribute: ${capability.id}:${attribute}.*" } // duplicate attribute. rare case like TV.
                 smartAttributeOptions[schema.label] = schema
             }            
         }
@@ -1192,25 +1192,31 @@ void locationModeHandler(def event) {
         }
     }   
 }
-
+// called from subscribe HE devices
 void deviceTriggerHandler(def event) {
     //event.properties.each { logInfo "$it.key -> $it.value" }
     deviceTriggerHandler(event?.getDevice(), event?.name, event?.value, event?.unit, event?.getJsonData())
 }
-
+// called from replica HE drivers
 void deviceTriggerHandler(def replicaDevice, Map event) {
-    if(event?.name == "configure" || event?.name == "refresh") {
+    
+    Boolean refresh = deviceTriggerHandler(replicaDevice, event?.name, event?.value, event?.unit, event?.data, event?.now)    
+    if(event?.name == "configure") {
         clearReplicaDataCache(replicaDevice)
-        replicaDeviceRefresh(replicaDevice)        
+        replicaDeviceRefresh(replicaDevice)       
     }
-    else {    
-        deviceTriggerHandler(replicaDevice, event?.name, event?.value, event?.unit, event?.data, event?.now)
-    }     
+    if(event?.name == "refresh") {
+        String deviceId = getReplicaDeviceId(replicaDevice)    
+        if(deviceId&&refresh) getSmartDeviceStatus(deviceId)
+        else replicaDeviceRefresh(replicaDevice)      
+    }
 }
            
-void deviceTriggerHandler(def replicaDevice, String eventName, def eventValue, String eventUnit, Map eventJsonData, Long eventPostTime=null) {
+Boolean deviceTriggerHandler(def replicaDevice, String eventName, def eventValue, String eventUnit, Map eventJsonData, Long eventPostTime=null) {
     eventPostTime = eventPostTime ?: now()
     logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' name:'$eventName' value:'$eventValue' unit:'$eventUnit', data:'$eventJsonData'"
+    Boolean response = false
+    
     String deviceId = getReplicaDeviceId(replicaDevice)
     String componentId = getReplicaDataJsonValue(replicaDevice, "replica")?.componentId ?: "main" //componentId was not added until v1.2.06 
 
@@ -1226,6 +1232,7 @@ void deviceTriggerHandler(def replicaDevice, String eventName, def eventValue, S
                 // check if this was from ST and should not be sent back
                 if(trigger?.type=="command" || !deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) { 
                     setSmartDeviceCommand(deviceId, componentId, command?.capability, command?.name)
+                    response = true
                     if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ● trigger:${trigger?.type=="command"?"command":eventName}:${trigger?.type=="command"?eventName:eventValue} ➣ command:${command?.name} ● delay:${now() - eventPostTime}ms"
                 }
             }
@@ -1266,11 +1273,13 @@ void deviceTriggerHandler(def replicaDevice, String eventName, def eventValue, S
                         arguments = arguments?.plus( trigger?.parameters?.findResults{ parameter -> parameter?.data ? eventJsonData?.get(parameter?.data) : null })
                     }                    
                     setSmartDeviceCommand(deviceId, componentId, command?.capability, command?.name, arguments)
+                    response = true
                     if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' $type ● trigger:${evtName} ➣ command:${command?.name}:${arguments?.toString()} ● delay:${now() - eventPostTime}ms"
                 }
             }
         }
-    }            
+    }
+    return response
 }
 
 Boolean deviceTriggerHandlerCache(replicaDevice, attribute, value) {
@@ -1402,8 +1411,13 @@ Map smartStatusHandler(replicaDevice, String deviceId, Map statusEvent, Long eve
     
     if(appLogEventEnable && statusEvent && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         log.info "Status: ${JsonOutput.toJson(statusEvent)}"
-    }    
-    setReplicaDataJsonValue(replicaDevice, "status", statusEvent)
+    }
+    if(hasCommand(replicaDevice, 'replicaStatus')) {
+        statusEvent.deviceId = deviceId
+        replicaDevice.replicaStatus(app, statusEvent)
+    } else {
+        setReplicaDataJsonValue(replicaDevice, "status", statusEvent)
+    }
     String componentId = getReplicaDataJsonValue(replicaDevice, "replica")?.componentId ?: "main" //componentId was not added until v1.2.06    
     statusEvent?.components?.get(componentId)?.each { capability, attributes ->
         response.statusCode = smartTriggerHandler(replicaDevice, [ "$capability":attributes ], "status", eventPostTime).statusCode
@@ -1419,7 +1433,7 @@ Map smartEventHandler(replicaDevice, Map deviceEvent, Long eventPostTime=null){
     
     if(appLogEventEnable && deviceEvent && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceEvent?.deviceId)) {
         log.info "Event: ${JsonOutput.toJson(deviceEvent)}"
-    }    
+    }   
     //setReplicaDataJsonValue(replicaDevice, "event", deviceEvent)    
     try {
         // events do not carry units. so get it from status. yeah smartthings is great!
@@ -1443,7 +1457,12 @@ Map smartHealthHandler(replicaDevice, String deviceId, Map healthEvent, Long eve
     if(appLogEventEnable && healthEvent && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         log.info "Health: ${JsonOutput.toJson(healthEvent)}"
     }
-    setReplicaDataJsonValue(replicaDevice, "health", healthEvent)
+    if(hasCommand(replicaDevice, 'replicaHealth')) {
+        healthEvent.deviceId = deviceId
+        replicaDevice.replicaHealth(app, healthEvent)
+    } else {
+        setReplicaDataJsonValue(replicaDevice, "health", healthEvent)
+    }
     try {
         //{"deviceId":"2c80c1d7-d05e-430a-9ddb-1630ee457afb","state":"ONLINE","lastUpdatedDate":"2022-09-07T16:47:06.859Z"}
         // status    {"switchLevel":{"level":       {"value":30,                             "unit":"","timestamp":"2022-09-07T21:16:59.576Z" }}}
@@ -1751,6 +1770,12 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
             case 'DEVICE_EVENT':
                 Map device = getSmartDeviceEventsCache(event?.deviceEvent?.deviceId)
                 if(device?.eventCount!=null) device.eventCount += 1
+                // this needs to be done here and not the smartEventHandler to allow for componentId support
+                getReplicaDevices(event?.deviceEvent?.deviceId)?.each{ replicaDevice ->
+                    if(hasCommand(replicaDevice, 'replicaEvent')) {
+                        replicaDevice.replicaEvent(app, event)
+                    }
+                } 
                 getReplicaDevices(event?.deviceEvent?.deviceId, event?.deviceEvent?.componentId)?.each{ replicaDevice ->
                     response.statusCode = smartEventHandler(replicaDevice, event?.deviceEvent, eventPostTime).statusCode
                 }
