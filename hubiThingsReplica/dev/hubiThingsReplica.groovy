@@ -29,7 +29,7 @@
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.11"  }
+public static String version() {  return "1.2.12"  }
 public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
