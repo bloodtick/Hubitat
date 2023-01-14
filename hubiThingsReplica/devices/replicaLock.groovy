@@ -1,5 +1,5 @@
 /**
-*  Copyright 2022 Bloodtick
+*  Copyright 2023 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.2.1"}
+public static String version() {return "1.3.0"}
 
 metadata 
 {
@@ -37,7 +37,8 @@ metadata
         command "nameSlot", [[name: "codeSlot*", type: "NUMBER", description: "Code Slot Number"],[name: "codeName*", type: "STRING", description: "Name of this Slot"]] //capability "lockCodes" in SmartThings
         command "reloadAllCodes" //capability "lockCodes" in SmartThings
     }
-    preferences {   
+    preferences {
+        input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
     }
 }
 
@@ -55,7 +56,7 @@ def initialize() {
 }
 
 def configure() {
-    log.info "${device.displayName} configured default rules"
+    logInfo "${device.displayName} configured default rules"
     initialize()
     updateDataValue("rules", getReplicaRules())
     sendCommand("configure")
@@ -72,55 +73,55 @@ Map getReplicaCommands() {
 def setBatteryValue(value) {
     String descriptionText = "${device.displayName} battery level is $value %"
     sendEvent(name: "battery", value: value, unit: "%", descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setScanCodesValue(value) {
     String descriptionText = "${device.displayName} scan codes are $value"
     sendEvent(name: "scanCodes", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setMinCodeLengthValue(value) {
     String descriptionText = "${device.displayName} min code length is $value"
     sendEvent(name: "minCodeLength", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setMaxCodeLengthValue(value) {
     String descriptionText = "${device.displayName} max code length is $value"
     sendEvent(name: "maxCodeLength", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setCodeReportValue(value) {
     String descriptionText = "${device.displayName} code report is $value"
     sendEvent(name: "codeReport", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setMaxCodesValue(value) {
     String descriptionText = "${device.displayName} max code is $value"
     sendEvent(name: "maxCodes", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
             
 def setLockCodesValue(value) {
     String descriptionText = "${device.displayName} locked codes are $value"
     sendEvent(name: "lockCodes", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setCodeLengthValue(value) {
     String descriptionText = "${device.displayName} code length is $value"
     sendEvent(name: "codeLength", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setCodeChangedValue(value) {
     String descriptionText = "${device.displayName} code is $value"
     sendEvent(name: "codeChanged", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setCodeChangedAdded() {
@@ -142,7 +143,7 @@ def setCodeChangedFailed() {
 def setLockValue(value) {
     String descriptionText = "${device.displayName} is $value"
     sendEvent(name: "lock", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setLockLocked() {
@@ -173,7 +174,7 @@ Map getReplicaTriggers() {
 
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) { 
     data.version=version()
-    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
 }
 
 def updateCodes(codes) {
@@ -244,3 +245,9 @@ String getReplicaRules() {
 "properties":{"value":{"maxLength":255,"title":"String","type":"string"}},"additionalProperties":false,"required":[],"capability":"lockCodes","attribute":"scanCodes","label":"attribute: scanCodes.*"},"command":{"name":"setScanCodesValue","label":"command: setScanCodesValue(scanCodes*)","type":"command","parameters":[{"name":"scanCodes*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"name":"unlock","label":"command: unlock()","type":"command"},"command":{"name":"unlock","type":"command","capability":"lock",\
 "label":"command: lock:unlock()"},"type":"hubitatTrigger"},{"trigger":{"name":"lock","label":"command: lock()","type":"command"},"command":{"name":"lock","type":"command","capability":"lock","label":"command: lock:lock()"},"type":"hubitatTrigger"}]}"""
 }
+
+private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
+private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
+private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
+private logWarn(msg)  { log.warn   "${msg}" }
+private logError(msg) { log.error  "${msg}" }
