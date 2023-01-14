@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.2.0"}
+public static String version() {return "1.3.0"}
 
 metadata 
 {
@@ -30,7 +30,8 @@ metadata
 
         attribute "healthStatus", "enum", ["offline", "online"]
     }
-    preferences {   
+    preferences {
+        input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
     }
 }
 
@@ -48,7 +49,7 @@ def initialize() {
 }
 
 def configure() {
-    log.info "${device.displayName} configured default rules"
+    logInfo "${device.displayName} configured default rules"
     initialize()
     updateDataValue("rules", getReplicaRules())
     sendCommand("configure")
@@ -64,19 +65,19 @@ Map getReplicaCommands() {
 def setBatteryValue(value) {
     String descriptionText = "${device.displayName} battery level is $value %"
     sendEvent(name: "battery", value: value, unit: "%", descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setDoubleTappedValue(value=1) {
     String descriptionText = "${device.displayName} button $value was double tapped"
     sendEvent(name: "doubleTapped", value: value, descriptionText: descriptionText, isStateChange: true)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setHeldValue(value=1) {
     String descriptionText = "${device.displayName} button $value was held"
     sendEvent(name: "held", value: value, descriptionText: descriptionText, isStateChange: true)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setNumberOfButtonsValue(value=1) {
@@ -86,20 +87,20 @@ def setNumberOfButtonsValue(value=1) {
 def setPushedValue(value=1) {
     String descriptionText = "${device.displayName} button $value was pushed"
     sendEvent(name: "pushed", value: value, descriptionText: descriptionText, isStateChange: true)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setReleasedValue(value=1) {
     String descriptionText = "${device.displayName} button $value was released"
     sendEvent(name: "released", value: value, descriptionText: descriptionText, isStateChange: true)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setTemperatureValue(value) {
     String unit = "°${getTemperatureScale()}"
     String descriptionText = "${device.displayName} temperature is $value $unit"
     sendEvent(name: "temperature", value: value, unit: unit, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setHealthStatusValue(value) {    
@@ -112,7 +113,8 @@ Map getReplicaTriggers() {
 }
 
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
-    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
+    data.version=version()
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
 }
 
 def doubleTap(value=1) {
@@ -138,3 +140,9 @@ void refresh() {
 String getReplicaRules() {
     return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"PositiveInteger","type":"integer","minimum":0}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"numberOfButtons","label":"attribute: numberOfButtons.*"},"command":{"name":"setNumberOfButtonsValue","label":"command: setNumberOfButtonsValue(numberOfButtons*)","type":"command","parameters":[{"name":"numberOfButtons*","type":"NUMBER"}]},"type":"smartTrigger","mute":true},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"command":{"name":"setBatteryValue","label":"command: setBatteryValue(battery*)","type":"command","parameters":[{"name":"battery*","type":"NUMBER"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.held","value":"held","dataType":"ENUM"},"command":{"name":"setHeldValue","label":"command: setHeldValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.double","value":"double","dataType":"ENUM"},"command":{"name":"setDoubleTappedValue","label":"command: setDoubleTappedValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.pushed","value":"pushed","dataType":"ENUM"},"command":{"name":"setPushedValue","label":"command: setPushedValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"command":{"name":"setTemperatureValue","label":"command: setTemperatureValue(temperature*)","type":"command","parameters":[{"name":"temperature*","type":"NUMBER"}]},"type":"smartTrigger","mute":true}]}"""
 }
+
+private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
+private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
+private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
+private logWarn(msg)  { log.warn   "${msg}" }
+private logError(msg) { log.error  "${msg}" }
