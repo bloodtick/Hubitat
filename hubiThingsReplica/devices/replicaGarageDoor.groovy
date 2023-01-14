@@ -1,5 +1,5 @@
 /**
-*  Copyright 2022 Bloodtick
+*  Copyright 2023 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.2.0"}
+public static String version() {return "1.3.0"}
 
 metadata 
 {
@@ -29,9 +29,13 @@ metadata
         capability "Sensor"
         capability "Switch"
         
+        command "alarmOff"  // do this when both Alarm and Swtich capability are present
+        command "switchOff" // do this when both Alarm and Swtich capability are present
+        
         attribute "healthStatus", "enum", ["offline", "online"]
     }
-    preferences {   
+    preferences {
+        input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
     }
 }
 
@@ -49,7 +53,7 @@ def initialize() {
 }
 
 def configure() {
-    log.info "${device.displayName} configured default rules"
+    logInfo "${device.displayName} configured default rules"
     initialize()
     updateDataValue("rules", getReplicaRules())
     sendCommand("configure")
@@ -65,7 +69,7 @@ Map getReplicaCommands() {
 def setAlarmValue(String value) {
     String descriptionText = "${device.displayName} alarm is $value"
     sendEvent(name: "alarm", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setAlarmOff() {
@@ -87,13 +91,13 @@ def setAlarmStrobe() {
 def setBatteryValue(value) {
     String descriptionText = "${device.displayName} battery level is $value %"
     sendEvent(name: "battery", value: value, unit: "%", descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setContactValue(String value) {
     String descriptionText = "${device.displayName} contact is $value"
     sendEvent(name: "contact", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setContactClosed() {
@@ -107,7 +111,7 @@ def setContactOpen() {
 def setDoorValue(String value) {
     String descriptionText = "${device.displayName} door is $value"
     sendEvent(name: "door", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setDoorClosed() {
@@ -133,7 +137,7 @@ def setDoorUnknown() {
 def setSwitchValue(value) {
     String descriptionText = "${device.displayName} was turned $value"
     sendEvent(name: "switch", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setSwitchOff() {
@@ -150,12 +154,21 @@ def setHealthStatusValue(String value) {
 
 // Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
 Map getReplicaTriggers() {
-    return ([ "both":[] , "siren":[], "strobe":[], "off":[], "on":[], "close":[], "open":[], "refresh":[]])
+    return ([ "both":[] , "siren":[], "strobe":[], "alarmOff":[], "switchOff":[], "off":[], "on":[], "close":[], "open":[], "refresh":[]])
 }
 
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
-    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
-}   
+    data.version=version()
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
+}
+
+def alarmOff() { 
+    sendCommand("alarmOff")
+}
+
+def switchOff() { 
+    sendCommand("switchOff")
+}
 
 def both() {
     sendCommand("both")
@@ -193,3 +206,9 @@ String getReplicaRules() {
     return """ {"version":1,"components":[{"trigger":{"name":"close","label":"command: close()","type":"command"},"command":{"name":"close","type":"command","capability":"doorControl","label":"command: close()"},"type":"hubitatTrigger"},{"trigger":{"name":"open","label":"command: open()","type":"command"},"command":{"name":"open","type":"command","capability":"doorControl","label":"command: open()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.*"},"command":{"name":"setContactValue","label":"command: setContactValue(contact*)","type":"command","parameters":[{"name":"contact*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"},"command":{"name":"setSwitchValue","label":"command: setSwitchValue(switch*)","type":"command","parameters":[{"name":"switch*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.*"},"command":{"name":"setDoorValue","label":"command: setDoorValue(door*)","type":"command","parameters":[{"name":"door*","type":"ENUM"}]},"type":"smartTrigger"}]}
 status: {"components":{"main":{"doorControl":{"door":{"value":"closed","timestamp":"2022-11-20T01:40:51.228Z"}},"contactSensor":{"contact":{"value":"closed","timestamp":"2022-11-20T01:40:51.232Z"}},"switch":{"switch":{"value":"on","timestamp":"2022-11-20T01:40:51.229Z"}}}}}"""
 }
+
+private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
+private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
+private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
+private logWarn(msg)  { log.warn   "${msg}" }
+private logError(msg) { log.error  "${msg}" }
