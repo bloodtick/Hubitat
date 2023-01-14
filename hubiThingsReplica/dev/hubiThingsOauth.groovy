@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.01 2022-12-22 Changes to allow for larger datasets.
 *  1.2.04 2022-12-23 Debug to help troubleshoot large datasets.
 *  1.2.05 2022-12-23 Exception code around room/device sort pattern. Lock query during execution
 *  1.2.06 2023-01-02 Not released
@@ -27,9 +26,10 @@
 *  1.2.10 2023-01-07 Align version to Replica for next Beta release.
 *  1.2.11 2023-01-11 Align version to Replica for next Beta release.
 *  1.2.12 2023-01-12 Align version to Replica for next Beta release.
+*  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate. 
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.12"  }
+public static String version() {  return "1.3.00"  }
 public static String copyright() {"&copy; 2023 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -65,7 +65,8 @@ definition(
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
     iconUrl: "",
     iconX2Url: "",
-    singleInstance: false
+    singleInstance: false,
+    installOnOpen: true
 ){}
 
 String getDefaultLabel() {
@@ -88,6 +89,7 @@ def installed() {
     logInfo "${getDefaultLabel()} executing 'installed()'"
     state.isInstalled = now()    
     if(pageMainPageAppLabel) { app.updateLabel( pageMainPageAppLabel ) }
+    else app.updateSetting("pageMainPageAppLabel", getDefaultLabel())
     initialize()
 }
 
@@ -223,6 +225,7 @@ def pageMain(){
         def install = installHelper()
         if(install) return install
     }
+    app.removeSetting('hubitatQueryString')
     
     Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)
     String refreshTime = "${(new Date( now()+refreshInterval*1000 ).format("h:mm:ss a"))}"
@@ -258,26 +261,29 @@ def pageMain(){
                 else {
                     input(name: "pageMain::deleteApp", type: "button", width: 2, title: "Delete API", style:"width:75%;")                
                 
-                    paragraph("SmartThings API is ${state.installedAppId ? "configured: <i>select 'Delete API' to remove all OAuth authorizations</i>" : "available for OAuth configuration: <i>select link below to continue</i>"}")
-                    String status = "• OAuth Client ID: ${state.oauthClientId}\n"
-                          status += "• OAuth Hubitat Cloud Callback: ${getFormat("text", state.oauthCallback,null,(state?.oauthCallback=="CONFIRMED"?sColorDarkGrey:sColorDarkRed))}\n"
-                          status += "• Installed App ID: ${state.installedAppId ?: "Pending Authorization"}\n\n"
+                    paragraph("$sSamsungIcon <b>SmartThings API is ${state.installedAppId ? "configured:</b> select 'Delete API' to remove OAuth authorization" : "ready for OAuth authorization:</b> ${getFormat("text","select link below to continue")}"}")
+                    String status = "• SmartThings Application: ${getFormat("text", "CONFIRMED",null,sColorDarkGrey)}\n"
+                          status += "• Hubitat Webhook Callback: ${getFormat("text", state.oauthCallback,null,(state?.oauthCallback=="CONFIRMED"?sColorDarkGrey:sColorDarkRed))}\n"
+                          status += "• Installed Application: ${getFormat("text", state.installedAppId?"AUTHORIZED":"PENDING AUTHORIZATION",null,state.installedAppId?sColorDarkGrey:sColorDarkRed)}"
                     if(state?.authTokenExpires) {
+                          status += "\n\n"
                           status += "• Device Count: ${getSmartDevices()?.items?.size()?:0}\n" //this needs to be first since it will fetch location, rooms, devices, in that order
                           status += "• Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
                           status += "• Location: ${getSmartLocationName(state.locationId)}\n"     
-                          status += "• Token Expiration Date: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
+                          status += "• Token Expiration: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
                           status += "${(getAuthStatus()=="FAILURE") ? getFormat("text","\nAction: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : ""}"
                     }
                     paragraph(status)                      
                 
                     if(state.installedAppId) {
-                        paragraph( getFormat("hyperlink","$sSamsungIcon Click here to refresh SmartThings OAuth Authorization", getOauthAuthorizeUri()) )
+                        //paragraph( getFormat("hyperlink","$sSamsungIcon Click here to refresh SmartThings OAuth Authorization", getOauthAuthorizeUri()) )
+                        href url: getOauthAuthorizeUri(), style: "external", required: false, title: "$sSamsungIcon SmartThings OAuth Authorization", description: "Click to <b>reauthorize</b> Installed Application"
                     }
                     else {
-                        paragraph( getFormat("hyperlink","$sSamsungIcon 'Click Here' for SmartThings OAuth Authorization and select 'Refresh' when completed", getOauthAuthorizeUri()) )
-                        input(name: "pageMain::noop", type: "button", width: 2, title: "Refresh", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;", newLineAfter:true)
-                    }
+                        //paragraph( getFormat("hyperlink","$sSamsungIcon 'Click Here' for SmartThings OAuth Authorization and select 'Refresh' when completed", getOauthAuthorizeUri()) )
+                        //input(name: "pageMain::noop", type: "button", width: 2, title: "Refresh", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;", newLineAfter:true)
+                        href url: getOauthAuthorizeUri(), style: "external", required: false, title: getFormat("text","$sSamsungIcon SmartThings OAuth Authorization"), description: "Click to <b>authorize</b> Installed Application"
+                      }
                 }
             }
         }
@@ -290,7 +296,7 @@ def pageMain(){
                     input(name: "enableModeSubscription", type: "bool", title: getFormat("text","Enable SmartThings Mode Subscription"), defaultValue: false, submitOnChange: true)
                     input(name: "enableSceneLifecycleSubscription", type: "bool", title: getFormat("text","Enable SmartThings Scene Lifecycle Subscription"), defaultValue: false, submitOnChange: true)
                 }
-                String controller = getParent() ? "<i>${getParent()?.getLabel()} managed</i>" : ""
+                String controller = getParent() ? "${getParent()?.getLabel()} managed" : ""
                 String status  = "$sSamsungIcon <b>SmartThings Location Subscriptions:</b> $controller\n"
                        status += "• SmartThings Device Lifecycle is ${!!getSmartSubscriptionId("DEVICE_LIFECYCLE")?"":"not "}subscribed<br>"
                        status += "• SmartThings Device Health is ${!!getSmartSubscriptionId("DEVICE_HEALTH")?"":"not "}subscribed<br>"
@@ -1074,7 +1080,8 @@ void stopApp() { // called by deleteApp() directly.
     state.remove('oauthClientSecret')
     state.remove('refreshToken')
     state.remove('rooms')
-    state.remove('subscriptions')       
+    state.remove('subscriptions')
+    app.removeSetting("hubitatQueryString")
     g_mSmartSubscriptionList[app.getId()] = null
     g_mSmartLocationList[app.getId()] = null
     g_mSmartRoomList[app.getId()] = null
@@ -1301,6 +1308,7 @@ def getHtmlResponse(Boolean success=false) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="referrer" content="never">
   <link rel="icon" href="data:;base64,iVBORw0KGgo=">
   <title>${getDefaultLabel()}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1314,8 +1322,8 @@ def getHtmlResponse(Boolean success=false) {
   </style>
 </head>
 <body>
-<h1>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has successfully authorized ${getDefaultLabel()}" : "The SmartThings connection could not be established!"}</h1>
-  <p>${success ? "Close this window and press 'refresh' to continue configuration" : "Close this window and retry authorization"}</p>
+<h2>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has successfully authorized ${getDefaultLabel()}" : "The SmartThings connection could not be established!"}</h2>
+  <p>${success ? "Close this window to continue configuration" : "Close this window and retry authorization"}</p>
 </body>
 </html>
 """
