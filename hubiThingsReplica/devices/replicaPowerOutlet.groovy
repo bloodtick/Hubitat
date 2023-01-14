@@ -1,5 +1,5 @@
 /**
-*  Copyright 2022 Bloodtick
+*  Copyright 2023 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.2.0"}
+public static String version() {return "1.3.0"}
 
 metadata 
 {
@@ -27,7 +27,8 @@ metadata
 
         attribute "healthStatus", "enum", ["offline", "online"]
     }
-    preferences {   
+    preferences {
+        input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
     }
 }
 
@@ -45,7 +46,7 @@ def initialize() {
 }
 
 def configure() {
-    log.info "${device.displayName} configured default rules"
+    logInfo "${device.displayName} configured default rules"
     initialize()
     updateDataValue("rules", getReplicaRules())
     sendCommand("configure")
@@ -61,25 +62,25 @@ Map getReplicaCommands() {
 def setPowerValue(value) {
     String descriptionText = "${device.displayName} power is $value W"
     sendEvent(name: "power", value: value, unit: "W", descriptionText: descriptionText)
-    //log.info descriptionText
+    //logInfo descriptionText
 }
 
 def setVoltageValue(value) {
     String descriptionText = "${device.displayName} voltage is $value V"
     sendEvent(name: "voltage", value: value, unit: "V", descriptionText: descriptionText)
-    //log.info descriptionText
+    //logInfo descriptionText
 }
 
 def setFrequencyValue(value) {
     String descriptionText = "${device.displayName} frequency is $value Hz"
     sendEvent(name: "frequency", value: value, unit: "Hz", descriptionText: descriptionText)
-    //log.info descriptionText
+    //logInfo descriptionText
 }
 
 def setSwitchValue(value) {
     String descriptionText = "${device.displayName} switch is $value"
     sendEvent(name: "switch", value: value, descriptionText: descriptionText)
-    log.info descriptionText
+    logInfo descriptionText
 }
 
 def setSwitchOff() {
@@ -100,7 +101,8 @@ Map getReplicaTriggers() {
 }
 
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
-    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
+    data.version=version()
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
 }
 
 def off() { 
@@ -118,3 +120,9 @@ void refresh() {
 String getReplicaRules() {
     return """{"version":1,"components":[{"trigger":{"name":"off","label":"command: off()","type":"command"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"name":"on","label":"command: on()","type":"command"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"},"command":{"name":"setSwitchValue","label":"command: setSwitchValue(switch*)","type":"command","parameters":[{"name":"switch*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["W"],"default":"W"}},"additionalProperties":false,"required":["value"],"capability":"powerMeter","attribute":"power","label":"attribute: power.*"},"command":{"name":"setPowerValue","label":"command: setPowerValue(power*)","type":"command","parameters":[{"name":"power*","type":"NUMBER"}]},"type":"smartTrigger","mute":true}]}"""
 }
+
+private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
+private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
+private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
+private logWarn(msg)  { log.warn   "${msg}" }
+private logError(msg) { log.error  "${msg}" }
