@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.02 2022-12-22 Hide device selection on create page, Rule alert on main page.
 *  1.2.03 2022-12-22 Change timing for OAuth large datasets
 *  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present.
 *  1.2.06 2023-01-02 device table now a jquery DataTables object, remove pattern from rule.
@@ -27,9 +26,10 @@
 *  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
 *  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH if command exists.
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
+*  1.3.00 2023-01-13 Formal Release Candidate
 LINE 30 MAX */ 
 
-public static String version() {  return "1.2.12"  }
+public static String version() {  return "1.3.00"  }
 public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -51,7 +51,6 @@ import groovy.transform.Field
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
-@Field static final String  sCodeRelease="Beta"
 
 // IN-MEMORY VARIABLES (Cleared on HUB REBOOT or CODE UPDATES)
 @Field volatile static Map<Long,Map>   g_mSmartDeviceStatusMap = [:]
@@ -242,13 +241,17 @@ def pageMain(){
             paragraph( getFormat("line") )            
             if(pageMainShowConfig) {
                 String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all permissions to enable functionality</b>. "
-                       comments+= "A PAT is valid for 50 years from creation date. Click the ${sSamsungIcon} link below to be directed to the SmartThings website."
+                       comments+= "A PAT is valid for 50 years from creation date. Click the ${sSamsungIcon} SmartThings Personal Access Token link to be directed to the SmartThings website."
                 paragraph( getFormat("comments",comments,null,"Gray") )
                 
                 input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)
                 paragraph("") 
                 
                 if(userSmartThingsPAT) {
+                    comments = "HubiThings OAuth Applications are required to enable SmartThings devices for replication. Each OAuth Application can subscribe up to 20 devices and is hub and location independent. "
+                    comments+= "<b>HubiThings Replica allows for multiple OAuth Applications to be created</b> for solution requirements beyond 20 devices. Click the ${sSamsungIcon} Authorize SmartThings Devices link to create OAuth Application(s)."
+                    paragraph( getFormat("comments",comments,null,"Gray") )
+                    
                     app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: "${getFormat("text","$sSamsungIcon Authorize SmartThings Devices")} : Create OAuth Applications", multiple: true)                
                     paragraph( getFormat("line") )
   
