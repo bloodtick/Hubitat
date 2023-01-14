@@ -1,5 +1,5 @@
 /**
-*  Copyright 2022 Bloodtick
+*  Copyright 2023 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -12,44 +12,31 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.2.2"}
+public static String version() {return "1.3.0"}
 
 metadata 
 {
-    definition(name: "Replica SmartThings Hub", namespace: "replica", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaSmartThingsHub.groovy")
+    definition(name: "Replica Button", namespace: "replica", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaButton.groovy")
     {
         capability "Actuator"
+        capability "Battery"
         capability "Configuration"
+        capability "DoubleTapableButton"
+        capability "HoldableButton"
+        capability "PushableButton"
         capability "Refresh"
-        
-        attribute "mode", "string"
-        attribute "modes", "JSON_OBJECT"
-        attribute "latitude", "string"
-        attribute "longitude", "string"
-        attribute "countryCode", "string"
-        attribute "locationName", "string"
-        attribute "temperatureScale", "string"
-        attribute "timeZoneId", "string"
-        attribute "replica", "string"
-        attribute "oauthStatus", "enum", ["unknown", "authorized", "failure", "pending"]
-        attribute "healthStatus", "enum", ["offline", "online"]        
+        capability "ReleasableButton"
+        capability "TemperatureMeasurement"
 
-        command "deleteLocationMode", [[name: "modeName*", type: "STRING", description: "Delete mode name"]]
-        command "createLocationMode", [[name: "modeName*", type: "STRING", description: "Create mode name"]]
-        command "setLocationMode", [[name: "modeName*", type: "STRING", description: "Set mode string"]]
+        attribute "healthStatus", "enum", ["offline", "online"]
     }
     preferences {
-        input(name:"deviceModeHubitatFollows", type: "bool", title: "<b>Hubitat Hub follows SmartThings Mode Updates:</b>", defaultValue: false)
-        input(name:"deviceModeSmartThingsFollows", type: "bool", title: "<b>SmartThings Hub follows Hubitat Mode Updates:</b>", defaultValue: false)
-        input(name:"deviceDebugEnable", type: "bool", title: "Enable debug logging:", defaultValue: false) 
+        input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
     }
 }
 
 def installed() {
 	initialize()
-    device.updateSetting("deviceLabelUpdate",[value:true, type:"bool"])
-    device.updateSetting("deviceInfoEnable",[value:true, type:"bool"])
-    setOauthStatusValue('unknown')
 }
 
 def updated() {
@@ -59,8 +46,6 @@ def updated() {
 def initialize() {
     updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers()))
     updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands()))
-    runEvery1Hour(refresh)
-    runIn(15, refresh) // replica needs to load 'description' information before we can startup
 }
 
 def configure() {
@@ -72,20 +57,50 @@ def configure() {
 
 // Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
 Map getReplicaCommands() {
-    return ([ "setReplicaValue":[[name:"replica*",type:"STRING"]], "setModeValue":[[name:"mode*",type:"STRING"]], "setOauthStatusValue":[[name:"oauthStatus*",type:"ENUM"]], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]])
+    return ([ "setBatteryValue":[[name:"battery*",type:"NUMBER"]], "setDoubleTappedValue":[[name:"buttonNumber",type:"NUMBER"]], "setHeldValue":[[name:"buttonNumber",type:"NUMBER"]], "setNumberOfButtonsValue":[[name:"numberOfButtons*",type:"NUMBER"]],             
+              "setPushedValue":[[name:"buttonNumber",type:"NUMBER"]], "setReleasedValue":[[name:"buttonNumber",type:"NUMBER"]], "setTemperatureValue":[[name:"temperature*",type:"NUMBER"]], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]
+            ])
 }
 
-def setModeValue(value) {
-    String mode = state?.modes?.find{ it?.id==value }?.label
-    setModeAttribute(mode)
+def setBatteryValue(value) {
+    String descriptionText = "${device.displayName} battery level is $value %"
+    sendEvent(name: "battery", value: value, unit: "%", descriptionText: descriptionText)
+    logInfo descriptionText
 }
 
-def setReplicaValue(value) {    
-    sendEvent(name: "replica", value: value, descriptionText: "${device.displayName} replica set to $value")
+def setDoubleTappedValue(value=1) {
+    String descriptionText = "${device.displayName} button $value was double tapped"
+    sendEvent(name: "doubleTapped", value: value, descriptionText: descriptionText, isStateChange: true)
+    logInfo descriptionText
 }
 
-def setOauthStatusValue(value) {    
-    sendEvent(name: "oauthStatus", value: value, descriptionText: "${device.displayName} oauthStatus set to $value")
+def setHeldValue(value=1) {
+    String descriptionText = "${device.displayName} button $value was held"
+    sendEvent(name: "held", value: value, descriptionText: descriptionText, isStateChange: true)
+    logInfo descriptionText
+}
+
+def setNumberOfButtonsValue(value=1) {
+    sendEvent(name: "numberOfButtons", value: value, descriptionText: "${device.displayName} has $value number of buttons")
+}
+
+def setPushedValue(value=1) {
+    String descriptionText = "${device.displayName} button $value was pushed"
+    sendEvent(name: "pushed", value: value, descriptionText: descriptionText, isStateChange: true)
+    logInfo descriptionText
+}
+
+def setReleasedValue(value=1) {
+    String descriptionText = "${device.displayName} button $value was released"
+    sendEvent(name: "released", value: value, descriptionText: descriptionText, isStateChange: true)
+    logInfo descriptionText
+}
+
+def setTemperatureValue(value) {
+    String unit = "°${getTemperatureScale()}"
+    String descriptionText = "${device.displayName} temperature is $value $unit"
+    sendEvent(name: "temperature", value: value, unit: unit, descriptionText: descriptionText)
+    logInfo descriptionText
 }
 
 def setHealthStatusValue(value) {    
@@ -94,219 +109,39 @@ def setHealthStatusValue(value) {
 
 // Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
 Map getReplicaTriggers() {
-    return ([ "refresh":[]])
+    return ([ "doubleTap":[[name:"buttonNumber",type:"NUMBER"]], "hold":[[name:"buttonNumber",type:"NUMBER"]], "push":[[name:"buttonNumber",type:"NUMBER"]], "release":[[name:"buttonNumber",type:"NUMBER"]], "refresh":[]])
 }
 
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
     data.version=version()
-    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
+}
+
+def doubleTap(value=1) {
+    sendCommand("doubleTap", value)    
+}
+
+def hold(value=1) {
+    sendCommand("hold", value)    
+}
+
+def push(value=1) {
+    sendCommand("push", value)    
+}
+
+def release(value=1) {
+    sendCommand("release", value)    
 }
 
 void refresh() {
-    //sendCommand("refresh")
-    setReplicaValue( getParent()?.getLabel() )
-    getLocationInfo()
-    getLocationModes()
-    getLocationMode()
+    sendCommand("refresh")
 }
 
 String getReplicaRules() {
-    return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true}]}"""
+    return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"PositiveInteger","type":"integer","minimum":0}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"numberOfButtons","label":"attribute: numberOfButtons.*"},"command":{"name":"setNumberOfButtonsValue","label":"command: setNumberOfButtonsValue(numberOfButtons*)","type":"command","parameters":[{"name":"numberOfButtons*","type":"NUMBER"}]},"type":"smartTrigger","mute":true},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"command":{"name":"setBatteryValue","label":"command: setBatteryValue(battery*)","type":"command","parameters":[{"name":"battery*","type":"NUMBER"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.held","value":"held","dataType":"ENUM"},"command":{"name":"setHeldValue","label":"command: setHeldValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.double","value":"double","dataType":"ENUM"},"command":{"name":"setDoubleTappedValue","label":"command: setDoubleTappedValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.pushed","value":"pushed","dataType":"ENUM"},"command":{"name":"setPushedValue","label":"command: setPushedValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"command":{"name":"setTemperatureValue","label":"command: setTemperatureValue(temperature*)","type":"command","parameters":[{"name":"temperature*","type":"NUMBER"}]},"type":"smartTrigger","mute":true}]}"""
 }
 
-import groovy.transform.CompileStatic
-import groovy.transform.Field
-
-@Field static final Integer iHttpSuccess=200
-@Field static final Integer iHttpError=400
-@Field static final String  sURI="https://api.smartthings.com"
-
-private String getAuthToken() {
-    return parent?.getAuthToken()
-}
-
-private String getLocationId() {
-    String locationId = null
-    try {
-        String description = getDataValue("description")
-        if(description) {
-            Map descriptionJson = new groovy.json.JsonSlurper().parseText(description)
-            locationId = descriptionJson?.locationId
-        }        
-    } catch (e) {
-        logWarn "${device.displayName} getLocationId error: $e"
-    }
-    return locationId
-}
-
-def setModeAttribute(mode) {
-    sendEvent(name: "mode", value: mode, descriptionText: "${device.displayName} mode is $mode")
-    if(deviceModeHubitatFollows) getParent()?.setLocationMode(mode)
-}
-
-def setModesAttributes(modesMap) {
-    state.modes = modesMap?.items?.sort{ (it?.label?:it?.name) }.collect{ [id:it?.id, label:(it?.label?:it?.name)] }
-    List modes = modesMap?.items?.collect{ it?.label }.sort()
-    if(modes?.size()) sendEvent(name: "modes", value: modes, descriptionText: "${device.displayName} modes are $modes")
-}
-
-def setLocationAttributes(locationMap) {
-    sendEvent(name: "latitude", value: locationMap.latitude, unit: "°", descriptionText: "${device.displayName} latitude is $locationMap.latitude°")
-    sendEvent(name: "longitude", value: locationMap.longitude, unit: "°", descriptionText: "${device.displayName} latitude is $locationMap.longitude°")
-    sendEvent(name: "countryCode", value: locationMap.countryCode, descriptionText: "${device.displayName} country code is $locationMap.countryCode")
-    sendEvent(name: "locationName", value: locationMap.name, descriptionText: "${device.displayName} location name is $locationMap.name")
-    sendEvent(name: "temperatureScale", value: locationMap.temperatureScale, unit: "°", descriptionText: "${device.displayName} temperature scale is $locationMap.temperatureScale°")
-    sendEvent(name: "timeZoneId", value: locationMap.timeZoneId, descriptionText: "${device.displayName} time zone ID is $locationMap.timeZoneId")
-}
-
-Map setLocationMode(String modeName, event=false) {
-    logDebug "${device.displayName} executing 'setLocationMode($modeName)'"
-    Map response = [statusCode:iHttpError]
-    
-    getLocationModes()
-    String modeId = state?.modes?.find{ it?.label?.toLowerCase()==modeName?.toLowerCase() }?.id
-    if(!modeId || (event && !deviceModeSmartThingsFollows)) return response
-    
-    Map params = [
-        uri: sURI,
-        path: "/locations/${getLocationId()}/modes/current",
-        body: groovy.json.JsonOutput.toJson([modeId:modeId]),
-        contentType: "application/json",
-        requestContentType: "application/json",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
-    ]
-    try {
-        httpPut(params) { resp ->
-            logDebug "response data: ${resp.data}"
-            response.data = resp.data
-            response.statusCode = resp.status
-            logInfo "${device.displayName} set SmartThings mode to '${resp.data.label}'"
-        }
-    } catch (e) {
-        logWarn "${device.displayName} has setLocationMode('$modeName' : '$modeId') error: $e"        
-    }
-    return response
-}
-
-Map getLocationMode() {
-    logDebug "${device.displayName} executing 'getLocationMode()'"
-    Map response = [statusCode:iHttpError]
-    
-    Map params = [
-        uri: sURI,
-        path: "/locations/${getLocationId()}/modes/current",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
-    ]
-    try {
-        httpGet(params) { resp ->
-            logDebug "response data: ${resp.data}"
-            response.data = resp.data
-            response.statusCode = resp.status            
-            setModeAttribute(resp.data?.label)
-        }
-    } catch (e) {
-        logWarn "${device.displayName} has getLocationMode() error: $e"        
-    }
-    return response
-}
-
-Map createLocationMode(String modeName) {
-    logDebug "${device.displayName} executing 'createLocationMode()'"
-    Map response = [statusCode:iHttpError]
-    
-    Map params = [
-        uri: sURI,
-        body: groovy.json.JsonOutput.toJson([label:modeName,name:modeName]), 
-        path: "/locations/${getLocationId()}/modes",
-        contentType: "application/json",
-        requestContentType: "application/json",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
-    ]
-    try {
-        httpPost(params) { resp ->
-            logDebug "response data: ${resp.data}"
-            response.data = resp.data
-            response.statusCode = resp.status
-            logInfo "${device.displayName} created SmartThings mode '${resp.data.label}'"
-            getLocationModes()
-        }
-    } catch (e) {
-        logWarn "${device.displayName} has createLocationMode() error: $e"        
-    }
-    return response
-}
-
-Map deleteLocationMode(String modeName) {
-    logDebug "${device.displayName} executing 'deleteLocationMode()'"
-    Map response = [statusCode:iHttpError]
-    
-    String modeId = state?.modes?.find{ it?.label?.toLowerCase()==modeName?.toLowerCase() }?.id
-    if(!modeId) return response
-    
-    Map params = [
-        uri: sURI,
-        path: "/locations/${getLocationId()}/modes/$modeId",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
-    ]
-    try {
-        httpDelete(params) { resp ->
-            logDebug "response data: ${resp.data}"
-            response.data = resp.data
-            response.statusCode = resp.status
-            logInfo "${device.displayName} deleted SmartThings mode '$modeName'"
-            getLocationModes()
-        }
-    } catch (e) {
-        logWarn "${device.displayName} has deleteLocationMode() error: $e"        
-    }
-    return response
-}
-
-Map getLocationModes() {
-    logDebug "${device.displayName} executing 'getLocationModes()'"
-    Map response = [statusCode:iHttpError]
-    
-    Map params = [
-        uri: sURI,
-        path: "/locations/${getLocationId()}/modes",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
-    ]
-    try {
-        httpGet(params) { resp ->
-            logDebug "response data: ${resp.data}"
-            response.data = resp.data
-            response.statusCode = resp.status
-            setModesAttributes(resp.data)           
-        }
-    } catch (e) {
-        logWarn "${device.displayName} has getLocationModes() error: $e"        
-    }
-    return response
-}
-
-Map getLocationInfo() {
-    logDebug "${device.displayName} executing 'getLocationInfo()'"
-    Map response = [statusCode:iHttpError]
-    
-    Map params = [
-        uri: sURI,
-        path: "/locations/${getLocationId()}",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
-    ]
-    try {
-        httpGet(params) { resp ->
-            logDebug "response data: ${resp.data}"
-            response.data = resp.data
-            response.statusCode = resp.status
-            setLocationAttributes(resp.data)
-        }
-    } catch (e) {
-        logWarn "${device.displayName} has getLocationInfo() error: $e"        
-    }
-    return response
-}
-
-private logInfo(msg)  { if(settings?.deviceInfoEnable == true)  { log.info  "${msg}" } }
+private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
 private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
 private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
 private logWarn(msg)  { log.warn   "${msg}" }
