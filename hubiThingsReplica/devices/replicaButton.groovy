@@ -12,11 +12,15 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.3.0"}
+public static String version() {return "1.3.1"}
+
+import groovy.transform.CompileStatic
+import groovy.transform.Field
+@Field volatile static Map<String,Long> g_mEventSendTime = [:]
 
 metadata 
 {
-    definition(name: "Replica Button", namespace: "replica", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaButton.groovy")
+    definition(name: "Replica Button + Debounce", namespace: "replica", author: "bloodtick", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaButton.groovy")
     {
         capability "Actuator"
         capability "Battery"
@@ -31,6 +35,7 @@ metadata
         attribute "healthStatus", "enum", ["offline", "online"]
     }
     preferences {
+        input(name:"deviceDebounce", type: "number", title: "Button debounce in milliseconds:", range: "0..10000", defaultValue: 0)
         input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
     }
 }
@@ -69,12 +74,14 @@ def setBatteryValue(value) {
 }
 
 def setDoubleTappedValue(value=1) {
+    if(debounce("setDoubleTappedValue")) return
     String descriptionText = "${device.displayName} button $value was double tapped"
     sendEvent(name: "doubleTapped", value: value, descriptionText: descriptionText, isStateChange: true)
     logInfo descriptionText
 }
 
 def setHeldValue(value=1) {
+    if(debounce("setHeldValue")) return
     String descriptionText = "${device.displayName} button $value was held"
     sendEvent(name: "held", value: value, descriptionText: descriptionText, isStateChange: true)
     logInfo descriptionText
@@ -85,12 +92,14 @@ def setNumberOfButtonsValue(value=1) {
 }
 
 def setPushedValue(value=1) {
+    if(debounce("setPushedValue")) return
     String descriptionText = "${device.displayName} button $value was pushed"
     sendEvent(name: "pushed", value: value, descriptionText: descriptionText, isStateChange: true)
     logInfo descriptionText
 }
 
 def setReleasedValue(value=1) {
+    if(debounce("setReleasedValue")) return
     String descriptionText = "${device.displayName} button $value was released"
     sendEvent(name: "released", value: value, descriptionText: descriptionText, isStateChange: true)
     logInfo descriptionText
@@ -139,6 +148,16 @@ void refresh() {
 
 String getReplicaRules() {
     return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"PositiveInteger","type":"integer","minimum":0}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"numberOfButtons","label":"attribute: numberOfButtons.*"},"command":{"name":"setNumberOfButtonsValue","label":"command: setNumberOfButtonsValue(numberOfButtons*)","type":"command","parameters":[{"name":"numberOfButtons*","type":"NUMBER"}]},"type":"smartTrigger","mute":true},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"command":{"name":"setBatteryValue","label":"command: setBatteryValue(battery*)","type":"command","parameters":[{"name":"battery*","type":"NUMBER"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.held","value":"held","dataType":"ENUM"},"command":{"name":"setHeldValue","label":"command: setHeldValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.double","value":"double","dataType":"ENUM"},"command":{"name":"setDoubleTappedValue","label":"command: setDoubleTappedValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.pushed","value":"pushed","dataType":"ENUM"},"command":{"name":"setPushedValue","label":"command: setPushedValue(buttonNumber)","type":"command","parameters":[{"name":"buttonNumber","type":"NUMBER"}]},"type":"smartTrigger","disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"command":{"name":"setTemperatureValue","label":"command: setTemperatureValue(temperature*)","type":"command","parameters":[{"name":"temperature*","type":"NUMBER"}]},"type":"smartTrigger","mute":true}]}"""
+}
+
+private Boolean debounce(String method) {
+    Boolean response = false
+    String methodDeviceId = "$method${device.getId()}"
+    if(deviceDebounce && g_mEventSendTime[methodDeviceId] && (now() - g_mEventSendTime[methodDeviceId] < deviceDebounce)) {
+        response = true
+        logInfo "${device.displayName} $method debonce"
+    } else g_mEventSendTime[methodDeviceId] = now()   
+    return response
 }
 
 private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
