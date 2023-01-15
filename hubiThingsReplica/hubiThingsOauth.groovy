@@ -27,7 +27,7 @@
 *  1.2.11 2023-01-11 Align version to Replica for next Beta release.
 *  1.2.12 2023-01-12 Align version to Replica for next Beta release.
 *  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate. 
-LINE 30 MAX */ 
+LINE 30 MAX */  
 
 public static String version() {  return "1.3.00"  }
 public static String copyright() {"&copy; 2023 ${author()}"}
@@ -225,7 +225,7 @@ def pageMain(){
         def install = installHelper()
         if(install) return install
     }
-    app.removeSetting('hubitatQueryString')
+    //app.removeSetting('hubitatQueryString')
     
     Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)
     String refreshTime = "${(new Date( now()+refreshInterval*1000 ).format("h:mm:ss a"))}"
@@ -283,7 +283,11 @@ def pageMain(){
                         //paragraph( getFormat("hyperlink","$sSamsungIcon 'Click Here' for SmartThings OAuth Authorization and select 'Refresh' when completed", getOauthAuthorizeUri()) )
                         //input(name: "pageMain::noop", type: "button", width: 2, title: "Refresh", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;", newLineAfter:true)
                         href url: getOauthAuthorizeUri(), style: "external", required: false, title: getFormat("text","$sSamsungIcon SmartThings OAuth Authorization"), description: "Click to <b>authorize</b> Installed Application"
-                      }
+                    }
+                    // this is a workaround for the form data submission on 'external' modal boxes. not sure why hubitat is failing. 
+                    paragraph (rawHtml: true, """<script>\$(".btn.hrefElem").click( function(){ if(!sessionStorage.getItem('app${app.getId()}')) sessionStorage.setItem('app${app.getId()}',JSON.stringify({ referrer : document.referrer })); window.location.reload(); });</script>""")
+                    paragraph (rawHtml: true, """<script>\$("#btnDone").click( function(e){ let referrer = JSON.parse(sessionStorage.getItem('app${app.getId()}'))?.referrer; if(referrer){ sessionStorage.removeItem('app${app.getId()}'); e.preventDefault(); e.stopPropagation(); window.location.replace(referrer); } } );</script>""")
+
                 }
             }
         }
@@ -1316,14 +1320,14 @@ def getHtmlResponse(Boolean success=false) {
     * { line-height: 1.2; margin: 0;}
     html { color: #888; display: table; font-family: sans-serif; height: 100%; text-align: center; width: 100%; }
     body { display: table-cell; vertical-align: middle; margin: 2em auto; }
-    h1 { color: #555; font-size: 2em; font-weight: 400; }
     p { margin: 0 auto; }
+    button { border-radius: 8px; border: 2px solid #888; padding: 6px 12px; display: inline-block; margin: 4px 2px; font-size: 20px; cursor: pointer; color: #888; font-family: sans-serif; }
     @media only screen and (max-width: 280px) { body, p { width: 95%; } h1 { font-size: 1.5em; margin: 0 0 0.3em; } }
   </style>
 </head>
 <body>
-<h2>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has successfully authorized ${getDefaultLabel()}" : "The SmartThings connection could not be established!"}</h2>
-  <p>${success ? "Close this window to continue configuration" : "Close this window and retry authorization"}</p>
+  <h2>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has successfully authorized ${getDefaultLabel()}" : "The SmartThings connection could not be established!"}</h2>
+  <button onclick="self.close()">${success ? "Close this window to continue configuration" : "Close this window and retry authorization"}</button>
 </body>
 </html>
 """
