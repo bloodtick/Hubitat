@@ -295,6 +295,8 @@ def pageMain(){
                 input(name: "pageMain::health",        type: "button", width: 2, title: "$sSamsungIcon Health", style:"width:75%;")
             }
         }               
+        
+        if(userSmartThingsPAT&&getChildApps()?.size()) {
             
         section(menuHeader("HubiThings Device List")){           
             if (smartDevices) {
@@ -344,8 +346,9 @@ def pageMain(){
             runIn(1800, updatePageMain)
         } else {
             unschedule('updatePageMain')
-        }
-       
+        }            
+        } //if(userSmartThingsPAT&&getChildApps()?.size())
+        
         displayFooter()
     }    
 }
