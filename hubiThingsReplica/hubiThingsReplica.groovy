@@ -296,57 +296,56 @@ def pageMain(){
             }
         }               
         
-        if(userSmartThingsPAT&&getChildApps()?.size()) {
-            
-        section(menuHeader("HubiThings Device List")){           
-            if (smartDevices) {
-                String devicesTable = "<table id='devicesTable' role='table' class='compact' style='width:100%'><thead>"
-                devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sHubitatIcon OAuth ID</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
-                devicesTable += "</thead><tbody>"  
-                smartDevices?.items?.sort{ it.label }?.each { smartDevice -> 
-                    List hubitatDevices = getReplicaDevices(smartDevice.deviceId)
-                    for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
-                        def replicaDevice = hubitatDevices[i]?:null
-                        String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
-                        String appUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"              
-                        devicesTable += "<tr>"
-                        devicesTable += smartDevice?.label   ? "<td>${smartDevice?.label}</td>" : "<td>--</td>"                  
-                        devicesTable += replicaDevice        ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"
-                        devicesTable += smartDevice?.oauthId ? "<td style='text-align:center;'><a href='${appUrl}'>${smartDevice?.oauthId}</a></td>" : "<td>--</td>"
-                        devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>--</td>"
-                        devicesTable += "</tr>"
-                    }
-		        }                
-                devicesTable +="</tbody></table>"
-                paragraph( devicesTable )
-                
-                String html = """<span style='color:${sColorDarkRed}' id='socketstatus'></span>"""
-                // Hubitat includes jquery DataTables in web code. https://datatables.net
-                html += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ]} );});</script>"""                
-                html += """<style>#devicesTable tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
-                //html += """<style>th,td{border-bottom:3px solid #ddd;}</style>"""                
-                //html += """<style>table{ table-layout: fixed;width: 100%;}</style>"""
-                html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
-                html += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { smartEvent(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
-                html += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
-                html += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
-                paragraph( html )
-            }            
-            input(name: "pageMain::refresh",  type: "button", width: 2, title: "$sSamsungIcon Refresh", style:"width:75%;")
-    	}
-        
-        section(menuHeader("HubiThings Device Creation and Control")){	
-            href "pageCreateDevice", title: "Create HubiThings Device", description: "Click to show"            
-            href "pageConfigureDevice", title: "Configure HubiThings Rules", description: "Click to show"
-            href "pageDeleteDevice", title: "Delete HubiThings Device", description: "Click to show"
-            if(deviceAuthCount>0) href "pageMirrorDevice", title: "Mirror Hubitat Device (Advanced)", description: "Click to show"
-        }
-        
-        if(pageMainShowConfig || appDebugEnable || appTraceEnable) {
-            runIn(1800, updatePageMain)
-        } else {
-            unschedule('updatePageMain')
-        }            
+        if(userSmartThingsPAT&&getChildApps()?.size()) {            
+			section(menuHeader("HubiThings Device List")){           
+				if (smartDevices) {
+					String devicesTable = "<table id='devicesTable' role='table' class='compact' style='width:100%'><thead>"
+					devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th style='text-align:center;'>$sHubitatIcon OAuth ID</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
+					devicesTable += "</thead><tbody>"  
+					smartDevices?.items?.sort{ it.label }?.each { smartDevice -> 
+						List hubitatDevices = getReplicaDevices(smartDevice.deviceId)
+						for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
+							def replicaDevice = hubitatDevices[i]?:null
+							String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
+							String appUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"              
+							devicesTable += "<tr>"
+							devicesTable += smartDevice?.label   ? "<td>${smartDevice?.label}</td>" : "<td>--</td>"                  
+							devicesTable += replicaDevice        ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"
+							devicesTable += smartDevice?.oauthId ? "<td style='text-align:center;'><a href='${appUrl}'>${smartDevice?.oauthId}</a></td>" : "<td>--</td>"
+							devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>--</td>"
+							devicesTable += "</tr>"
+						}
+					}                
+					devicesTable +="</tbody></table>"
+					paragraph( devicesTable )
+
+					String html = """<span style='color:${sColorDarkRed}' id='socketstatus'></span>"""
+					// Hubitat includes jquery DataTables in web code. https://datatables.net
+					html += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ]} );});</script>"""                
+					html += """<style>#devicesTable tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
+					//html += """<style>th,td{border-bottom:3px solid #ddd;}</style>"""                
+					//html += """<style>table{ table-layout: fixed;width: 100%;}</style>"""
+					html += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
+					html += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { smartEvent(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
+					html += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
+					html += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
+					paragraph( html )
+				}            
+				input(name: "pageMain::refresh",  type: "button", width: 2, title: "$sSamsungIcon Refresh", style:"width:75%;")
+			}
+
+			section(menuHeader("HubiThings Device Creation and Control")){	
+				href "pageCreateDevice", title: "Create HubiThings Device", description: "Click to show"            
+				href "pageConfigureDevice", title: "Configure HubiThings Rules", description: "Click to show"
+				href "pageDeleteDevice", title: "Delete HubiThings Device", description: "Click to show"
+				if(deviceAuthCount>0) href "pageMirrorDevice", title: "Mirror Hubitat Device (Advanced)", description: "Click to show"
+			}
+
+			if(pageMainShowConfig || appDebugEnable || appTraceEnable) {
+				runIn(1800, updatePageMain)
+			} else {
+				unschedule('updatePageMain')
+			}            
         } //if(userSmartThingsPAT&&getChildApps()?.size())
         
         displayFooter()
