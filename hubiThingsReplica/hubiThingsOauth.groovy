@@ -1326,7 +1326,7 @@ def getHtmlResponse(Boolean success=false) {
   </style>
 </head>
 <body>
-  <h2>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has successfully authorized ${getDefaultLabel()}" : "The SmartThings connection could not be established!"}</h2>
+  <h2>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has authorized ${getDefaultLabel()}" : "The SmartThings connection could not be established!"}</h2>
   <button onclick="self.close()">${success ? "Close this window to continue configuration" : "Close this window and retry authorization"}</button>
 </body>
 </html>
