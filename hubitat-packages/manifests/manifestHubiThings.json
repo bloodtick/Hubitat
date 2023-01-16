@@ -3,6 +3,12 @@
     "author": "Bloodtick Jones",
     "communityLink": "https://community.hubitat.com/t/release-hubithings-replica/107976",
     "minimumHEVersion": "2.3.2",
+    "category": "Integrations",
+    "tags": [
+        "Automations & Groups",
+        "Cloud",
+        "Tools & Utilities"
+    ],
     "dateReleased": "2023-01-13",
     "releaseNotes": "Formal Release Candidate",
     "apps": [
