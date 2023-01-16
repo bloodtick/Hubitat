@@ -8,9 +8,9 @@
       "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubitat-packages/manifests/manifestHubiThings.json",
       "description": "Hubitat Application to manage SmartThings Devices allowing real-time bi-direction updates between devices and modes utilizing the SmartThings OAuth Cloud API. Includes the ability to have multiple ST locations with multiple ST hubs replicated to a single Hubitat hub. It is not a requirement to have a ST hub to operate mirror functions to cloud native ST devices.",
       "tags": [
-        "Convenience",
-        "Integrations",
-        "Utility"
+        "Automations & Groups",
+        "Cloud",
+        "Tools & Utilities"
       ],
       "id": "9034c139-c2c1-4d2c-9ede-feef9812f95c"
     }
