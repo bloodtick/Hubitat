@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.3.0 Formal Release Candidate\nNOTICE: Stop now and use HPM 'match' if you installed this application manually prior.",
+    "releaseNotes": "1.3.0 Formal Release Candidate",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
