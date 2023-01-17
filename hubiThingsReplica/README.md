@@ -1,6 +1,6 @@
 <h1>HubiThings Replica</h1>
 
-A Hubitat application to allow real-time bi-direction updates between Hubitat and SmartThings devices and modes utilizing the SmartThings OAuth Cloud API. Includes the ability to have multiple ST locations with multiple ST hubs replicated to a single Hubitat hub. It is not a requirement to have a ST hub to operate mirror functions to cloud native ST devices.
+A [Hubitat application](https://community.hubitat.com/t/release-hubithings-replica/107976) to allow real-time bi-direction updates between Hubitat and SmartThings devices and modes utilizing the SmartThings OAuth Cloud API. Includes the ability to have multiple ST locations with multiple ST hubs replicated to a single Hubitat hub. It is not a requirement to have a ST hub to operate mirror functions to cloud native ST devices.
 
 This solution requires a reasonable degree of understanding of both Hubitat and SmartThings. The original design was to mirror the few devices I have remaining in SmartThings to Hubitat in a real time fashion, but grew into a full project thanks to @Alwas, @bthrock, @hendrec, @swade, and @hendo25.
 
