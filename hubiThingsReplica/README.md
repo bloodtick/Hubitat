@@ -15,19 +15,19 @@ Installation: Load into the 'Apps code' area of HE. You do not need to enable OA
 
 HubiThings OAuth (Install second):<br/>
 Location: https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy<br/>
-Installation: Load into the 'Apps code' area of HE. You MUST ENABLE OAuth for this application.
+Installation: Load into the 'Apps code' area of HE. <b>You MUST ENABLE OAuth for this application</b>.
 
 Replica Device Handlers:<br/>
 Location: https://github.com/bloodtick/Hubitat/tree/main/hubiThingsReplica/devices<br/>
 Location: https://github.com/TheMegamind/Replica-Drivers<br/>
 Location: https://github.com/dds82/replica<br/>
-Location: https://github.com/DaveGut/HubitatActive/tree/master/HubiThingsReplica%20Drivers<br/>
+Location: [https://github.com/DaveGut/HubitatActive/tree/master/HubiThingsReplicaDrivers](https://github.com/DaveGut/HubitatActive/tree/master/HubiThingsReplica%20Drivers)<br/>
 Installation: Load into the 'Drivers code' area of HE. You can load as many, or as few as needed. The application is looking for any DH that has namespace 'replica'. If you want to design your own, please let me know and we can post locations here for others to use!
 
 Operation:
 1. Install from the "Add User App" section "HubiThings Replica".
 2. Replica will prompt you to close after install and then reopen.
-3. Supply a full credited SmartThings [PAT](https://account.smartthings.com/tokens) which will then allow the OAuth application to be accessed.
+3. Supply a full credited [SmartThings PAT](https://account.smartthings.com/tokens) which will then allow the OAuth application to be accessed.
 4. Follow the prompt and install a HubiThings OAuth (it is a child app).
 5. Continue to follow the OAuth prompts and when successful you are able to pick ST devices to mirror.
 6. Return back to the Replica app and you should see the device(s) in the 'Replica Device List'.
@@ -44,3 +44,4 @@ Update 2022/01/01: Happy New Year. First OCF driver [posted](https://community.h
 Update 2023/01/06: Beta release 1.2.09. Change log [here](https://community.hubitat.com/t/beta-hubithings-replica/107976/74).<br/>
 Update 2023/01/07: Beta release 1.2.10. Change log [here](https://community.hubitat.com/t/beta-hubithings-replica/107976/82).<br/>
 Update 2023/01/13: Release 1.3.00. Change log [here](https://community.hubitat.com/t/beta-hubithings-replica/107976/152).<br/>
+Update 2023/01/17: Release 1.3.00. Added to HPM. For existing installs see [here](https://community.hubitat.com/t/release-hubithings-replica/107976/185).<br/>
