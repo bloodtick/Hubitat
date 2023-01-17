@@ -4,7 +4,7 @@ A Hubitat application to allow real-time bi-direction updates between Hubitat an
 
 This solution requires a reasonable degree of understanding of both Hubitat and SmartThings. The original design was to mirror the few devices I have remaining in SmartThings to Hubitat in a real time fashion, but grew into a full project thanks to @Alwas, @bthrock, @hendrec, @swade, and @hendo25.
 
-One primary use is to allow ST webCoRE users to continue enjoying that application operating on Hubitat. Please note, this is NOT a replacement for HubConnect and doesn't operate the same. Obvious shout out to both incredible products.
+One primary use is to allow ST [webCoRE](https://community.hubitat.com/t/webcore-documentation-digest/88285) users to continue enjoying that application operating on Hubitat. Please note, this is NOT a replacement for [HubConnect](https://community.hubitat.com/t/release-hubconnect-share-devices-across-multiple-hubs-no-longer-smartthings/12028) and doesn't operate the same. <i>Obvious shout out to both incredible products</i>.
 
 The HubiThings Replica application collects the capabilities of the ST device and stores the information in the HE device data section. Then using 'rules' to define commands and attributes from both the ST device and HE device establishes mirror functions. The HubiThings OAuth application drives real-time communication between ST and HE and issues those events to Replica. There are native Replica devices handlers and they auto-configure 'rules' for you - suggest you use them.
 There are two required applications and many and growing native Replica device handlers (not required but advised).
