@@ -155,9 +155,25 @@
         },
         {
             "id": "c40a4ecb-af1a-4d75-a2e7-a46a72fa67fd",
-            "name": "Replica Thermostat (@bthrock)",
+            "name": "Replica Thermostat @bthrock",
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaThermostat.groovy",
+            "required": false,
+            "version": "1.2.0"
+        },
+        {
+            "id": "1427f98e-18c7-4a55-b3d7-aedbee22dbf6",
+            "name": "Replica Motion-Sensing Doorbell @bthrock",
+            "namespace": "replica",
+            "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaMotionSensingDoorbell.groovy",
+            "required": false,
+            "version": "1.2.0"
+        },
+        {
+            "id": "ce575210-3348-4b03-92d0-52ed4053b7fb",
+            "name": "Replica Temp/Humidity Sensor @bthrock",
+            "namespace": "replica",
+            "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaTempHumiditySensor.groovy",
             "required": false,
             "version": "1.2.0"
         }
