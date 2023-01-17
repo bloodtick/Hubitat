@@ -21,7 +21,7 @@ Replica Device Handlers:<br/>
 Location: https://github.com/bloodtick/Hubitat/tree/main/hubiThingsReplica/devices<br/>
 Location: https://github.com/TheMegamind/Replica-Drivers<br/>
 Location: https://github.com/dds82/replica<br/>
-Location: https://github.com/DaveGut/HubitatActive/tree/master/HubiThingsReplicaDrivers<br/>
+Location: https://github.com/DaveGut/HubitatActive/tree/master/HubiThingsReplica%20Drivers<br/>
 Installation: Load into the 'Drivers code' area of HE. You can load as many, or as few as needed. The application is looking for any DH that has namespace 'replica'. If you want to design your own, please let me know and we can post locations here for others to use!
 
 Operation:
