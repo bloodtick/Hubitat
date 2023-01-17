@@ -29,7 +29,7 @@ Operation:
 2. Replica will prompt you to close after install and then reopen.
 3. Supply a full credited SmartThings [PAT](https://account.smartthings.com/tokens) which will then allow the OAuth application to be accessed.
 4. Follow the prompt and install a HubiThings OAuth (it is a child app).
-5. Follow the prompts and when successful you will be able to pick ST devices to mirror.
+5. Continue to follow the OAuth prompts and when successful you are able to pick ST devices to mirror.
 6. Return back to the Replica app and you should see the device(s) in the 'Replica Device List'.
 7. Click 'Create HubiThings Device' and follow the creation process. (Start easy with a simple ST device and use a Replica DH).
 8. If #7 was a Replica DH, the rules and device will auto configure and you are ready, if you pick a Virtual device, you will now need to go to "Configure HubiThings Rules" and match attributes to commands.
