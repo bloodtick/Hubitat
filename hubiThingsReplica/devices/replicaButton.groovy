@@ -155,7 +155,7 @@ private Boolean debounce(String method) {
     String methodDeviceId = "$method${device.getId()}"
     if(deviceDebounce && g_mEventSendTime[methodDeviceId] && (now() - g_mEventSendTime[methodDeviceId] < deviceDebounce)) {
         response = true
-        logInfo "${device.displayName} $method debonce"
+        logInfo "${device.displayName} $method debounce"
     } else g_mEventSendTime[methodDeviceId] = now()   
     return response
 }
