@@ -26,7 +26,7 @@
 *  1.2.11 2023-01-11 Align version to Replica for next Beta release.
 *  1.2.12 2023-01-12 Align version to Replica for next Beta release.
 *  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate.
-*  1.3.01 2023-01-25 Remove ST Virtual Device support and move to Replica (not completed)
+*  1.3.02 2023-01-26 Remove ST Virtual Device support and move to Replica (not completed)
 LINE 30 MAX */  
 
 public static String version() {  return "1.3.01"  }
