@@ -26,10 +26,10 @@
 *  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH if command exists.
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 *  1.3.00 2023-01-13 Formal Release Candidate
-*  1.3.01 2023-01-25 Support for passing unit:'' and data:[:] structures from ST. Initial work to support ST Virtual device creation (not completed)
+*  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
 LINE 30 MAX */ 
 
-public static String version() {  return "1.3.01"  }
+public static String version() {  return "1.3.02"  }
 public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -1526,9 +1526,12 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
                     smartTriggerHandlerCache(replicaDevice, attribute, value?.value)
                     
                     String method = command?.name
-                    Integer argCount = hasCommand(replicaDevice, method)                   
-                    if(argCount>0 && !(type=="status" && rule?.disableStatus)) {
-                        if(argCount==1) replicaDevice."$method"(*[value.value]); else replicaDevice."$method"(*[value.value, [unit:value?.unit, data:value.data]]);
+                    String argType = hasCommand(replicaDevice, method) ? hasCommandType(replicaDevice, method) : null                 
+                    if(argType && !(type=="status" && rule?.disableStatus)) {
+                        if(argType!="JSON_OBJECT")
+                            replicaDevice."$method"(*[value.value])
+                        else
+                            replicaDevice."$method"(*[[value:(value.value), unit:(value?.unit?:""), data:(value?.data?:[:]), stateChange:(value?.stateChange?:false), timestamp:(value?.timestamp)]]);
                         if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getDisplayName()}' $type ○ trigger:$attribute ➢ command:${command?.name}:${value?.value} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
                     }
                 }
@@ -1539,10 +1542,20 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
     return [statusCode:response.statusCode]
 }
 
-Integer hasCommand(def replicaDevice, String method) {
-    Integer response = replicaDevice.hasCommand(method) ? 1:0
+Boolean hasCommand(def replicaDevice, String method) {
+    Boolean response = replicaDevice.hasCommand(method)
     if(!response) {
-        response = (getReplicaDataJsonValue(replicaDevice, "commands")?.find{ key, value -> key==method }?.value?.size() ?: 0)
+        response = (getReplicaDataJsonValue(replicaDevice, "commands")?.keySet()?.find{ it==method } != null)
+    }
+    return response
+}
+
+String hasCommandType(def replicaDevice, String method) {
+    String response = replicaDevice.hasCommand(method) ? "STRING" : null
+    if(!response) {
+        List value = (getReplicaDataJsonValue(replicaDevice, "commands")?.find{ key, value -> key==method }?.value)
+        response = (value?.size() && value?.get(0)?.type) ? value?.get(0)?.type : "STRING"
+        logTrace "custom command: $value -> $response"                 
     }
     return response
 }
@@ -1619,7 +1632,7 @@ Map smartEventHandler(replicaDevice, Map deviceEvent, Long eventPostTime=null){
         // events do not carry units. so get it from status. yeah smartthings is great!
         String unit = getReplicaDataJsonValue(replicaDevice, "status")?.components?.get(deviceEvent.componentId)?.get(deviceEvent.capability)?.get(deviceEvent.attribute)?.unit
         // status    {"switchLevel":             {"level":                  {"value":30,                "unit":"%",   "timestamp":"2022-09-07T21:16:59.576Z" }}}
-        Map event = [ (deviceEvent.capability): [ (deviceEvent.attribute): [ value:(deviceEvent.value), unit:(deviceEvent?.unit ?: unit), data:(deviceEvent?.data), timestamp: getTimestampSmartFormat() ]]]
+        Map event = [ (deviceEvent.capability): [ (deviceEvent.attribute): [ value:(deviceEvent.value), unit:(deviceEvent?.unit ?: unit), data:(deviceEvent?.data), stateChange:(deviceEvent?.stateChange), timestamp: getTimestampSmartFormat() ]]]
         logTrace JsonOutput.toJson(event)
         response.statusCode = smartTriggerHandler(replicaDevice, event, "event", eventPostTime).statusCode
         
@@ -1700,7 +1713,7 @@ Map smartCapabilityHandler(replicaDevice, Map capabilityEvent){
 }
 
 String getTimestampSmartFormat() {
-    return ((new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")).toString())
+    return ((new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", TimeZone.getTimeZone('UTC'))).toString())
 }
 
 Map replicaHasSmartCapability(replicaDevice, String capabilityId, Integer capabilityVersion=1) {
