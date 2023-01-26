@@ -29,7 +29,7 @@
 *  1.3.02 2023-01-26 Remove ST Virtual Device support and move to Replica (not completed)
 LINE 30 MAX */  
 
-public static String version() {  return "1.3.01"  }
+public static String version() {  return "1.3.02"  }
 public static String copyright() {"&copy; 2023 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
