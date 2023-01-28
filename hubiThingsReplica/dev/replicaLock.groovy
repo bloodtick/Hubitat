@@ -270,9 +270,9 @@ def setLockValue(event) {
         data = event?.data
         value = event?.value
     }        
-    data["method"] = data?.method?:"command"
-    data.name = data?.codeName?:codeUnknown
-    data["0"] = ["name":data.name] // needed for LCM   
+    data.method = data?.method?:"command"
+    data.lockName = device.displayName
+    data["${(data?.codeId?:"0")}"] = ["name":(data?.codeName?:codeUnknown)] // needed for LCM   
     
     String descriptionText = "${device.displayName} is $value data:$data"
     sendEvent(name: "lock", value: value, data: data.clone(), descriptionText: descriptionText)
