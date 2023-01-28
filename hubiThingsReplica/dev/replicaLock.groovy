@@ -1,4 +1,4 @@
- /**
+/**
 *  Copyright 2023 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.3.1"}
+public static String version() {return "1.3.2"}
 
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
@@ -49,6 +49,7 @@ metadata
         if(testEnable){
             command "setLockLocked"
             command "setLockUnlocked"
+            command "testLockValues"
             command "testSetLockCodesValue1"
             command "testSetLockCodesValue2"
             command "testSetLockCodesValue3"
@@ -166,7 +167,7 @@ def setLockCodesValue(value) {
         state?.metadata?."$key"?.reason = "deleted"
     }
     
-    value = groovy.json.JsonOutput.toJson(lockCodes)    
+    value = JsonOutput.toJson(lockCodes)    
     String descriptionText = "${device.displayName} locked codes are $value [digital]"
     sendEvent(name: "lockCodes", value: value, type:"digital", descriptionText: descriptionText)
     logInfo descriptionText
@@ -239,12 +240,45 @@ def setCodeChangedFailed() {
     setCodeChangedValue("failed")    
 }
 
+def testLockValues() {    
+    setLockValue("locked")
+    pauseExecution(250)
+    setLockValue([value:"unlocked", data:[codeId:"1",codeName:"Bob",method:"keypad"]])
+    pauseExecution(250)
+    setLockValue([value:"locked", data:(JsonOutput.toJson([:]))])
+    pauseExecution(250)
+    setLockValue([value:"unlocked", data:[:]])    
+    pauseExecution(250)
+    setLockValue([value:"locked", data:"""{"codeId":"1","codeName":"Bob","method":"keypad"}"""])
+    pauseExecution(250)
+    setLockValue("unlocked")
+}
+
 def setLockValue(event) {
-    String descriptionText = "${device.displayName} is $event"
-    sendEvent(name: "lock", value: ((event instanceof String) ? event : event?.value), data: ((event instanceof String) ? [:] : event?.data), descriptionText: descriptionText)
+    logDebug "${device.displayName} executing 'setLockValue($event)'"
+    String value = null
+    Map<String,String> data = [:]    
+    
+    if(event instanceof String) {
+        value = event
+    }
+    else if(event?.data instanceof String) {
+        logWarn "${device.displayName} lock event data: '${event?.data}' was a STRING"
+        data = new JsonSlurper().parseText(event?.data)
+        value = event?.value
+    } else {
+        data = event?.data
+        value = event?.value
+    }        
+    data["method"] = data?.method?:"command"
+    data.name = data?.codeName?:codeUnknown
+    data["0"] = ["name":data.name] // needed for LCM   
+    
+    String descriptionText = "${device.displayName} is $value data:$data"
+    sendEvent(name: "lock", value: value, data: data.clone(), descriptionText: descriptionText)
+    logInfo descriptionText
     if(!(event instanceof String)) 
-       sendEvent(name: "method", value: event?.data?.method?:"command")
-    logInfo descriptionText    
+       sendEvent(name: "method", value: data?.method)        
 }
 
 def setLockLocked() {
