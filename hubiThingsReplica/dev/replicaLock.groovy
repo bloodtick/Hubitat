@@ -20,7 +20,7 @@ import groovy.transform.CompileStatic
 import groovy.transform.Field
 
 @Field static final String  codeUnknown="local"
-@Field static final Boolean testEnable=true
+@Field static final Boolean testEnable=false
 
 metadata 
 {
