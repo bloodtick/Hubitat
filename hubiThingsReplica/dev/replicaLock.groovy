@@ -1,4 +1,4 @@
-/**
+ /**
 *  Copyright 2023 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -20,7 +20,7 @@ import groovy.transform.CompileStatic
 import groovy.transform.Field
 
 @Field static final String  codeUnknown="local"
-@Field static final Boolean testEnable=false
+@Field static final Boolean testEnable=true
 
 metadata 
 {
@@ -150,7 +150,7 @@ def setLockCodesValue(value) {
     state.stLockCodes = value
     
     Map lockCodes = [:]
-    Map stLockCodes = (new groovy.json.JsonSlurper().parseText(value))?.sort()
+    Map stLockCodes = (new groovy.json.JsonSlurper().parseText(value))?.sort{ a, b -> a?.key?.toInteger() <=> b?.key?.toInteger() }
     Map metadata = state?.metadata?.clone() ?: [:]
     
     logDebug "stLockCodes: $stLockCodes"
@@ -194,8 +194,8 @@ def setCodeChangedValue(codeChanged) { // '5 renamed', '5 set',  '5 deleted', 'a
     Map metadata = state?.metadata
     logDebug "metadata.$codeNumber: ${metadata?."$codeNumber"}"
     String reason = metadata?."$codeNumber"?.reason
-    String data   = [ "$codeNumber" : [ code: metadata?."$codeNumber"?.code, name: metadata?."$codeNumber"?.name ]]
-    
+    Map data = [ ("$codeNumber" as String) : [ code: metadata?."$codeNumber"?.code, name: metadata?."$codeNumber"?.name ]]
+
     if(change=="set" || change=="renamed") {
         if(reason=="added" || reason=="changed") {
             updateCodeChanged(reason, data)
@@ -241,7 +241,7 @@ def setCodeChangedFailed() {
 
 def setLockValue(event) {
     String descriptionText = "${device.displayName} is $event"
-    sendEvent(name: "lock", value: ((event instanceof String) ? event : event.value), data: ((event instanceof String) ? [:] : event.data), descriptionText: descriptionText)
+    sendEvent(name: "lock", value: ((event instanceof String) ? event : event?.value), data: ((event instanceof String) ? [:] : event?.data), descriptionText: descriptionText)
     if(!(event instanceof String)) 
        sendEvent(name: "method", value: event?.data?.method?:"command")
     logInfo descriptionText    
@@ -370,7 +370,7 @@ def testSetLockCodesValue2() {
 }
 
 def testSetLockCodesValue3() {
-    setLockCodesValue("""{"1":"John Doe","2":"Jane Doe","3":"Tomm Doe"}""")
+    setLockCodesValue("""{"1":"John Doe","10":"Jane Doe","3":"Tomm Doe"}""")
     setCodeChangedValue("3 set")
 }
 
