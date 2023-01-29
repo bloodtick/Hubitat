@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.03 2022-12-22 Change timing for OAuth large datasets
 *  1.2.05 2022-12-23 Check rules and display red. Remove config when rules present.
 *  1.2.06 2023-01-02 device table now a jquery DataTables object, remove pattern from rule.
 *  1.2.07 2023-01-04 initial support for componentID, fixes for non-Replica DH, fixes for debug
@@ -27,9 +26,10 @@
 *  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH if command exists.
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 *  1.3.00 2023-01-13 Formal Release Candidate
+*  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
 LINE 30 MAX */ 
 
-public static String version() {  return "1.3.00"  }
+public static String version() {  return "1.3.02"  }
 public static String copyright() {"&copy; 2023 ${author() }"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -87,6 +87,7 @@ preferences {
     page name:"pageDeleteDevice"
     page name:"pageDeleteDevice2"
     page name:"pageConfigureDevice"
+    page name:"pageVirtualDevice"
 }
 
 def installed() {
@@ -249,7 +250,7 @@ def pageMain(){
                 
                 if(userSmartThingsPAT) {
                     comments = "HubiThings OAuth Applications are required to enable SmartThings devices for replication. Each OAuth Application can subscribe up to 20 devices and is hub and location independent. "
-                    comments+= "<b>HubiThings Replica allows for multiple OAuth Applications to be created</b> for solution requirements beyond 20 devices. Click the ${sSamsungIcon} Authorize SmartThings Devices link to create OAuth Application(s)."
+                    comments+= "HubiThings Replica allows for multiple OAuth Applications to be created for solution requirements beyond 20 devices. <b>Click the '${sSamsungIcon} Authorize SmartThings Devices : Create OAuth Applications' link to create one or more OAuth Applications</b>."
                     paragraph( getFormat("comments",comments,null,"Gray") )
                     
                     app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: "${getFormat("text","$sSamsungIcon Authorize SmartThings Devices")} : Create OAuth Applications", multiple: true)                
@@ -339,6 +340,7 @@ def pageMain(){
 				href "pageConfigureDevice", title: "Configure HubiThings Rules", description: "Click to show"
 				href "pageDeleteDevice", title: "Delete HubiThings Device", description: "Click to show"
 				if(deviceAuthCount>0) href "pageMirrorDevice", title: "Mirror Hubitat Device (Advanced)", description: "Click to show"
+                //href "pageVirtualDevice", title: "Create SmartThings Virtual Devices", description: "Click to show"
 			}
 
 			if(pageMainShowConfig || appDebugEnable || appTraceEnable) {
@@ -766,6 +768,179 @@ def pageDeleteDevice2() {
     }
 }
 
+List getVirtualDeviceTypes() {
+    // https://community.smartthings.com/t/smartthings-virtual-devices-using-cli/244347
+    // https://raw.githubusercontent.com/SmartThingsCommunity/smartthings-cli/eb1aab896d4248d293c662317056097aad777438/packages/cli/src/lib/commands/virtualdevices-util.ts
+    List devices = [ 
+        [name: 'Switch', id: 'VIRTUAL_SWITCH' ],
+        [name: 'Dimmer Switch', id: 'VIRTUAL_DIMMER_SWITCH' ],
+        [name: 'Button', id: 'VIRTUAL_BUTTON' ],
+        [name: 'Camera', id: 'VIRTUAL_CAMERA' ],
+        [name: 'Color Bulb', id: 'VIRTUAL_COLOR_BULB' ],
+        [name: 'Contact Sensor', id: 'VIRTUAL_CONTACT_SENSOR' ],
+        [name: 'Dimmer (no switch)', id: 'VIRTUAL_DIMMER' ],
+        [name: 'Garage Door Opener', id: 'VIRTUAL_GARAGE_DOOR_OPENER' ],
+        [name: 'Lock', id: 'VIRTUAL_LOCK' ],
+        [name: 'Metered Switch', id: 'VIRTUAL_METERED_SWITCH' ],
+        [name: 'Motion Sensor', id: 'VIRTUAL_MOTION_SENSOR' ],
+        [name: 'Multi-Sensor', id: 'VIRTUAL_MULTI_SENSOR' ],
+        [name: 'Presence Sensor', id: 'VIRTUAL_PRESENCE_SENSOR' ],
+        [name: 'Refrigerator', id: 'VIRTUAL_REFRIGERATOR' ],
+        [name: 'RGBW Bulb', id: 'VIRTUAL_RGBW_BULB' ],
+        [name: 'Siren', id: 'VIRTUAL_SIREN' ],
+        [name: 'Thermostat', id: 'VIRTUAL_THERMOSTAT' ]
+    ]
+    return devices
+}    
+
+def pageVirtualDevice(){    
+    List virtualDeviceTypesSelect = []    
+    getVirtualDeviceTypes()?.sort{ it.name }?.each {
+        virtualDeviceTypesSelect.add([ "${it.id}" : "${it.name}" ])   
+    }
+    
+    List oauthSelect = []
+    getChildApps()?.each{ oauth ->
+        Integer deviceCount = oauth?.getSmartSubscribedDevices()?.items?.size() ?: 0
+        String location = oauth?.getSmartLocationName(oauth?.getLocationId())
+        if(20-deviceCount > 0) oauthSelect.add([ "${oauth?.getId()}" : "location:$location capacity:${deviceCount} of 20 selected (${oauth?.getLabel()})" ])
+    }
+    
+    return dynamicPage(name: "pageVirtualDevice", uninstall: false) {
+        displayHeader()
+        
+        String comments = "This application utilizes the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed application, "
+               comments+= "but if your Hubitat hub is offline for an extended time period, you will need to reauthorize the token manually via the $sSamsungIcon SmartThings OAuth Authorization link."
+               comments+= "${refreshInterval ? "<div style='text-align:right';>Repaint: $refreshTime</div>" : ""}"
+        section() { 
+            paragraph( getFormat("comments",comments,null,"Gray") )            
+        }
+
+        section(menuHeader("Create SmartThings Virtual Devices $sHubitatIconStatic $sSamsungIconStatic")) {            
+     
+           input(name: "pageVirtualDeviceType", type: "enum",  title: "Select Virtual SmartThings Device Type:", description: "Choose a SmartThings device type", multiple: false, options: virtualDeviceTypesSelect, submitOnChange: true, width: 6, newLineAfter:true)
+           input(name: "pageVirtualOauth", type: "enum",  title: "Select HubiThings OAuth and Location:", description: "Choose a HubiThings OAuth", multiple: false, options: oauthSelect, submitOnChange: true, width: 6, newLineAfter:true)
+           String locationId = getChildAppById(Long.parseLong(pageVirtualOauth?:'0'))?.getLocationId() ?: ""
+           logInfo locationId
+           /*
+            def replicaDevice = getDevice( pageDeleteDeviceHubitatDevice )
+           if(replicaDevice) {
+               Boolean isChild = getChildDevice( replicaDevice?.deviceNetworkId )
+               String title = (isChild ? "➢ Click to delete $sHubitatIcon Hubitat device" : "➢ Click to detach $sSamsungIcon SmartThings from $sHubitatIcon Hubitat device")
+               href "pageDeleteDevice2", title: title, description: "Device '$replicaDevice' will ${isChild ? 'be deleted' : 'not be deleted'}" 
+           }*/
+        }
+        section(menuHeader("Delete SmartThings Virtual Devices")) {
+        
+        }
+        VirtualDevicesSection()
+    }
+}
+
+def VirtualDevicesSection(){
+    
+    String childDeviceList = "<table style='width:100%;'>"
+    childDeviceList += "<tr><th>$sHubitatIcon Hubitat Device</th><th>$sHubitatIcon Hubitat Type</th><th style='text-align:center;'>$sHubitatIcon Configuration</th></tr>"
+    /*
+    getAllReplicaDevices()?.sort{ it.getDisplayName() }.each { replicaDevice ->
+        Boolean isChildDevice = (getChildDevice( replicaDevice?.deviceNetworkId ) != null)
+        //example: "http://192.168.1.160/device/edit/1430"
+        String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
+        childDeviceList += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
+        childDeviceList += "<td>${replicaDevice.typeName}</td><td style='text-align:center;'>${isChildDevice?'Child':'Mirror'}</td></tr>"
+    }
+    childDeviceList +="</table>"
+    
+    if (getAllReplicaDevices().size){        
+        section(menuHeader("HubiThings Devices")) {
+            paragraph( childDeviceList )
+            paragraph("<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>")            
+        }
+    }
+*/
+}
+
+Map createVirtualDevice(String locationId, String name="Virtual Dimmer Switch", String prototype="VIRTUAL_DIMMER_SWITCH") {
+    logDebug "${device.displayName} executing 'createVirtualDevice()'"
+    Map response = [statusCode:iHttpError]
+
+    def device = [
+      name: name,
+      //roomId: "{{Room ID}}",
+      prototype: prototype,
+      owner: [
+        ownerType: "LOCATION",
+        ownerId: locationId
+      ]
+    ]
+    logInfo device
+    Map params = [
+        uri: sURI,
+        body: groovy.json.JsonOutput.toJson(device), 
+        path: "/virtualdevices/prototypes",
+        contentType: "application/json",
+        requestContentType: "application/json",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    logInfo params
+    try {
+        httpPost(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status
+            logInfo "${device.displayName} created SmartThings create virtual device '${resp.data.label}'"
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has createVirtualDevice() error: $e"        
+    }
+    return response
+}
+
+Map getVirtualDevices() {
+    logDebug "${device.displayName} executing 'getVirtualDevices()'"
+    Map response = [statusCode:iHttpError]
+
+    Map params = [
+        uri: sURI,
+        path: "/virtualdevices",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    try {
+        httpGet(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status         
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has getVirtualDevices() error: $e"        
+    }
+    return response
+}
+
+Map deleteVirtualDevice(String deviceId) {
+    logDebug "${device.displayName} executing 'deleteVirtualDevice()'"
+    Map response = [statusCode:iHttpError]
+    
+    Map params = [
+        uri: sURI,
+        path: "/devices/$deviceId",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    logInfo params
+    try {
+        httpDelete(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status
+            logInfo "${device.displayName} deleted SmartThings Virtual Device '$deviceId'"
+
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has deleteVirtualDevice() error: $e"        
+    }
+    return response
+}
+
 void updateRuleList(action, type) {
     Map trigger = g_mPageConfigureDevice?.hubitatAttribute
     Map command = g_mPageConfigureDevice?.smartCommand
@@ -831,12 +1006,20 @@ void replicaDevicesRuleSection(){
             paragraph("<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>")
         }
     }
-    
-    //section(menuHeader("Replica Handler Development")) {
-        //app.removeSetting('pageConfigureDeviceStoreCapabilityText2')
-        //input(name: "pageConfigureDeviceStoreCapabilityText2", type: "textarea", title: "Replica Capability Loader:", description: "Load Capability JSON Here", rows: 20, width: 6)//, submitOnChange: true, newLineAfter:true)
-        //input(name: "pageConfigureDevice::storeCapability",     type: "button", title: "Store", width: 2, style:"width:75%;")
-    //}
+
+    if(checkFirmwareVersion("2.3.4.132") && false) {
+        section(menuHeader("Replica Handler Development")) {
+            input(name: "pageConfigureDeviceFetchCapabilityFileName", type: "text", title: "Replica Capabilities Filename:", description: "Capability JSON Local Filename", width: 4, submitOnChange: true, newLineAfter:true)
+            input(name: "pageConfigureDevice::fetchCapability", type: "button", title: "Fetch", width: 2, style:"width:75%;")
+            input(name: "pageConfigureDevice::storeCapability", type: "button", title: "Store", width: 2, style:"width:75%;")
+        }
+    }
+}
+
+def checkFirmwareVersion(versionString) { 
+    def (a1,b1,c1,d1) = location.hub.firmwareVersionString.split("\\.").collect { it.toInteger() }
+    def (a2,b2,c2,d2) = versionString.split("\\.").collect { it.toInteger() }    
+    return (a1>=a2 && b1>=b2 && c1>=c2 && d1>=d2)
 }
 
 Boolean checkTrigger(replicaDevice, type, triggerLabel) {
@@ -1155,12 +1338,26 @@ void appButtonHandler(String btn) {
                             def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
                             replicaDeviceRefresh(replicaDevice)
                             break
-                        case "storeCapability":
+                        case "fetchCapability":
+                            logInfo "fetchCapability: $pageConfigureDeviceFetchCapabilityFileName"                            
+                            byte[] filebytes = downloadHubFile(pageConfigureDeviceFetchCapabilityFileName)
                             def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
-                            String value =  pageConfigureDeviceStoreCapabilityText?.replaceAll('“','"')?.replaceAll('”','"')
-                            Map capabilities = value ? new JsonSlurper().parseText(value) : [components:[]]
-                            logInfo capabilities
-                            setReplicaDataJsonValue(replicaDevice, "capabilities", capabilities)
+                            if(filebytes && replicaDevice) {
+                                String strFile = (new String(filebytes))?.replaceAll('“','"')?.replaceAll('”','"')                         
+                                Map capabilities = strFile ? new JsonSlurper().parseText(strFile) : [components:[]]
+                                logInfo capabilities
+                                setReplicaDataJsonValue(replicaDevice, "capabilities", capabilities)
+                            }
+                            break
+                        case "storeCapability":
+                            logInfo "storeCapability: $pageConfigureDeviceFetchCapabilityFileName"
+                            def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
+                            Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
+                            if(pageConfigureDeviceFetchCapabilityFileName && capabilities) {
+                                //logInfo capabilities
+                                byte[] filebytes =((String)JsonOutput.toJson(capabilities))?.getBytes()
+                                uploadHubFile(pageConfigureDeviceFetchCapabilityFileName, filebytes)
+                            }
                             break
                     }
                     break                    
@@ -1350,10 +1547,13 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
                 else if(attribute==trigger?.attribute && !trigger?.value) {                    
                     smartTriggerHandlerCache(replicaDevice, attribute, value?.value)
                     
-                    List args = [value.value]
                     String method = command?.name
-                    if(hasCommand(replicaDevice, method) && !(type=="status" && rule?.disableStatus)) {
-                        replicaDevice."$method"(*args)  
+                    String argType = hasCommand(replicaDevice, method) ? hasCommandType(replicaDevice, method) : null                 
+                    if(argType && !(type=="status" && rule?.disableStatus)) {
+                        if(argType!="JSON_OBJECT")
+                            replicaDevice."$method"(*[value.value])
+                        else
+                            replicaDevice."$method"(*[[value:(value.value), unit:(value?.unit?:""), data:(value?.data?:[:]), stateChange:(value?.stateChange?:false), timestamp:(value?.timestamp)]]);
                         if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getDisplayName()}' $type ○ trigger:$attribute ➢ command:${command?.name}:${value?.value} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
                     }
                 }
@@ -1368,6 +1568,16 @@ Boolean hasCommand(def replicaDevice, String method) {
     Boolean response = replicaDevice.hasCommand(method)
     if(!response) {
         response = (getReplicaDataJsonValue(replicaDevice, "commands")?.keySet()?.find{ it==method } != null)
+    }
+    return response
+}
+
+String hasCommandType(def replicaDevice, String method) {
+    String response = replicaDevice.hasCommand(method) ? "STRING" : null
+    if(!response) {
+        List value = (getReplicaDataJsonValue(replicaDevice, "commands")?.find{ key, value -> key==method }?.value)
+        response = (value?.size() && value?.get(0)?.type) ? value?.get(0)?.type : "STRING"
+        logTrace "custom command: $value -> $response"                 
     }
     return response
 }
@@ -1444,7 +1654,7 @@ Map smartEventHandler(replicaDevice, Map deviceEvent, Long eventPostTime=null){
         // events do not carry units. so get it from status. yeah smartthings is great!
         String unit = getReplicaDataJsonValue(replicaDevice, "status")?.components?.get(deviceEvent.componentId)?.get(deviceEvent.capability)?.get(deviceEvent.attribute)?.unit
         // status    {"switchLevel":             {"level":                  {"value":30,                "unit":"%",   "timestamp":"2022-09-07T21:16:59.576Z" }}}
-        Map event = [ (deviceEvent.capability): [ (deviceEvent.attribute): [ value:(deviceEvent.value), unit:(deviceEvent?.unit ?: unit), timestamp: getTimestampSmartFormat() ]]]
+        Map event = [ (deviceEvent.capability): [ (deviceEvent.attribute): [ value:(deviceEvent.value), unit:(deviceEvent?.unit ?: unit), data:(deviceEvent?.data), stateChange:(deviceEvent?.stateChange), timestamp: getTimestampSmartFormat() ]]]
         logTrace JsonOutput.toJson(event)
         response.statusCode = smartTriggerHandler(replicaDevice, event, "event", eventPostTime).statusCode
         
@@ -1525,7 +1735,7 @@ Map smartCapabilityHandler(replicaDevice, Map capabilityEvent){
 }
 
 String getTimestampSmartFormat() {
-    return ((new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")).toString())
+    return ((new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", TimeZone.getTimeZone('UTC'))).toString())
 }
 
 Map replicaHasSmartCapability(replicaDevice, String capabilityId, Integer capabilityVersion=1) {
