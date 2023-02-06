@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.3.2"}
+public static String version() {return "1.3.3"}
 
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
@@ -58,6 +58,7 @@ metadata
     preferences {
         input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
         input(name:"deviceDebugEnable", type: "bool", title: "Enable Debug logging:", defaultValue: false)
+        input(name:"deviceLockCodeOverwrite", type: "bool", title: "Disable Lock Code Overwrite:", defaultValue: false)
     }
 }
 
@@ -207,9 +208,11 @@ def setCodeChangedValue(codeChanged) { // '5 renamed', '5 set',  '5 deleted', 'a
             state?.metadata?."$codeNumber"?.reason = change
         }
         else {
-            // someone else set the code & i don't know it            
-            state?.metadata?."$codeNumber"?.code = codeUnknown
-            data."$codeNumber".code = codeUnknown 
+            // someone else set the code & i don't know it
+            if(!deviceLockCodeOverwrite) {
+                state?.metadata?."$codeNumber"?.code = codeUnknown
+                data."$codeNumber".code = codeUnknown
+            }
             updateCodeChanged("changed", data)
             setLockCodesValue(state.stLockCodes)
             logWarn "${device.displayName} was $change from another source"
