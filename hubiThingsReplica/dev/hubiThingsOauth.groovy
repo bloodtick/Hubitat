@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.05 2022-12-23 Exception code around room/device sort pattern. Lock query during execution
 *  1.2.06 2023-01-02 Not released
 *  1.2.07 2023-01-04 initial support for componentID. Code adds to support Virtual ST devices (not completed)
 *  1.2.08 2023-01-04 Not released
@@ -27,9 +26,10 @@
 *  1.2.12 2023-01-12 Align version to Replica for next Beta release.
 *  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate.
 *  1.3.02 2023-01-26 Remove ST Virtual Device support and move to Replica (not completed)
+*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 LINE 30 MAX */  
 
-public static String version() {  return "1.3.02"  }
+public static String version() {  return "1.3.03"  }
 public static String copyright() {"&copy; 2023 ${author()}"}
 public static String author() { return "Bloodtick Jones" }
 
@@ -108,9 +108,9 @@ def uninstalled() {
     getParent()?.childUninstalled( app )
 }
 
-def subscriptionListChanged() {
-    logInfo "${getDefaultLabel()} executing 'subscriptionListChanged()'" 
-    getParent()?.childSubscriptionListChanged( app )
+def subscriptionDeviceListChanged(data) {
+    logDebug "${getDefaultLabel()} executing 'subscriptionDeviceListChanged($data)'" 
+    getParent()?.childSubscriptionDeviceListChanged( app, data?.data )
 }
 
 def subscriptionEvent(event) {
@@ -124,8 +124,16 @@ List getOtherSubscribedDeviceIds() {
 }
 
 public Map getSmartSubscribedDevices() {
-    List deviceIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId 
-    List devices = getSmartDevices()?.items?.findAll{ device -> deviceIds?.find{ it==device?.deviceId } }?.each{ device -> device.oauthId=getOauthId(); device.appId=app.getId() } //add oauthId for multi-auth support
+    logDebug "${getDefaultLabel()} executing 'getSmartSubscribedDevices()'" 
+    List deviceIds = getSmartSubscriptions()?.items?.findAll{ it.sourceType=="DEVICE" }?.device?.deviceId
+    List devices = deviceIds?.findResults{ deviceId -> getSmartDevices()?.items?.find{ it.deviceId==deviceId }?.clone() }
+    devices?.each{      
+        it.oauthId=getOauthId()
+        it.appId=app.getId()
+        it.roomName = getSmartRoomName(it?.roomId)
+        it.locationName = getSmartLocationName(it?.locationId)
+        return it
+    }    
     return [items:(devices?:[])]
 }
 
@@ -148,7 +156,7 @@ public Map getSmartRooms() {
         g_mSmartRoomList[app.getId()] = (state.rooms ?: [:])
         getSmartDevices() // does not block
     }   
-    return (g_mSmartRoomList[app.getId()]?.clone() ?: [:])
+    return (g_mSmartRoomList[app.getId()] ?: [:])
 }
 
 public Map getSmartLocations() {
@@ -156,7 +164,7 @@ public Map getSmartLocations() {
         g_mSmartLocationList[app.getId()] = (state.location ?: [:])
         getSmartDevices() // does not block
     }       
-    return (g_mSmartLocationList[app.getId()]?.clone() ?: [:])
+    return (g_mSmartLocationList[app.getId()] ?: [:])
 }
 
 public Map getSmartSubscriptions() {
@@ -164,7 +172,39 @@ public Map getSmartSubscriptions() {
         g_mSmartSubscriptionList[app.getId()] = (state?.subscriptions ?: [:])
         getSmartSubscriptionList() // does not block
     }
-    return (g_mSmartSubscriptionList[app.getId()]?.clone() ?: [:])
+    return (g_mSmartSubscriptionList[app.getId()] ?: [:])
+}
+
+public List getSmartDeviceSelectList() {
+    return pageMainSmartDevices?:[]
+}    
+
+public Boolean createSmartDevice(String locationId, String deviceId, Boolean updateSubscriptionFlag=false) {    
+    if(locationId==getLocationId()) {
+        if( !getSmartDevices()?.items?.find{ it?.deviceId==deviceId } ) getSmartDeviceList()        
+        List smartDevices = getSmartDeviceSelectList()
+        if(updateSubscriptionFlag && !smartDevices?.contains(deviceId)) {
+            smartDevices << deviceId        
+            app.updateSetting( "pageMainSmartDevices", [type:"enum", value: smartDevices] )        
+            setSmartDeviceSubscriptions()
+        }
+        return true
+    }
+    return false
+}
+
+public Boolean deleteSmartDevice(String locationId, String deviceId) {
+    if(locationId==getLocationId()) {
+        if( getSmartDevices()?.items?.find{ it?.deviceId==deviceId } ) getSmartDeviceList()
+        List smartDevices = getSmartDeviceSelectList()
+        if(smartDevices?.contains(deviceId)) {
+            smartDevices.remove(deviceId)        
+            app.updateSetting( "pageMainSmartDevices", [type:"enum", value: smartDevices] )        
+            setSmartDeviceSubscriptions()
+        }
+        return true
+    }
+    return false
 }
 
 public String getLocationId() {
@@ -173,6 +213,10 @@ public String getLocationId() {
 
 public String getAuthToken(Boolean usePat=false) {
      return (usePat ? (getParent()?.getAuthToken() ?: userSmartThingsPAT) : ( (state.authTokenExpires>now()) ? state?.authToken : getParent()?.getAuthToken() ?: userSmartThingsPAT )) 
+}
+
+public Integer getMaxDeviceLimit() {
+    return iSmartAppDeviceLimit
 }
 
 public String getAuthStatus() {    
@@ -248,7 +292,7 @@ def pageMain(){
                 input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)            
             }
         }        
-        if(state?.user=="bloodtick") { section() { input(name: "pageMain::test", type: "button", width: 2, title: "$sHubitatIcon Test", style:"width:75%;") } }
+        if(state?.user=="bloodtick") { section() { input(name: "dynamic::pageMainTestButton", type: "button", width: 2, title: "$sHubitatIcon Test", style:"width:75%;") } }
         
         if(getAuthToken()) {
             section(menuHeader("SmartThings API $sHubitatIconStatic $sSamsungIconStatic")) {
@@ -300,11 +344,11 @@ def pageMain(){
                     input(name: "enableSceneLifecycleSubscription", type: "bool", title: getFormat("text","Enable SmartThings Scene Lifecycle Subscription"), defaultValue: false, submitOnChange: true)
                 }
                 String controller = getParent() ? "${getParent()?.getLabel()} managed" : ""
-                String status  = "$sSamsungIcon <b>SmartThings Location Subscriptions:</b> $controller\n"
-                       status += "• SmartThings Device Lifecycle is ${!!getSmartSubscriptionId("DEVICE_LIFECYCLE")?"":"not "}subscribed<br>"
-                       status += "• SmartThings Device Health is ${!!getSmartSubscriptionId("DEVICE_HEALTH")?"":"not "}subscribed<br>"
-                       status += "• SmartThings Mode is ${!!getSmartSubscriptionId("MODE")?"":"not "}subscribed<br>"
-                       status += "• SmartThings Scene Lifecycle is ${!!getSmartSubscriptionId("SCENE_LIFECYCLE")?"":"not "}subscribed"
+                String status  = "$sSamsungIcon <b>SmartThings Location Subscriptions:</b> $controller<br><br>"
+                       status += getSmartSubscriptionId("DEVICE_LIFECYCLE") ? "• SmartThings Device Lifecycle is subscribed<br>" : ""
+                       status += getSmartSubscriptionId("DEVICE_HEALTH")    ? "• SmartThings Device Health is subscribed<br>" : ""
+                       status += getSmartSubscriptionId("MODE")             ? "• SmartThings Mode is subscribed<br>" : ""
+                       status += getSmartSubscriptionId("SCENE_LIFECYCLE")  ? "• SmartThings Scene Lifecycle is subscribed" : ""
                 paragraph(status)                
 
                 Map smartDevices = getSmartDevices()?.clone() // this could block up to ten seconds if we don't have devices cached
@@ -323,7 +367,7 @@ def pageMain(){
                         smartDevicesSelect.add(device)   
                     }
                     
-                    input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "$sSamsungIcon SmartThings Device Subscriptions (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
+                    input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "&ensp;$sSamsungIcon SmartThings Device Subscriptions (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
                     if(iSmartAppDeviceLimit >=pageMainSmartDevices?.size()) {
                         Map update = checkSmartSubscriptions() 
                         if(update?.ready && !state.refreshInterval) {
@@ -343,7 +387,7 @@ def pageMain(){
                     }                        
                 } 
                 else {
-                     input(name: "pageMain::noop", type: "button", width: 2, title: "<i>Refresh</i>", style:"width:75%;")
+                     input(name: "pageMain::refreshApp", type: "button", width: 2, title: "<i>Refresh</i>", style:"width:75%;")
                 }
                 try {
                     smartDevicesTable()
@@ -351,7 +395,7 @@ def pageMain(){
             }
         }
 
-        section(menuHeader("Application Logging")) {
+        section(menuHeader("OAuth Application Logging")) {
             input(name: "appInfoDisable", type: "bool", title: "Disable info logging", required: false, defaultValue: false, submitOnChange: true)
             input(name: "appDebugEnable", type: "bool", title: "Enable debug logging", required: false, defaultValue: false, submitOnChange: true)
             //input(name: "appTraceEnable", type: "bool", title: "Enable trace logging", required: false, defaultValue: false, submitOnChange: true)
@@ -378,7 +422,7 @@ def smartDevicesTable(){
     List smartDevices = deviceIds?.collect{ deviceId -> getSmartDevices()?.clone().items?.find{ it.deviceId==deviceId } }
 
     String smartDeviceList = "<span><table style='width:100%;'>"
-    smartDeviceList += "<tr><th>SmartThings Room</th><th>SmartThings Device</th><th style='text-align:center;'>Device Subscription</th></tr>"
+    smartDeviceList += "<tr><th>$sSamsungIcon&nbsp;Room</th><th>$sSamsungIcon&nbsp;Device</th><th style='text-align:center;'>$sSamsungIcon&nbsp;Status</th></tr>"
     try { // not sure but sort fails sometimes
         smartDevices?.sort{ (it?.label?:it?.name).toString() }
         smartDevices?.sort{ "${getSmartRoomName(it?.roomId)?:""} : ${(it?.label?:it?.name).toString()}" }
@@ -425,10 +469,10 @@ def installHelper() {
 
 @Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
 void appButtonHandler(String btn) {
+    logDebug "${app.getLabel()} executing 'appButtonHandler($btn)'"
     if(g_bAppButtonHandlerLock[app.id]) return
-    g_bAppButtonHandlerLock[app.id] = true
-    
-    logDebug "${getDefaultLabel()} executing 'appButtonHandler($btn)'"   
+    appButtonHandlerLock()
+  
     if(btn.contains("::")) { 
         List items = btn.tokenize("::")
         if(items && items.size() > 1 && items[1]) {
@@ -438,9 +482,6 @@ void appButtonHandler(String btn) {
             switch(k) {                
                 case "pageMain":                    
                     switch(v) {                       
-                        case "test":
-                            testButton()
-                            break
                         case "noop":
                             break
                         case "configure":
@@ -458,12 +499,23 @@ void appButtonHandler(String btn) {
                             refreshApp()
                             break
                     }                            
-                    break                  
+                    break
+                case "dynamic":
+                    this."$v"()
+                    break
                 default:
                     logInfo "Not supported"
             }
         }
     }
+    appButtonHandlerUnLock()
+}
+void appButtonHandlerLock() {
+    g_bAppButtonHandlerLock[app.id] = true
+    runIn(10,appButtonHandlerUnLock)
+}
+void appButtonHandlerUnLock() {
+    unschedule('appButtonHandlerUnLock')
     g_bAppButtonHandlerLock[app.id] = false
 }
 
@@ -482,14 +534,11 @@ def callback() {
             break;
         case 'EVENT':
             logDebug "${getDefaultLabel()} ${event?.messageType}"
-            if(event?.eventData?.events?.find{ it.eventType=="DEVICE_LIFECYCLE_EVENT" }) { 
-                runIn(1, refreshApp)
-            }
             subscriptionEvent(event)
             response.statusCode = iHttpSuccess
             break;        
         default:
-          logWarn "${getDefaultLabel()} lifecycle ${event?.messageType} not supported"
+            logWarn "${getDefaultLabel()} callback() ${event?.messageType} not supported"
     }    
     event.clear()
     event = null
@@ -527,7 +576,7 @@ String getSmartSubscriptionId(String sourceType, String deviceId=null) {
 }
 
 Map checkSmartSubscriptions() {
-    List currentIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId
+    List currentIds = getSmartSubscriptions()?.items?.findAll{ it.sourceType=="DEVICE" }?.device?.deviceId
     List selectIds = pageMainSmartDevices?.clone()
     List deleteIds = currentIds?.clone()
     if(selectIds) { deleteIds?.intersect(selectIds)?.each{ deleteIds?.remove(it); selectIds?.remove(it) } }
@@ -543,6 +592,7 @@ Map checkSmartSubscriptions() {
 }
 
 void setSmartSubscriptions() {
+    logDebug "${getDefaultLabel()} executing 'setSmartSubscriptions()'"
     
     Boolean deviceLifecycle = !!getSmartSubscriptionId("DEVICE_LIFECYCLE")
     if(!deviceLifecycle && enableDeviceLifecycleSubscription)   
@@ -566,12 +616,11 @@ void setSmartSubscriptions() {
     if(!sceneLifecycle && enableSceneLifecycleSubscription)   
         setSmartSceneLifecycleSubscription()
     else if (sceneLifecycle && !enableSceneLifecycleSubscription)
-        deleteSmartSubscriptions("SCENE_LIFECYCLE")
-   
+        deleteSmartSubscriptions("SCENE_LIFECYCLE")   
 }
 
 void setSmartDeviceSubscriptions() {
-    
+    logDebug "${getDefaultLabel()} executing 'setSmartDeviceSubscriptions()'"
     setSmartSubscriptions()
     
     Map update = checkSmartSubscriptions()    
@@ -583,7 +632,10 @@ void setSmartDeviceSubscriptions() {
         logDebug "${getDefaultLabel()} unsubscribe to $deviceId"
         deleteSmartSubscriptions("DEVICE", deviceId)
     }
-    if(update?.ready) { runIn(2, getSmartSubscriptionList) }
+    if(update?.ready) {
+        runIn(1, subscriptionDeviceListChanged, [data: [createIds:update?.select, deleteIds:update?.delete, reason:"subscriptionListChanged"]])
+        runIn(2, getSmartSubscriptionList)
+    }
 }
 
 Map deleteSmartSubscriptions(String sourceType, String deviceId=null) {
@@ -788,23 +840,6 @@ String getSmartRoomName(String roomId) {
     return smartRoomList?.items ? smartRoomList?.items?.find{ it.roomId==roomId }?.name ?: "Room Not Defined" : roomId
 }
 
-@Field volatile static Map<Long,Boolean> g_bSmartLocationQueryIsRunningLock = [:]
-void smartLocationQuery() {
-    logDebug "${getDefaultLabel()} executing 'smartQuery()'"
-    if(g_bSmartLocationQueryIsRunningLock[app.getId()]) {
-        logInfo "${getDefaultLabel()} is currently querying for location, rooms and devices. Please wait."
-        return
-    }
-    g_bSmartLocationQueryIsRunningLock[app.getId()] = true
-    getSmartLocationList()
-    runIn(30, clearSmartLocationQueryLock)
-}
-
-void clearSmartLocationQueryLock() {
-    unschedule('clearSmartLocationQueryLock')
-    g_bSmartLocationQueryIsRunningLock[app.getId()] = false
-}
-
 @Field volatile static Map<Long,Map> g_mSmartLocationList = [:]
 Map getSmartLocationList() {
     logDebug "${getDefaultLabel()} executing 'getSmartLocationList()'"
@@ -836,42 +871,76 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
     return response
 }
 
+@Field volatile static Map<Long,Boolean> g_bSmartLocationQueryIsRunningLock = [:]
+@Field volatile static Map<Long,Boolean> g_bSmartLocationQueryChanged = [:]
+void smartLocationQuery() {
+    logDebug "${getDefaultLabel()} executing 'smartLocationQuery()'"
+    if(g_bSmartLocationQueryIsRunningLock[app.getId()]) {
+        logInfo "${getDefaultLabel()} is currently querying for location, rooms and devices. Please wait."
+        return
+    }
+    g_bSmartLocationQueryIsRunningLock[app.getId()] = true
+    getSmartLocationList()
+    runIn(30, clearSmartLocationQueryLock)
+}
+
+void clearSmartLocationQueryLock() {
+    unschedule('clearSmartLocationQueryLock')
+    if(g_bSmartLocationQueryChanged[app.getId()])
+        runIn(5, subscriptionDeviceListChanged, [data: [reason:"locationChanged"]])
+    g_bSmartLocationQueryChanged[app.getId()] = false
+    g_bSmartLocationQueryIsRunningLock[app.getId()] = false
+}
+
 void asyncHttpGetCallback(resp, data) {
     logDebug "${getDefaultLabel()} executing 'asyncHttpGetCallback()' status: ${resp.status} method: ${data?.method}"
     
     if (resp.status == iHttpSuccess) {       
         switch(data?.method) {
             case "getSmartSubscriptionList":            
-                Map subscriptionList = new JsonSlurper().parseText(resp.data)
-                List currentIds = getSmartSubscriptions()?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId ?: []
-                List nextIds = subscriptionList?.items?.each{ it.sourceType=="DEVICE" }?.device?.deviceId ?: []
-                g_mSmartSubscriptionList[app.getId()]?.clear()
-                state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList.clone()
-                // notify parent if we changed
-                if( !nextIds?.sort()?.equals(currentIds?.sort()) ) runIn(1, subscriptionListChanged)
-                logInfo "${getDefaultLabel()} updated subscription list"
-                setSmartDeviceSubscriptions()
+                Map subscriptionList = new JsonSlurper().parseText(resp.data)            
+                subscriptionList?.items?.sort{ it?.sourceType }
+                subscriptionList?.items?.findAll{ it?.sourceType=="DEVICE" }?.device?.sort{ it.deviceId }
+                Boolean changed = !g_mSmartSubscriptionList[app.getId()]?.items?.equals( subscriptionList?.items )
+                if(changed) {
+                    g_mSmartSubscriptionList[app.getId()]?.clear()
+                    state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList
+                    setSmartDeviceSubscriptions()
+                }
+                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} subscription list"
                 break
             case "getSmartDeviceList":            
-                Map deviceList = new JsonSlurper().parseText(resp.data)
-                g_mSmartDeviceList[app.getId()]?.clear()
-                g_mSmartDeviceList[app.getId()] = deviceList
+                Map deviceList = new JsonSlurper().parseText(resp.data)            
+                Boolean changed = !g_mSmartDeviceList[app.getId()]?.items?.sort{ it.deviceId }?.equals( deviceList?.items?.sort{ it.deviceId } )
+                if(changed) {
+                    g_mSmartDeviceList[app.getId()]?.clear()
+                    g_mSmartDeviceList[app.getId()] = deviceList
+                    g_bSmartLocationQueryChanged[app.getId()] = true
+                }
                 clearSmartLocationQueryLock()
-                logInfo "${getDefaultLabel()} updated device list"
+                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} device list"
                 break
             case "getSmartRoomList":            
                 Map roomList = new JsonSlurper().parseText(resp.data)
-                g_mSmartRoomList[app.getId()]?.clear()
-                state.rooms = g_mSmartRoomList[app.getId()] = roomList
-                logInfo "${getDefaultLabel()} updated room list"
-                getSmartDeviceList()
+                Boolean changed = !g_mSmartRoomList[app.getId()]?.items?.sort{ it.roomId }?.equals( roomList?.items?.sort{ it.roomId } )
+                if(changed) {
+                    g_mSmartRoomList[app.getId()]?.clear()
+                    state.rooms = g_mSmartRoomList[app.getId()] = roomList
+                    g_bSmartLocationQueryChanged[app.getId()] = true
+                }
+                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} room list"
+                getSmartDeviceList()                
                 break
             case "getSmartLocationList":            
                 Map locationList = new JsonSlurper().parseText(resp.data)
-                g_mSmartLocationList[app.getId()]?.clear()
-                state.location = g_mSmartLocationList[app.getId()] = locationList
-                state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
-                logInfo "${getDefaultLabel()} updated location list"
+                Boolean changed = !g_mSmartLocationList[app.getId()]?.items?.sort{ it.locationId }?.equals( locationList?.items?.sort{ it.locationId } )
+                if(changed) {
+                    g_mSmartLocationList[app.getId()]?.clear()
+                    state.location = g_mSmartLocationList[app.getId()] = locationList
+                    state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
+                    g_bSmartLocationQueryChanged[app.getId()] = true
+                }
+                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} location list"
                 getSmartRoomList()
                 break
             default:
@@ -1149,8 +1218,8 @@ def getHtmlResponse(Boolean success=false) {
   </style>
 </head>
 <body>
-  <h2>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has authorized ${getDefaultLabel()}" : "The SmartThings connection could not be established!"}</h2>
-  <button onclick="self.close()">${success ? "Close this window to continue configuration" : "Close this window and retry authorization"}</button>
+  <h2>${success ? "$sSamsungIconStatic $sSamsungIcon SmartThings has authorized ${getDefaultLabel()}" : "$sSamsungIconStatic $sSamsungIcon SmartThings connection could not be established!"}</h2>
+  <button onclick="self.close()">${success ? statusMsg("Close this window to continue configuration") : errorMsg("Close this window and retry authorization")}</button>
 </body>
 </html>
 """
@@ -1175,6 +1244,9 @@ def getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){
     if(type == "comments")  return "<div style='color:$myColor;font-weight:small;font-size:14px;'>${myText}</div>"
 }
 
+String errorMsg(String msg) { getFormat("text", msg, null, sColorDarkRed) }
+String statusMsg(String msg) { getFormat("text", msg, null, sColorDarkBlue) }
+
 def displayHeader() { 
     section (getFormat("title", "${app.getLabel()?:sDefaultAppName}${sCodeRelease?.size() ? " : $sCodeRelease" : ""}"  )) { 
         paragraph "<div style='color:${sColorDarkBlue};text-align:right;font-weight:small;font-size:9px;'>Developed by: ${author()}<br/>Current Version: v${version()} -  ${copyright()}</div>"
@@ -1198,6 +1270,6 @@ private logWarn(msg)  { log.warn  "${msg}" }
 private logError(msg) { log.error "${msg}" }
 
 
-void testButton() {  
+void pageMainTestButton() {  
     return
 }
