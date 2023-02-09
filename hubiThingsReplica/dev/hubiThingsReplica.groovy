@@ -590,7 +590,7 @@ String createChildDevice(Map deviceType, String name, String label, String devic
 
 void pageHubiThingDeviceRemoveButton() {
     logDebug "${app.getLabel()} executing 'pageHubiThingDeviceRemoveButton()' $pageHubiThingDeviceModify"
-    if(pageVirtualDeviceDelete) {
+    if(pageHubiThingDeviceModify) {
         g_mAppDeviceSettings['pageHubiThingDeviceModifyButton'] = deleteChildDevice(pageHubiThingDeviceModify)
     }
 }
