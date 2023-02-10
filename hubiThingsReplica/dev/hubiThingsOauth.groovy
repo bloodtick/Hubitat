@@ -26,11 +26,11 @@
 *  1.2.12 2023-01-12 Align version to Replica for next Beta release.
 *  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate.
 *  1.3.02 2023-01-26 Remove ST Virtual Device support and move to Replica (not completed)
-*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
+*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh. V2.
 LINE 30 MAX */  
 
-public static String version() {  return "1.3.03"  }
-public static String copyright() {"&copy; 2023 ${author()}"}
+public static String version() { return "1.3.03" }
+public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
@@ -1236,14 +1236,13 @@ def getHtmlResponse(Boolean success=false) {
 @Field static final String sHubitatIcon="""<svg width="1.0em" height="1.0em" version="2.0"><use href="#hubitat-svg"/></svg>"""
 
 // thanks to DCMeglio (Hubitat Package Manager) for a lot of formatting hints
-def getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){   
+String getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){   
     if(type == "line")      return "<hr style='background-color:$myColor; height: 1px; border: 0;'>"
 	if(type == "title")     return "<h2 style='color:$myColor;font-weight: bold'>${myText}</h2>"
     if(type == "text")      return "<span style='color:$myColor;font-weight: bold'>${myText}</span>"
     if(type == "hyperlink") return "<a href='${myHyperlink}' target='_blank' rel='noopener noreferrer' style='color:$myColor;font-weight:bold'>${myText}</a>"
     if(type == "comments")  return "<div style='color:$myColor;font-weight:small;font-size:14px;'>${myText}</div>"
 }
-
 String errorMsg(String msg) { getFormat("text", msg, null, sColorDarkRed) }
 String statusMsg(String msg) { getFormat("text", msg, null, sColorDarkBlue) }
 
@@ -1268,7 +1267,6 @@ private logDebug(msg) { if(appDebugEnable)  { log.debug "${msg}" } }
 private logTrace(msg) { if(appTraceEnable)  { log.trace "${msg}" } }
 private logWarn(msg)  { log.warn  "${msg}" } 
 private logError(msg) { log.error "${msg}" }
-
 
 void pageMainTestButton() {  
     return
