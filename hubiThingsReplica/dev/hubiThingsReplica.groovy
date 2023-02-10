@@ -26,11 +26,11 @@
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 *  1.3.00 2023-01-13 Formal Release Candidate
 *  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
-*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
+*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh. V2.
 LINE 30 MAX */ 
 
-public static String version() {  return "1.3.03"  }
-public static String copyright() {"&copy; 2023 ${author() }"}
+public static String version() { return "1.3.03" }
+public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
@@ -135,12 +135,9 @@ public void childUninstalled( childApp ) {
 
 public void childSubscriptionDeviceListChanged( childApp, data ) {
     logDebug "${app.getLabel()} executing 'childSubscriptionDeviceListChanged($childApp.id, $data)'"
-    //data?.deleteIds?.each{ deleteId -> getSmartDevicesMap()?.items?.removeAll{ it.deviceId == deleteId } }   
-    //if(data?.createIds?.size()) {
-        getSmartDevicesMap()?.items?.removeAll{ it.appId == childApp.getId() }
-        getSmartDevicesMap()?.items?.addAll( childApp.getSmartSubscribedDevices()?.items )
-    //}
-    //runIn(10, allSmartDeviceRefresh)
+    getSmartDevicesMap()?.items?.removeAll{ it.appId == childApp.getId() }
+    getSmartDevicesMap()?.items?.addAll( childApp.getSmartSubscribedDevices()?.items )
+
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
@@ -350,8 +347,7 @@ def pageMain(){
 					    devicesTable += """<style>#devicesTable tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
                     } else {
                         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
-                    }                        
-					                    
+                    }                    
 					paragraph( devicesTable )
 
 					String socketstatus = """<span style='color:${sColorDarkRed}' id='socketstatus'></span>"""					
@@ -496,7 +492,7 @@ def pageHubiThingDevice(){
 
 def commonReplicaDevicesSection(String dynamicPageName) {    
     List hubitatDevicesSelect = []
-    getAllReplicaDevices()?.sort{ it.getDisplayName() }?.each {
+    getAllReplicaDevices()?.sort{ it.getDisplayName() }?.findAll{ (dynamicPageName=="pageHubiThingDevice" && getChildDevice( it?.deviceNetworkId )) || (dynamicPageName!="pageHubiThingDevice" && !getChildDevice( it?.deviceNetworkId )) }?.each{
         Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
         hubitatDevicesSelect.add(device)   
     }
@@ -515,7 +511,7 @@ def commonReplicaDevicesSection(String dynamicPageName) {
     
     String devicesTable  = "<table id='devicesTable' role='table' class='compact' style='width:100%;'>"
            devicesTable += "<thead><tr><th>$sHubitatIcon&nbsp;Device</th><th>$sHubitatIcon&nbsp;Type</th><th>$sHubitatIcon&nbsp;OAuth</th><th style='text-align:center;'>$sHubitatIcon&nbsp;Class</th></tr></thead><tbody>"
-    getAllReplicaDevices()?.sort{ it.getDisplayName() }.each { replicaDevice ->
+    List devices = getAllReplicaDevices()?.sort{ it.getDisplayName() }?.findAll{ (dynamicPageName=="pageHubiThingDevice" && getChildDevice( it?.deviceNetworkId )) || (dynamicPageName!="pageHubiThingDevice" && !getChildDevice( it?.deviceNetworkId )) }?.each{  replicaDevice ->
         Boolean isChildDevice = (getChildDevice( replicaDevice?.deviceNetworkId ) != null)
         String deviceId = getReplicaDeviceId(replicaDevice)
         Map smartDevice = smartDevices?.items?.find{ it?.deviceId == deviceId }
@@ -527,16 +523,16 @@ def commonReplicaDevicesSection(String dynamicPageName) {
         devicesTable += "<td style='text-align:center;'>${isChildDevice?'Child':'Mirror'}</td></tr>"
     }
     devicesTable +="</tbody></table>"
-    devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(2),td:nth-of-type(2) { display: none; } }</style>"""
-    if(getAllReplicaDevices().size() > iUseJqueryDataTables) {
+    devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(4),td:nth-of-type(4) { display: none; } }</style>"""
+    if(devices?.size() > iUseJqueryDataTables) {
         devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ]} );});</script>"""                
         devicesTable += """<style>#childDeviceList tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
     } else {
         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
     }    
     
-    return section(menuHeader("HubiThings Device List")) {
-        if (getAllReplicaDevices().size()) {        
+    section(menuHeader("HubiThings Device List")) {
+        if (devices?.size()) {        
             paragraph( devicesTable )
         }
     }
@@ -602,7 +598,7 @@ String deleteChildDevice(String deviceNetworkId) {
     if(replicaDevice) {
         String label = replicaDevice?.getDisplayName()
         try {
-            Boolean isChild = getChildDevice( replicaDevice?.deviceNetworkId )            
+            Boolean isChild = getChildDevice( deviceNetworkId )            
             app.removeSetting("pageHubiThingDeviceModify")
             
             if(isChild) { 
@@ -614,7 +610,12 @@ String deleteChildDevice(String deviceNetworkId) {
             }
             else {           
                 unsubscribe(replicaDevice)
-                clearReplicaDataCache(replicaDevice)
+                clearReplicaDataCache(replicaDevice, "capabilities", true)
+                clearReplicaDataCache(replicaDevice, "description", true)
+                clearReplicaDataCache(replicaDevice, "health", true)
+                clearReplicaDataCache(replicaDevice, "replica", true)
+                clearReplicaDataCache(replicaDevice, "rules", true)
+                clearReplicaDataCache(replicaDevice, "status", true)
                 logInfo "${app.getLabel()} detached '$label' with deviceNetworkId: ${replicaDevice?.deviceNetworkId}"
                 response = statusMsg("'$label' was detached with deviceNetworkId: ${replicaDevice?.deviceNetworkId}")
             }
@@ -808,27 +809,28 @@ void pageMirrorDeviceMirrorButton() {
     else if(!pageMirrorDeviceHubitatDevice)
         g_mAppDeviceSettings['pageMirrorDeviceMirrorButton'] = errorMsg("Error: Hubitat Device selection is invalid") 
     else
-        g_mAppDeviceSettings['pageMirrorDeviceMirrorButton'] = createMirrorDevice()
+        g_mAppDeviceSettings['pageMirrorDeviceMirrorButton'] = createMirrorDevice(pageMirrorDeviceSmartDevice, pageMirrorDeviceSmartDeviceComponent, pageMirrorDeviceHubitatDevice)
 }
 
-String createMirrorDevice() {    
-    Map smartDevices = getSmartDevicesMap()
-    String deviceId = pageMirrorDeviceSmartDevice           
-    def replicaDevice = getDevice(pageMirrorDeviceHubitatDevice)            
-    String smartLabel = smartDevices?.items?.find{ it.deviceId == deviceId }?.label
-    String componentId = pageMirrorDeviceSmartDeviceComponent         
-    Map replica = [ deviceId:deviceId, componentId:componentId, replicaId:(app.getId()), type:( getChildDevice( replicaDevice?.deviceNetworkId )!=null ? 'child' : 'mirror')]
-    setReplicaDataJsonValue(replicaDevice, "replica", replica)
-    clearReplicaDataCache(replicaDevice, "capabilities", true)
-    clearReplicaDataCache(replicaDevice, "description", true)
-    clearReplicaDataCache(replicaDevice, "health", true)
-    clearReplicaDataCache(replicaDevice, "status", true)
-    replicaDeviceRefresh(replicaDevice)            
+String createMirrorDevice(String deviceId, String componentId, String deviceNetworkId) {    
+    String response = errorMsg("Error: Could not find Hubitat device to mirror")    
+    def replicaDevice = getDevice(deviceNetworkId)
     
-    logInfo "${app.getLabel()} mirrored device'${replicaDevice.getDisplayName()}' with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId"                    
-    app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
-    app.updateSetting( "pageHubiThingDeviceModify", [type:"enum", value: replicaDevice.deviceNetworkId] )
-    return "'${replicaDevice.getDisplayName()}' was mirrored with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId"
+    if(replicaDevice) {  
+        Map replica = [ deviceId:deviceId, componentId:componentId, replicaId:(app.getId()), type:( getChildDevice( replicaDevice?.deviceNetworkId )!=null ? 'child' : 'mirror')]
+        setReplicaDataJsonValue(replicaDevice, "replica", replica)
+        clearReplicaDataCache(replicaDevice, "capabilities", true)
+        clearReplicaDataCache(replicaDevice, "description", true)
+        clearReplicaDataCache(replicaDevice, "health", true)
+        clearReplicaDataCache(replicaDevice, "status", true)
+        replicaDeviceRefresh(replicaDevice)            
+    
+        logInfo "${app.getLabel()} mirrored device'${replicaDevice.getDisplayName()}' with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId"                    
+        app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
+        app.updateSetting( "pageHubiThingDeviceModify", [type:"enum", value: replicaDevice.deviceNetworkId] )
+        response = statusMsg("'${replicaDevice.getDisplayName()}' was mirrored with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId")
+    }
+    return response
 }
 
 def pageVirtualDevice() {
@@ -937,7 +939,7 @@ String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {
     }
     //devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(2),td:nth-of-type(2) { display: none; } }</style>"""    
             
-    return section(menuHeader("SmartThings Virtual Device List")) {
+    section(menuHeader("SmartThings Virtual Device List")) {
         if(allVirtualDevices?.items?.size()) {
             paragraph( devicesTable )            
         }
@@ -1227,7 +1229,7 @@ void updateRuleList(action, type) {
             replicaDeviceRules.components.add(newRule)
         }
     }
-    //logInfo replicaDeviceRules
+
     setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules.sort{ a, b -> b.key <=> a.key })
     if(type=='hubitatTrigger') replicaDeviceSubscribe(replicaDevice)
 }
@@ -1374,8 +1376,7 @@ def pageConfigureDevice() {
             g_mAppDeviceSettings['smartAttribute']   = smartAttributeOptions?.get(smartAttribute) ?: null
             g_mAppDeviceSettings['smartCommand']     = smartCommandOptions?.get(smartCommand) ?: null
             g_mAppDeviceSettings['hubitatCommand']   = hubitatCommandOptions?.get(hubitatCommand) ?: null            
-        }
-        
+        }        
         replicaDevicesRuleSection()
     }
 }
@@ -1475,8 +1476,7 @@ Map getReplicaTriggerOptions(replicaDevice) {
     return replicaTriggerOptions
 }
 
-Map getSmartCommandOptions(replicaDevice) {
-            
+Map getSmartCommandOptions(replicaDevice) {            
     Map smartCommandOptions = [:]
     Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
     capabilities?.components?.each{ capability -> 
@@ -1506,7 +1506,6 @@ Map getSmartCommandOptions(replicaDevice) {
 }
 
 Map getSmartAttributeOptions(replicaDevice) {
-
     Map smartAttributeOptions = [:]
     Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
     capabilities?.components?.each{ capability ->
@@ -2308,7 +2307,6 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
 @Field static final String sImgDevv = """<img style="margin-Top:-6px;transform: scaleX(-1);" height="22" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJMYXllcl8xIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxwYXRoIGQ9Ik0yMi43MywxOS4wNWwtLjk4LS41NWMuMTUtLjQ4LC4yNi0uOTgsLjI2LTEuNXMtLjEtMS4wMy0uMjYtMS41bC45OC0uNTVjLjQ4LS4yNywuNjUtLjg4LC4zOS0xLjM2LS4yNy0uNDgtLjg4LS42Ni0xLjM2LS4zOWwtLjk4LC41NWMtLjcxLS44Mi0xLjY3LTEuNDItMi43Ny0xLjY1di0xLjFjMC0uNTUtLjQ1LTEtMS0xcy0xLC40NS0xLDF2MS4xYy0xLjEsLjIyLTIuMDYsLjgzLTIuNzcsMS42NWwtLjk4LS41NWMtLjQ4LS4yNy0xLjA5LS4xLTEuMzYsLjM5LS4yNywuNDgtLjEsMS4wOSwuMzksMS4zNmwuOTgsLjU1Yy0uMTUsLjQ4LS4yNiwuOTgtLjI2LDEuNXMuMSwxLjAzLC4yNiwxLjVsLS45OCwuNTVjLS40OCwuMjctLjY1LC44OC0uMzksMS4zNiwuMTgsLjMzLC41MiwuNTEsLjg3LC41MSwuMTcsMCwuMzMtLjA0LC40OS0uMTNsLjk4LS41NWMuNzEsLjgyLDEuNjcsMS40MiwyLjc3LDEuNjV2MS4xYzAsLjU1LC40NSwxLDEsMXMxLS40NSwxLTF2LTEuMWMxLjEtLjIyLDIuMDYtLjgzLDIuNzctMS42NWwuOTgsLjU1Yy4xNSwuMDksLjMyLC4xMywuNDksLjEzLC4zNSwwLC42OS0uMTgsLjg3LS41MSwuMjctLjQ4LC4xLTEuMDktLjM5LTEuMzZabS01LjczLC45NWMtMS42NSwwLTMtMS4zNS0zLTNzMS4zNS0zLDMtMywzLDEuMzUsMywzLTEuMzUsMy0zLDNabS02LjIzLTkuNzVsLjk4LC41NWMuMTUsLjA5LC4zMiwuMTMsLjQ5LC4xMywuMzUsMCwuNjktLjE4LC44Ny0uNTEsLjI3LS40OCwuMS0xLjA5LS4zOS0xLjM2bC0uOTgtLjU1Yy4xNS0uNDgsLjI2LS45OCwuMjYtMS41cy0uMS0xLjAzLS4yNi0xLjVsLjk4LS41NWMuNDgtLjI3LC42NS0uODgsLjM5LTEuMzYtLjI3LS40OC0uODgtLjY2LTEuMzYtLjM5bC0uOTgsLjU1Yy0uNzEtLjgyLTEuNjctMS40Mi0yLjc3LTEuNjVWMWMwLS41NS0uNDUtMS0xLTFzLTEsLjQ1LTEsMXYxLjFjLTEuMSwuMjItMi4wNiwuODMtMi43NywxLjY1bC0uOTgtLjU1Yy0uNDgtLjI3LTEuMDktLjEtMS4zNiwuMzktLjI3LC40OC0uMSwxLjA5LC4zOSwxLjM2bC45OCwuNTVjLS4xNSwuNDgtLjI2LC45OC0uMjYsMS41cy4xLDEuMDMsLjI2LDEuNWwtLjk4LC41NWMtLjQ4LC4yNy0uNjUsLjg4LS4zOSwxLjM2LC4xOCwuMzMsLjUyLC41MSwuODcsLjUxLC4xNywwLC4zMy0uMDQsLjQ5LS4xM2wuOTgtLjU1Yy43MSwuODIsMS42NywxLjQyLDIuNzcsMS42NXYxLjFjMCwuNTUsLjQ1LDEsMSwxczEtLjQ1LDEtMXYtMS4xYzEuMS0uMjIsMi4wNi0uODMsMi43Ny0xLjY1Wm0tMy43Ny0uMjVjLTEuNjUsMC0zLTEuMzUtMy0zczEuMzUtMywzLTMsMywxLjM1LDMsMy0xLjM1LDMtMywzWiIvPjwvc3ZnPgo='/>"""
 @Field static final String sImgMirr = """<img style="margin-Top:-6px" height="18" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxnIGlkPSJfMDFfYWxpZ25fY2VudGVyIiBkYXRhLW5hbWU9IjAxIGFsaWduIGNlbnRlciI+PHBhdGggZD0iTTkuMzU2LDAsLjM3NSwxOS43NTlBMywzLDAsMCwwLDMuMTA2LDI0SDExVjEuMDQ2TDEwLjk5MywwWk05LDIySDMuMTA2YTEsMSwwLDAsMS0uOTExLTEuNDE0TDksNS42MTZaIi8+PHBhdGggZD0iTTIzLjYyNSwxOS43NTksMTQuOTMuNjI4LDE0LjYyNiwwSDEzVjI0aDcuODk0YTMsMywwLDAsMCwyLjczMS00LjI0MVoiLz48L2c+PC9zdmc+Cg=='/>"""
 @Field static final String sImgDevh = """<img style="margin-Top:-6px;" height="22" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJMYXllcl8xIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxwYXRoIGQ9Ik0yMi43MywxOS4wNWwtLjk4LS41NWMuMTUtLjQ4LC4yNi0uOTgsLjI2LTEuNXMtLjEtMS4wMy0uMjYtMS41bC45OC0uNTVjLjQ4LS4yNywuNjUtLjg4LC4zOS0xLjM2LS4yNy0uNDgtLjg4LS42Ni0xLjM2LS4zOWwtLjk4LC41NWMtLjcxLS44Mi0xLjY3LTEuNDItMi43Ny0xLjY1di0xLjFjMC0uNTUtLjQ1LTEtMS0xcy0xLC40NS0xLDF2MS4xYy0xLjEsLjIyLTIuMDYsLjgzLTIuNzcsMS42NWwtLjk4LS41NWMtLjQ4LS4yNy0xLjA5LS4xLTEuMzYsLjM5LS4yNywuNDgtLjEsMS4wOSwuMzksMS4zNmwuOTgsLjU1Yy0uMTUsLjQ4LS4yNiwuOTgtLjI2LDEuNXMuMSwxLjAzLC4yNiwxLjVsLS45OCwuNTVjLS40OCwuMjctLjY1LC44OC0uMzksMS4zNiwuMTgsLjMzLC41MiwuNTEsLjg3LC41MSwuMTcsMCwuMzMtLjA0LC40OS0uMTNsLjk4LS41NWMuNzEsLjgyLDEuNjcsMS40MiwyLjc3LDEuNjV2MS4xYzAsLjU1LC40NSwxLDEsMXMxLS40NSwxLTF2LTEuMWMxLjEtLjIyLDIuMDYtLjgzLDIuNzctMS42NWwuOTgsLjU1Yy4xNSwuMDksLjMyLC4xMywuNDksLjEzLC4zNSwwLC42OS0uMTgsLjg3LS41MSwuMjctLjQ4LC4xLTEuMDktLjM5LTEuMzZabS01LjczLC45NWMtMS42NSwwLTMtMS4zNS0zLTNzMS4zNS0zLDMtMywzLDEuMzUsMywzLTEuMzUsMy0zLDNabS02LjIzLTkuNzVsLjk4LC41NWMuMTUsLjA5LC4zMiwuMTMsLjQ5LC4xMywuMzUsMCwuNjktLjE4LC44Ny0uNTEsLjI3LS40OCwuMS0xLjA5LS4zOS0xLjM2bC0uOTgtLjU1Yy4xNS0uNDgsLjI2LS45OCwuMjYtMS41cy0uMS0xLjAzLS4yNi0xLjVsLjk4LS41NWMuNDgtLjI3LC42NS0uODgsLjM5LTEuMzYtLjI3LS40OC0uODgtLjY2LTEuMzYtLjM5bC0uOTgsLjU1Yy0uNzEtLjgyLTEuNjctMS40Mi0yLjc3LTEuNjVWMWMwLS41NS0uNDUtMS0xLTFzLTEsLjQ1LTEsMXYxLjFjLTEuMSwuMjItMi4wNiwuODMtMi43NywxLjY1bC0uOTgtLjU1Yy0uNDgtLjI3LTEuMDktLjEtMS4zNiwuMzktLjI3LC40OC0uMSwxLjA5LC4zOSwxLjM2bC45OCwuNTVjLS4xNSwuNDgtLjI2LC45OC0uMjYsMS41cy4xLDEuMDMsLjI2LDEuNWwtLjk4LC41NWMtLjQ4LC4yNy0uNjUsLjg4LS4zOSwxLjM2LC4xOCwuMzMsLjUyLC41MSwuODcsLjUxLC4xNywwLC4zMy0uMDQsLjQ5LS4xM2wuOTgtLjU1Yy43MSwuODIsMS42NywxLjQyLDIuNzcsMS42NXYxLjFjMCwuNTUsLjQ1LDEsMSwxczEtLjQ1LDEtMXYtMS4xYzEuMS0uMjIsMi4wNi0uODMsMi43Ny0xLjY1Wm0tMy43Ny0uMjVjLTEuNjUsMC0zLTEuMzUtMy0zczEuMzUtMywzLTMsMywxLjM1LDMsMy0xLjM1LDMtMywzWiIvPjwvc3ZnPgo='/>"""
- 
 
 // thanks to DCMeglio (Hubitat Package Manager) for a lot of formatting hints
 String getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){   
@@ -2318,7 +2316,6 @@ String getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){
     if(type == "hyperlink") return "<a href='${myHyperlink}' target='_blank' rel='noopener noreferrer' style='color:$myColor;font-weight:bold'>${myText}</a>"
     if(type == "comments")  return "<div style='color:$myColor;font-weight:small;font-size:14px;'>${myText}</div>"
 }
-
 String errorMsg(String msg) { getFormat("text", msg, null, sColorDarkRed) }
 String statusMsg(String msg) { getFormat("text", msg, null, sColorDarkBlue) }
 
