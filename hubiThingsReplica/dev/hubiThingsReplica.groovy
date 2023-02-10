@@ -26,7 +26,7 @@
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 *  1.3.00 2023-01-13 Formal Release Candidate
 *  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
-*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh. V2.
+*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 LINE 30 MAX */ 
 
 public static String version() { return "1.3.03" }
@@ -133,11 +133,14 @@ public void childUninstalled( childApp ) {
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
-public void childSubscriptionDeviceListChanged( childApp, data ) {
+public void childSubscriptionDeviceListChanged( childApp, data=null ) {
     logDebug "${app.getLabel()} executing 'childSubscriptionDeviceListChanged($childApp.id, $data)'"
-    getSmartDevicesMap()?.items?.removeAll{ it.appId == childApp.getId() }
-    getSmartDevicesMap()?.items?.addAll( childApp.getSmartSubscribedDevices()?.items )
-
+    try {
+        getSmartDevicesMap()?.items?.removeAll{ it.appId == childApp.getId() }
+        getSmartDevicesMap()?.items?.addAll( childApp.getSmartSubscribedDevices()?.items )
+    } catch(e) {
+        logInfo "${app.getLabel()} 'childSubscriptionDeviceListChanged($childApp.id)' did not complete successfully"
+    }
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
@@ -254,7 +257,7 @@ def pageMain(){
     Map smartDevices = getSmartDevicesMap()
     Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
 
-    return dynamicPage(name: "pageMain", install: true,  refreshInterval:iPageMainRefreshInterval) {
+    return dynamicPage(name: "pageMain", install: true, refreshInterval:iPageMainRefreshInterval) {
         displayHeader()
         state.pageMainLastRefresh = now()
         
@@ -463,7 +466,7 @@ def pageHubiThingDevice(){
         app.updateSetting( "pageHubiThingDeviceLabel", deviceLabel ? "$deviceLabel${smartComponentsSelect?.size()>1 ? " - $pageHubiThingDeviceSmartDeviceComponent" : ""}" : "" )
     }
     
-    Integer refreshInterval = (g_mAppDeviceSettings?.pageHubiThingDeviceCreateButton || g_mAppDeviceSettings?.pageHubiThingDeviceModifyButton) ? 10 : 0
+    Integer refreshInterval = (g_mAppDeviceSettings?.pageHubiThingDeviceCreateButton || g_mAppDeviceSettings?.pageHubiThingDeviceModifyButton) ? 15 : 0
     return dynamicPage(name: "pageHubiThingDevice", uninstall: false, refreshInterval:refreshInterval) {
         displayHeader()        
 
@@ -773,7 +776,7 @@ def pageMirrorDevice(){
     String hubitatStats =  getHubitatDeviceStats(hubitatDevice)
     String smartStats = getSmartDeviceStats(pageMirrorDeviceSmartDevice, pageMirrorDeviceSmartDeviceComponent)
 
-    Integer refreshInterval = (g_mAppDeviceSettings?.pageMirrorDeviceMirrorButton || g_mAppDeviceSettings?.pageHubiThingDeviceModifyButton) ? 10 : 0
+    Integer refreshInterval = (g_mAppDeviceSettings?.pageMirrorDeviceMirrorButton || g_mAppDeviceSettings?.pageHubiThingDeviceModifyButton) ? 15 : 0
     return dynamicPage(name: "pageMirrorDevice", uninstall: false, refreshInterval:refreshInterval) {
         displayHeader()        
 
@@ -887,7 +890,7 @@ def pageVirtualDevice() {
         app.updateSetting( "pageVirtualDeviceHubitatType", [type:"enum", value: hubitatType] )
     }
     
-    Integer refreshInterval = (g_mAppDeviceSettings?.pageVirtualDeviceCreateButton || g_mAppDeviceSettings?.pageVirtualDeviceModifyButtons) ? 10 : 0    
+    Integer refreshInterval = (g_mAppDeviceSettings?.pageVirtualDeviceCreateButton || g_mAppDeviceSettings?.pageVirtualDeviceModifyButtons) ? 15 : 0    
     return dynamicPage(name: "pageVirtualDevice", uninstall: false, refreshInterval:refreshInterval) {
         displayHeader()
 
