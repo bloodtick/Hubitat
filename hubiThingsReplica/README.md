@@ -31,7 +31,7 @@ Operation:
 4. Follow the prompt and install a HubiThings OAuth (it is a child app).
 5. Continue to follow the OAuth prompts and when successful you are able to pick ST devices to mirror.
 6. Return back to the Replica app and you should see the device(s) in the 'HubiThings Device List'.
-7. Click 'Configure HubiThings Device' and follow the creation process. (Start easy with a simple ST device and use a Replica DH).
+7. Click 'Configure HubiThings Devices' and follow the creation process. (Start easy with a simple ST device and use a Replica DH).
 8. If #7 was a Replica DH, the rules and device will auto configure and you are ready, if you pick a Virtual device, you will now need to go to "Configure HubiThings Rules" and match attributes to commands.
 
 Don't get frustrated. It works and has SUPER fast response from and to the SmartThings Cloud API. :grinning:
