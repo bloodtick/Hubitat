@@ -46,3 +46,4 @@ Update 2023/01/07: Beta release 1.2.10. Change log [here](https://community.hubi
 Update 2023/01/13: Release 1.3.00. Change log [here](https://community.hubitat.com/t/beta-hubithings-replica/107976/152).<br/>
 Update 2023/01/17: Release 1.3.00. Added to HPM. For existing installs see [here](https://community.hubitat.com/t/release-hubithings-replica/107976/185).<br/>
 Update 2023/01/29: Release 1.3.02. Change log [here](https://community.hubitat.com/t/release-hubithings-replica/107976/233).<br/>
+Update 2023/02/10: Release 1.3.03. Change log [here](https://community.hubitat.com/t/release-hubithings-replica/107976/249).<br/>
