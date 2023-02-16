@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.06 2023-01-02 Not released
 *  1.2.07 2023-01-04 initial support for componentID. Code adds to support Virtual ST devices (not completed)
 *  1.2.08 2023-01-04 Not released
 *  1.2.09 2023-01-05 Align version to Replica for next Beta release.
@@ -27,9 +26,10 @@
 *  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate.
 *  1.3.02 2023-01-26 Remove ST Virtual Device support and move to Replica (not completed)
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
+*  1.3.04 2023-02-16 Support for SmartThings Scene MVP.
 LINE 30 MAX */  
 
-public static String version() { return "1.3.03" }
+public static String version() { return "1.3.04" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -234,7 +234,7 @@ public void updateLocationSubscriptionSettings(Boolean value) {
     app.updateSetting('enableDeviceLifecycleSubscription', value)
     app.updateSetting('enableHealthSubscription', value)
     app.updateSetting('enableModeSubscription', value)
-    app.updateSetting('enableSceneLifecycleSubscription', false) // not supported yet
+    app.updateSetting('enableSceneLifecycleSubscription', value) // not supported yet
 }
 
 /************************************** PARENT METHODS STOP ********************************************************/
