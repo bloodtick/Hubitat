@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.06 2023-01-02 device table now a jquery DataTables object, remove pattern from rule.
 *  1.2.07 2023-01-04 initial support for componentID, fixes for non-Replica DH, fixes for debug
 *  1.2.08 2023-01-05 'status' support for componentID, fixes for Create & Mirror UI to support componentID
 *  1.2.09 2023-01-05 update tables to jquery.
@@ -27,9 +26,10 @@
 *  1.3.00 2023-01-13 Formal Release Candidate
 *  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
+*  1.3.04 2023-02-16 Support for SmartThings Scene MVP.
 LINE 30 MAX */ 
 
-public static String version() { return "1.3.03" }
+public static String version() { return "1.3.04" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -59,6 +59,7 @@ import groovy.transform.Field
 @Field volatile static Map<Long,Map>   g_mVirtualDeviceListCache = [:] 
 @Field volatile static Map<Long,Map>   g_mSmartLocationListCache = [:]
 @Field volatile static Map<Long,Map>   g_mSmartRoomListCache = [:]
+@Field volatile static Map<Long,Map>   g_mSmartSceneListCache = [:]
 @Field volatile static Map<Long,Map>   g_mReplicaDeviceCache = [:]
 @Field volatile static Map<String,Map> g_mAppDeviceSettings = [:] // don't clear
 
@@ -69,6 +70,7 @@ void clearAllVolatileCache() {
     g_mVirtualDeviceListCache[appId]=null
     g_mSmartLocationListCache[appId]=null
     g_mSmartRoomListCache[appId]=null
+    g_mSmartSceneListCache[appId]=null
     g_mReplicaDeviceCache[appId]=null
 }
 
@@ -218,11 +220,16 @@ Map getSmartRooms(String locationId) {
     return g_mSmartRoomListCache[app.getId()]?."$locationId" ?: (g_mSmartRoomListCache[app.getId()]."$locationId"=getSmartRoomList(locationId)?.data) ?: [:] //blocking http
 }
 
+Map getSmartScenes(String locationId) {
+    if(!g_mSmartSceneListCache[app.getId()]) g_mSmartSceneListCache[app.getId()] = [:]
+    return g_mSmartSceneListCache[app.getId()]?."$locationId" ?: (g_mSmartSceneListCache[app.getId()]."$locationId"=getSmartSceneList(locationId)?.data) ?: [:] //blocking http
+}
+
 Map getVirtualDevices() {
     return g_mVirtualDeviceListCache[app.getId()] ?: (g_mVirtualDeviceListCache[app.getId()]=getVirtualDeviceList()?.data) ?: [:] //blocking http
 }
 
-String getSmartLocationName(locationId) {
+String getSmartLocationName(String locationId) {
     getSmartLocations()?.items?.find{ it.locationId==locationId }?.name
 }
 
@@ -364,7 +371,7 @@ def pageMain(){
 
 			section(menuHeader("Replica Device Creation and Control")){             
 				href "pageHubiThingDevice", title: "$sImgDevh Configure HubiThings Devices ", description: "Click to show"
-                href "pageVirtualDevice",   title: "$sImgDevv Configure SmartThings Virtual Devices", description: "Click to show"
+                href "pageVirtualDevice",   title: "$sImgDevv Configure SmartThings Virtual Devices, Modes and Scenes", description: "Click to show"
 				href "pageConfigureDevice", title: "$sImgRule Configure HubiThings Rules", description: "Click to show"
                 if(deviceAuthCount>0) href "pageMirrorDevice", title: "$sImgMirr Mirror Hubitat Devices (Advanced)", description: "Click to show"
             }
@@ -848,13 +855,19 @@ def pageVirtualDevice() {
     allSmartLocations?.items?.sort{ it.name }.each { smartLocation ->
         smartLocationSelect.add([ "${smartLocation.locationId}" : "$smartLocation.name &ensp; (locationId: $smartLocation.locationId)" ])   
     }
-    
+
     Map allSmartRooms = getSmartRooms(pageVirtualDeviceLocation)    
     List smartRoomSelect = []    
-    allSmartRooms?.items?.sort{ it.name }.each { smartRooms ->
-        smartRoomSelect.add([ "${smartRooms.roomId}" : "$smartRooms.name &ensp; (roomId: $smartRooms.roomId)" ])   
+    allSmartRooms?.items?.sort{ it.name }.each { smartRoom ->
+        smartRoomSelect.add([ "${smartRoom.roomId}" : "$smartRoom.name &ensp; (roomId: $smartRoom.roomId)" ])   
     }
     
+    Map allSmartScenes = getSmartScenes(pageVirtualDeviceLocation)
+    List smartSceneSelect = []    
+    allSmartScenes?.items?.sort{ it.name }.each { smartScene ->
+        smartSceneSelect.add([ "${smartScene.sceneId}" : "$smartScene.sceneName &ensp; (sceneId: $smartScene.sceneId)" ])   
+    }
+
     List oauthSelect = []
     getChildApps()?.each{ oauth ->                
         if(pageVirtualDeviceLocation==oauth?.getLocationId()) {
@@ -885,7 +898,7 @@ def pageVirtualDevice() {
     
     if(pageVirtualDeviceType!=g_mAppDeviceSettings?.pageVirtualDeviceType) {
         g_mAppDeviceSettings['pageVirtualDeviceType'] = pageVirtualDeviceType
-        String replicaName = getVirtualDeviceTypes()?.find{it.id.toString() == pageVirtualDeviceType}?.replica ?: ""
+        String replicaName = getVirtualDeviceTypes()?.find{it.id.toString() == pageVirtualDeviceType}?.replicaName ?: ""
         String hubitatType = hubitatDeviceTypes?.find{ it?.find{ k,v -> v?.contains( replicaName ) } }?.keySet()?.getAt(0)       
         app.updateSetting( "pageVirtualDeviceHubitatType", [type:"enum", value: hubitatType] )
     }
@@ -894,33 +907,44 @@ def pageVirtualDevice() {
     return dynamicPage(name: "pageVirtualDevice", uninstall: false, refreshInterval:refreshInterval) {
         displayHeader()
 
-        section(menuHeader("Create SmartThings Virtual Device $sHubitatIconStatic $sSamsungIconStatic")) {     
-           input(name: "pageVirtualDeviceType", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device Type:", description: "Choose a SmartThings virtual device type", multiple: false, options: virtualDeviceTypesSelect, submitOnChange: true, width: 6, newLineAfter:true)
-           input(name: "pageVirtualDeviceLocation", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Location:", description: "Choose a SmartThings location", multiple: false, options: smartLocationSelect, submitOnChange: true, width: 6, newLineAfter:true)
-           input(name: "pageVirtualDeviceRoom", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Room:", description: "Choose a SmartThings room (not required)", multiple: false, options: smartRoomSelect, submitOnChange: true, width: 6, newLineAfter:true)
-           if(oauthSelect?.size())
-               input(name: "pageVirtualDeviceOauth", type: "enum", title: "&ensp;$sHubitatIcon Select HubiThings OAuth:", description: "Choose a HubiThings OAuth (not required)", multiple: false, options: oauthSelect, submitOnChange: true, width: 6, newLineAfter:true)
-           else
-               app.removeSetting('pageVirtualDeviceOauth')
-           if(oauthSelect?.size() && pageVirtualDeviceOauth)
-               input(name: "pageVirtualDeviceHubitatType", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device Type:", description: "Choose a Hubitat device type (not required)", options: hubitatDeviceTypes, required: false, submitOnChange:true, width: 6, newLineAfter:true)
+        section(menuHeader("Create SmartThings Virtual Device, Mode or Scene $sHubitatIconStatic $sSamsungIconStatic")) {
             
-           input(name: "dynamic::pageVirtualDeviceCreateButton",  type: "button", width: 2, title: "$sSamsungIcon Create", style:"width:75%;")
-           if(g_mAppDeviceSettings?.pageVirtualDeviceCreateButton)  {
-               paragraph( g_mAppDeviceSettings.pageVirtualDeviceCreateButton )
-               g_mAppDeviceSettings.pageVirtualDeviceCreateButton = null
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'location')
+                paragraph( getFormat("comments","<b>Location Mode Knob</b> allows for creation, deletion, updating and mirroring the SmartThings mode within a Hubitat Device. Similar to Hubitat, each SmartThings location only supports a singular mode.",null,"Gray") ) 
+
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'scene')
+                paragraph( getFormat("comments","<b>Scene Knob</b> allows for triggering and mirroring a SmartThings scene within a Hubitat Device. <b>NOTE for proper usage:</b> A SmartThings virtual switch is created, and it must be added to the SmartThings Scene 'actions' to update the switch to 'Turn on' when the scene is triggered.",null,"Gray") ) 
+           
+            input(name: "pageVirtualDeviceType", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device Type:", description: "Choose a SmartThings virtual device type", multiple: false, options: virtualDeviceTypesSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
+            input(name: "pageVirtualDeviceLocation", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Location:", description: "Choose a SmartThings location", multiple: false, options: smartLocationSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
+            input(name: "pageVirtualDeviceRoom", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Room:", description: "Choose a SmartThings room (not required)", multiple: false, options: smartRoomSelect, submitOnChange: true, width: 6, newLineAfter:true)
+           
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'scene') 
+                input(name: "pageVirtualDeviceScene", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Scene:", description: "Choose a SmartThings scene", multiple: false, options: smartSceneSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
+ 
+            if(oauthSelect?.size())
+               input(name: "pageVirtualDeviceOauth", type: "enum", title: "&ensp;$sHubitatIcon Select HubiThings OAuth:", description: "Choose a HubiThings OAuth (not required)", multiple: false, options: oauthSelect, submitOnChange: true, width: 6, newLineAfter:true)
+            else
+               app.removeSetting('pageVirtualDeviceOauth')
+            if(oauthSelect?.size() && pageVirtualDeviceOauth)
+               input(name: "pageVirtualDeviceHubitatType", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device Type:", description: "Choose a Hubitat device type (not required)", options: hubitatDeviceTypes, submitOnChange:true, width: 6, newLineAfter:true)
+                                  
+            input(name: "dynamic::pageVirtualDeviceCreateButton",  type: "button", width: 2, title: "$sSamsungIcon Create", style:"width:75%;")
+            if(g_mAppDeviceSettings?.pageVirtualDeviceCreateButton)  {
+                paragraph( g_mAppDeviceSettings.pageVirtualDeviceCreateButton )
+                g_mAppDeviceSettings.pageVirtualDeviceCreateButton = null
            }            
         }
-        section(menuHeader("Modify SmartThings Virtual Device")) {
-           paragraph( getFormat("comments","<b>Create</b> and <b>Remove</b> utilize the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces a rate limit of 15 requests per 15 minutes to query the subscription API for status updates.",null,"Gray") ) 
-           input(name: "pageVirtualDeviceModify", type: "enum",  title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device:", description: "Choose a SmartThings virtual device", multiple: false, options: virtualDeviceDeleteSelect, submitOnChange: true, width: 6, newLineAfter:true)
-           input(name: "pageVirtualDeviceLabel", type: "text", title: "$sSamsungIcon SmartThings Virtual Device Label:", submitOnChange: true, width: 6, newLineAfter:true)           
-           input(name: "dynamic::pageVirtualDeviceRenameButton",  type: "button", width: 2, title: "$sSamsungIcon Rename", style:"width:75%;")
-           input(name: "dynamic::pageVirtualDeviceRemoveButton",  type: "button", width: 2, title: "$sSamsungIcon Remove", style:"width:75%;", newLineAfter:true)
-           if(g_mAppDeviceSettings?.pageVirtualDeviceModifyButtons) {
-               paragraph( g_mAppDeviceSettings?.pageVirtualDeviceModifyButtons )
-               g_mAppDeviceSettings.pageVirtualDeviceModifyButtons = null
-           }
+        section(menuHeader("Modify SmartThings Virtual Device, Mode or Scene")) {
+            paragraph( getFormat("comments","<b>Create</b> and <b>Remove</b> utilize the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces a rate limit of 15 requests per 15 minutes to query the subscription API for status updates.",null,"Gray") ) 
+            input(name: "pageVirtualDeviceModify", type: "enum",  title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device:", description: "Choose a SmartThings virtual device", multiple: false, options: virtualDeviceDeleteSelect, submitOnChange: true, width: 6, newLineAfter:true)
+            input(name: "pageVirtualDeviceLabel", type: "text", title: "$sSamsungIcon SmartThings Virtual Device Label:", submitOnChange: true, width: 6, newLineAfter:true)           
+            input(name: "dynamic::pageVirtualDeviceRenameButton",  type: "button", width: 2, title: "$sSamsungIcon Rename", style:"width:75%;")
+            input(name: "dynamic::pageVirtualDeviceRemoveButton",  type: "button", width: 2, title: "$sSamsungIcon Remove", style:"width:75%;", newLineAfter:true)
+            if(g_mAppDeviceSettings?.pageVirtualDeviceModifyButtons) {
+                paragraph( g_mAppDeviceSettings?.pageVirtualDeviceModifyButtons )
+                g_mAppDeviceSettings.pageVirtualDeviceModifyButtons = null
+            }
         }
         virtualDevicesSection(allVirtualDevices, allSmartLocations)        
     }
@@ -928,10 +952,18 @@ def pageVirtualDevice() {
 
 String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {    
     String devicesTable  = "<table id='devicesTable' role='table' class='compact' style='width:100%;'>"
-           devicesTable += "<thead><tr><th>$sSamsungIcon Virtual Device</th><th>$sSamsungIcon Virtual Type</th><th style='text-align:center;'>$sSamsungIcon Location</th></tr></thead><tbody>"    
+           devicesTable += "<thead><tr><th>$sSamsungIcon Virtual Device</th><th>$sHubitatIcon Hubitat Device</th><th>$sSamsungIcon Virtual Type</th><th style='text-align:center;'>$sSamsungIcon Location</th></tr></thead><tbody>"    
     allVirtualDevices?.items?.sort{ it.label }.each { virtualDevice ->
-        String location = allSmartLocations?.items?.find{ it.locationId==virtualDevice.locationId }?.name ?: virtualDevice.locationId
-        devicesTable += "<td>${virtualDevice.label}</td><td>${virtualDevice.name}</td><td style='text-align:center;'>$location</td></tr>"
+        List hubitatDevices = getReplicaDevices(virtualDevice.deviceId)
+		for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
+            def replicaDevice = hubitatDevices[i]?:null
+            String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                            
+            String location = allSmartLocations?.items?.find{ it.locationId==virtualDevice.locationId }?.name ?: virtualDevice.locationId
+            devicesTable += "<tr><td>${virtualDevice.label}</td>"
+            devicesTable += replicaDevice ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"            
+            devicesTable += "<td>${virtualDevice.name}</td>"
+            devicesTable += "<td style='text-align:center;'>$location</td></tr>"
+        }
     }
     devicesTable +="</tbody></table>"
     if(allVirtualDevices?.items?.size() > iUseJqueryDataTables) {
@@ -940,7 +972,7 @@ String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {
     } else {
         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
     }
-    //devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(2),td:nth-of-type(2) { display: none; } }</style>"""    
+    devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""    
             
     section(menuHeader("SmartThings Virtual Device List")) {
         if(allVirtualDevices?.items?.size()) {
@@ -975,6 +1007,21 @@ void pageVirtualDeviceCreateButton() {
                 String deviceId = response?.data?.deviceId
                 String componentId = "main"
                 g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createChildDevice(deviceType, name, label, deviceId, componentId)
+            }
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'scene' && pageVirtualDeviceScene) {
+                Map allSmartScenes = getSmartScenes(pageVirtualDeviceLocation)
+                String sceneName = "Scene - ${allSmartScenes?.items?.find{ it?.sceneId==pageVirtualDeviceScene }?.sceneName}"
+                app.updateSetting( "pageVirtualDeviceLabel", [type:"enum", value: sceneName] )
+                pageVirtualDeviceRenameButton()
+                getReplicaDevices(pageVirtualDeviceModify)?.each{ replicaDevice->
+                    replicaDevice?.setSceneIdValue( pageVirtualDeviceScene )
+                } 
+            }
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'location') {
+                Map allSmartLocations = getSmartLocations()
+                String locationName = "Location - ${allSmartLocations?.items?.find{ it?.locationId==pageVirtualDeviceLocation }?.name}"
+                app.updateSetting( "pageVirtualDeviceLabel", [type:"enum", value: locationName] )
+                pageVirtualDeviceRenameButton()
             }
         }
         else
@@ -1022,6 +1069,7 @@ void pageVirtualDeviceButtonRefresh() {
     g_mVirtualDeviceListCache[app.getId()] = null
     g_mSmartLocationListCache[app.getId()] = null
     g_mSmartRoomListCache[app.getId()] = null
+    g_mSmartSceneListCache[app.getId()] = null
 }
 
 List getVirtualDeviceTypes() {
@@ -1029,8 +1077,8 @@ List getVirtualDeviceTypes() {
     // https://community.smartthings.com/t/smartthings-cli-create-virtual-device/249199
     // https://raw.githubusercontent.com/SmartThingsCommunity/smartthings-cli/eb1aab896d4248d293c662317056097aad777438/packages/cli/src/lib/commands/virtualdevices-util.ts
     List devices = [ 
-        [id:1, name: 'Switch', typeId: 'VIRTUAL_SWITCH', replica: 'Replica Switch'  ],
-        [id:2, name: 'Dimmer Switch', typeId: 'VIRTUAL_DIMMER_SWITCH', replica: 'Replica Dimmer' ],
+        [id:1, name: 'Switch', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Switch'  ],
+        [id:2, name: 'Dimmer Switch', typeId: 'VIRTUAL_DIMMER_SWITCH', replicaName: 'Replica Dimmer' ],
         //[id:3, name: 'Button', typeId: 'VIRTUAL_BUTTON' ],
         //[id:4, name: 'Camera', typeId: 'VIRTUAL_CAMERA' ],
         //[id:5, name: 'Color Bulb', typeId: 'VIRTUAL_COLOR_BULB' ],
@@ -1046,7 +1094,8 @@ List getVirtualDeviceTypes() {
         //[id:15, name: 'RGBW Bulb', typeId: 'VIRTUAL_RGBW_BULB' ],
         //[id:16, name: 'Siren', typeId: 'VIRTUAL_SIREN' ],
         //[id:17, name: 'Thermostat', typeId: 'VIRTUAL_THERMOSTAT' ],
-        [id:18, name: 'Location Knob', typeId: 'VIRTUAL_SWITCH', replica: 'Replica Location Knob' ]
+        [id:18, name: 'Location Mode Knob', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Location Knob', replicaType: 'location' ],
+        [id:19, name: 'Scene Knob', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Scene Knob', replicaType: 'scene' ]
     ]
     return devices
 } 
@@ -1154,7 +1203,7 @@ Map deleteSmartDevice(String deviceId) {
 }
 
 Map getSmartRoomList(String locationId) {
-    logDebug "${app.getLabel()} executing 'getSmartRoomList()'"
+    logDebug "${app.getLabel()} executing 'getSmartRoomList($locationId)'"
     Map response = [statusCode:iHttpError]
 
     Map params = [
@@ -1191,6 +1240,28 @@ Map getSmartLocationList() {
         }
     } catch (e) {
         logWarn "${app.getLabel()} has getSmartLocationList() error: $e"        
+    }
+    return response
+}
+
+Map getSmartSceneList(String locationId) {
+    logDebug "${app.getLabel()} executing 'getSmartSceneList($locationId)'"
+    Map response = [statusCode:iHttpError]
+
+    Map params = [
+        uri: sURI,
+        path: "/scenes",
+        query: [ locationId:locationId ],
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    try {
+        httpGet(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status         
+        }
+    } catch (e) {
+        logWarn "${app.getLabel()} has getSmartSceneList() error: $e"        
     }
     return response
 }
