@@ -371,7 +371,7 @@ def pageMain(){
 
 			section(menuHeader("Replica Device Creation and Control")){             
 				href "pageHubiThingDevice", title: "$sImgDevh Configure HubiThings Devices ", description: "Click to show"
-                href "pageVirtualDevice",   title: "$sImgDevv Configure SmartThings Virtual Devices, Modes and Scenes", description: "Click to show"
+                href "pageVirtualDevice",   title: "$sImgDevv Configure Virtual Devices, Modes and Scenes", description: "Click to show"
 				href "pageConfigureDevice", title: "$sImgRule Configure HubiThings Rules", description: "Click to show"
                 if(deviceAuthCount>0) href "pageMirrorDevice", title: "$sImgMirr Mirror Hubitat Devices (Advanced)", description: "Click to show"
             }
@@ -908,25 +908,27 @@ def pageVirtualDevice() {
     return dynamicPage(name: "pageVirtualDevice", uninstall: false, refreshInterval:refreshInterval) {
         displayHeader()
 
-        section(menuHeader("Create SmartThings Virtual Device, Mode or Scene $sHubitatIconStatic $sSamsungIconStatic")) {
+        section(menuHeader("Create Virtual Device, Mode or Scene $sHubitatIconStatic $sSamsungIconStatic")) {
             
             if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'location')
                 paragraph( getFormat("comments","<b>Location Mode Knob</b> allows for creation, deletion, updating and mirroring the SmartThings mode within a Hubitat Device. Similar to Hubitat, each SmartThings location only supports a singular mode.",null,"Gray") ) 
 
             if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene')
-                paragraph( getFormat("comments","<b>Scene Knob</b> allows for triggering and mirroring a SmartThings scene within a Hubitat Device. <b>NOTE for proper usage:</b> A SmartThings virtual switch is created, and it must be added to the SmartThings Scene 'actions' to update the switch to 'Turn on' when the scene is triggered.",null,"Gray") ) 
+                paragraph( getFormat("comments","<b>Scene Knob</b> allows for triggering and mirroring a SmartThings scene within a Hubitat Device. <b>NOTE for proper usage:</b> A SmartThings virtual switch will be created, and it <b>must be added</b> to the SmartThings Scene 'actions' to update the switch to 'Turn on' when the scene is triggered.",null,"Gray") ) 
            
-            input(name: "pageVirtualDeviceType", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device Type:", description: "Choose a SmartThings virtual device type", multiple: false, options: virtualDeviceTypesSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
-            input(name: "pageVirtualDeviceLocation", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Location:", description: "Choose a SmartThings location", multiple: false, options: smartLocationSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
+            input(name: "pageVirtualDeviceType", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device Type:", description: "Choose a SmartThings virtual device type", multiple: false, options: virtualDeviceTypesSelect, required: false, submitOnChange: true, width: 6, newLineAfter:true)
+            input(name: "pageVirtualDeviceLocation", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Location:", description: "Choose a SmartThings location", multiple: false, options: smartLocationSelect, required: false, submitOnChange: true, width: 6, newLineAfter:true)
             input(name: "pageVirtualDeviceRoom", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Room:", description: "Choose a SmartThings room (not required)", multiple: false, options: smartRoomSelect, submitOnChange: true, width: 6, newLineAfter:true)
            
             if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene') 
-                input(name: "pageVirtualDeviceScene", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Scene:", description: "Choose a SmartThings scene", multiple: false, options: smartSceneSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
+                input(name: "pageVirtualDeviceScene", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Scene:", description: "Choose a SmartThings scene", multiple: false, options: smartSceneSelect, required: false, submitOnChange: true, width: 6, newLineAfter:true)
  
             if(oauthSelect?.size())
                input(name: "pageVirtualDeviceOauth", type: "enum", title: "&ensp;$sHubitatIcon Select HubiThings OAuth:", description: "Choose a HubiThings OAuth (not required)", multiple: false, options: oauthSelect, submitOnChange: true, width: 6, newLineAfter:true)
-            else
+            else {
                app.removeSetting('pageVirtualDeviceOauth')
+               paragraph("No HubiThings OAuth authorized for this location or have reached maximum capacity of devices.") 
+            }
             if(oauthSelect?.size() && pageVirtualDeviceOauth)
                input(name: "pageVirtualDeviceHubitatType", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device Type:", description: "Choose a Hubitat device type (not required)", options: hubitatDeviceTypes, submitOnChange:true, width: 6, newLineAfter:true)
                                   
@@ -936,7 +938,7 @@ def pageVirtualDevice() {
                 g_mAppDeviceSettings.pageVirtualDeviceCreateButton = null
            }            
         }
-        section(menuHeader("Modify SmartThings Virtual Device, Mode or Scene")) {
+        section(menuHeader("Modify Virtual Device, Mode or Scene")) {
             paragraph( getFormat("comments","<b>Create</b> and <b>Remove</b> utilize the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces a rate limit of 15 requests per 15 minutes to query the subscription API for status updates.",null,"Gray") ) 
             input(name: "pageVirtualDeviceModify", type: "enum",  title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device:", description: "Choose a SmartThings virtual device", multiple: false, options: virtualDeviceDeleteSelect, submitOnChange: true, width: 6, newLineAfter:true)
             input(name: "pageVirtualDeviceLabel", type: "text", title: "$sSamsungIcon SmartThings Virtual Device Label:", submitOnChange: true, width: 6, newLineAfter:true)           
@@ -993,6 +995,8 @@ void pageVirtualDeviceCreateButton() {
         g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = errorMsg("Error: SmartThings Virtual Device Type selection is invalid")
     else if(!pageVirtualDeviceLocation)
         g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = errorMsg("Error: SmartThings Location selection is invalid")
+    else if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene' && !pageVirtualDeviceScene)
+        g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = errorMsg("Error: SmartThings Scene selection is invalid")        
     else {
         Map response = createVirtualDevice(pageVirtualDeviceLocation, pageVirtualDeviceRoom, name, prototype)
         if(response?.statusCode==200) {
@@ -1010,14 +1014,14 @@ void pageVirtualDeviceCreateButton() {
                 String componentId = "main"
                 g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createChildDevice(deviceType, name, label, deviceId, componentId)
             }
-            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene' && pageVirtualDeviceScene) {
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene') {
                 Map allSmartScenes = getSmartScenes(pageVirtualDeviceLocation)
                 String sceneName = "Scene - ${allSmartScenes?.items?.find{ it?.sceneId==pageVirtualDeviceScene }?.sceneName}"
                 app.updateSetting( "pageVirtualDeviceLabel", [type:"enum", value: sceneName] )
                 pageVirtualDeviceRenameButton()
                 getReplicaDevices(pageVirtualDeviceModify)?.each{ replicaDevice->
                     replicaDevice?.setSceneIdValue( pageVirtualDeviceScene )
-                } 
+                }                   
             }
             if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'location') {
                 Map allSmartLocations = getSmartLocations()
