@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.07 2023-01-04 initial support for componentID. Code adds to support Virtual ST devices (not completed)
 *  1.2.08 2023-01-04 Not released
 *  1.2.09 2023-01-05 Align version to Replica for next Beta release.
 *  1.2.10 2023-01-07 Align version to Replica for next Beta release.
@@ -26,10 +25,11 @@
 *  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate.
 *  1.3.02 2023-01-26 Remove ST Virtual Device support and move to Replica (not completed)
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
-*  1.3.04 2023-02-16 Support for SmartThings Scene MVP.
+*  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
+*  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 LINE 30 MAX */  
 
-public static String version() { return "1.3.04" }
+public static String version() { return "1.3.05" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -43,7 +43,7 @@ import groovy.transform.CompileStatic
 import groovy.transform.Field
 
 @Field static final String  sDefaultAppName="HubiThings OAuth"
-@Field static final Integer iSmartAppDeviceLimit=20
+@Field static final Integer iSmartAppDeviceLimit=30
 @Field static final Integer iHttpSuccess=200
 @Field static final Integer iHttpError=400
 @Field static final Integer iRefreshInterval=0
@@ -276,9 +276,9 @@ def pageMain(){
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
         
-        String comments = "This application utilizes the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 20 device subscriptions per installed application, "
+        String comments = "This application utilizes the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 30 devices per installed application, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
-               comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings account.<br><br>"
+               comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings location.<br><br>"
                comments+= "Unlike the SmartThings Personal Access Token (PAT) that is valid for 50 years from creation, the OAuth authorization token is valid for 24 hours and must be refreshed. "
                comments+= "<b>The authorization token refresh is automatically handled by the ${getDefaultLabel()} application every three hours</b>, "
                comments+= "but if your Hubitat hub is offline for an extended time period, you will need to reauthorize the token manually via the '$sSamsungIcon SmartThings OAuth Authorization' link."
@@ -817,9 +817,23 @@ Map getSmartSubscriptionList() {
 Map getSmartDeviceList() {
     logDebug "${getDefaultLabel()} executing 'getSmartDeviceList()'"
     Map response = [statusCode:iHttpError]   
-	Map data = [ uri: sURI, path: "/devices", method: "getSmartDeviceList"]
+    Map data = [ uri: sURI, path: "/devices", method: "getSmartDeviceList"]
     response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
+}
+void getSmartDeviceListPages( Map deviceList ) {
+    logDebug "${getDefaultLabel()} executing 'getSmartDeviceListPages()' size:${deviceList?.items?.size()} next:${deviceList?._links?.next}"
+    deviceList?._links?.next?.each{ key, href ->        
+        Map params = [ uri: href, headers: [ Authorization: "Bearer ${getAuthToken()}" ] ]
+        try {
+            httpGet(params) { resp ->
+                deviceList?.items?.addAll( resp.data?.items )
+                getSmartDeviceListPages(resp.data) // good old recursion
+            }
+        } catch (e) {
+            logWarn "${getDefaultLabel()} has getSmartDeviceListPages() error: $e"        
+        }        
+    }     
 }
 String getSmartDeviceName(String deviceId) {
     Map smartDeviceList = g_mSmartDeviceList[app.getId()]?.clone()
@@ -910,7 +924,8 @@ void asyncHttpGetCallback(resp, data) {
                 logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} subscription list"
                 break
             case "getSmartDeviceList":            
-                Map deviceList = new JsonSlurper().parseText(resp.data)            
+                Map deviceList = new JsonSlurper().parseText(resp.data)
+                getSmartDeviceListPages(deviceList)
                 Boolean changed = !g_mSmartDeviceList[app.getId()]?.items?.sort{ it.deviceId }?.equals( deviceList?.items?.sort{ it.deviceId } )
                 if(changed) {
                     g_mSmartDeviceList[app.getId()]?.clear()
