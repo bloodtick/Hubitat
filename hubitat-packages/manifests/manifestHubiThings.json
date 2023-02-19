@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.3.03 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.\n1.3.0 Replica Location Knob DH to support non-hub mode+ locations.\nOptional: 1.3.0 Replica Alarm DH\nOptional: 1.3.3 Replica Lock updated to support LCM",
+    "releaseNotes": "1.3.05 Support for SmartThings Scene MVP. Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.\n1.3.0 Replica Scene Knob DH to support scene replication.",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
@@ -20,7 +20,7 @@
             "required": true,
             "oauth": false,
             "primary": true,
-            "version": "1.3.03"
+            "version": "1.3.05"
         },
         {
             "id": "9bb9eacb-c243-43d6-9dc4-520f0e476016",
@@ -29,7 +29,7 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
             "required": true,
             "oauth": true,
-            "version": "1.3.03"
+            "version": "1.3.05"
         }
     ],
     "drivers": [
@@ -158,6 +158,14 @@
             "name": "Replica Location Knob",
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaLocationKnob.groovy",
+            "required": true,
+            "version": "1.3.0"
+        },
+        {
+            "id": "d78a680a-91a9-4113-9105-b6dd28f5348c",
+            "name": "Replica Scene Knob",
+            "namespace": "replica",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaSceneKnob.groovy",
             "required": true,
             "version": "1.3.0"
         },
