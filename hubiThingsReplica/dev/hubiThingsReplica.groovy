@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.07 2023-01-04 initial support for componentID, fixes for non-Replica DH, fixes for debug
 *  1.2.08 2023-01-05 'status' support for componentID, fixes for Create & Mirror UI to support componentID
 *  1.2.09 2023-01-05 update tables to jquery.
 *  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
@@ -26,10 +25,11 @@
 *  1.3.00 2023-01-13 Formal Release Candidate
 *  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
-*  1.3.04 2023-02-16 Support for SmartThings Scene MVP.
+*  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
+*  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 LINE 30 MAX */ 
 
-public static String version() { return "1.3.04" }
+public static String version() { return "1.3.05" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -281,8 +281,8 @@ def pageMain(){
                 paragraph("") 
                 
                 if(userSmartThingsPAT) {
-                    comments = "HubiThings OAuth Applications are required to enable SmartThings devices for replication. Each OAuth Application can subscribe up to 20 devices and is hub and location independent. "
-                    comments+= "HubiThings Replica allows for multiple OAuth Applications to be created for solution requirements beyond 20 devices. <b>Click the '${sSamsungIcon} Authorize SmartThings Devices : Create OAuth Applications' link to create one or more OAuth Applications</b>."
+                    comments = "HubiThings OAuth Applications are required to enable SmartThings devices for replication. Each OAuth Application can subscribe up to 30 devices and is hub and location independent. "
+                    comments+= "HubiThings Replica allows for multiple OAuth Applications to be created for solution requirements beyond 30 devices. <b>Click the '${sSamsungIcon} Authorize SmartThings Devices : Create OAuth Applications' link to create one or more OAuth Applications</b>."
                     paragraph( getFormat("comments",comments,null,"Gray") )
                     
                     app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: "${getFormat("text","$sSamsungIcon Authorize SmartThings Devices")} : Create OAuth Applications", multiple: true)                
@@ -886,6 +886,7 @@ def pageVirtualDevice() {
     
     Map allVirtualDevices = getVirtualDevices()
     List virtualDeviceDeleteSelect = []    
+    //allVirtualDevices?.items?.collect{ (it.label=~/\d+|\D+/).findAll() }.sort().collect{ it.join() }?.each { smartDevice ->     
     allVirtualDevices?.items?.sort{ it.label }.each { smartDevice ->
         virtualDeviceDeleteSelect.add([ "${smartDevice.deviceId}" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])   
     }    
@@ -909,17 +910,17 @@ def pageVirtualDevice() {
 
         section(menuHeader("Create SmartThings Virtual Device, Mode or Scene $sHubitatIconStatic $sSamsungIconStatic")) {
             
-            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'location')
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'location')
                 paragraph( getFormat("comments","<b>Location Mode Knob</b> allows for creation, deletion, updating and mirroring the SmartThings mode within a Hubitat Device. Similar to Hubitat, each SmartThings location only supports a singular mode.",null,"Gray") ) 
 
-            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'scene')
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene')
                 paragraph( getFormat("comments","<b>Scene Knob</b> allows for triggering and mirroring a SmartThings scene within a Hubitat Device. <b>NOTE for proper usage:</b> A SmartThings virtual switch is created, and it must be added to the SmartThings Scene 'actions' to update the switch to 'Turn on' when the scene is triggered.",null,"Gray") ) 
            
             input(name: "pageVirtualDeviceType", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device Type:", description: "Choose a SmartThings virtual device type", multiple: false, options: virtualDeviceTypesSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
             input(name: "pageVirtualDeviceLocation", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Location:", description: "Choose a SmartThings location", multiple: false, options: smartLocationSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
             input(name: "pageVirtualDeviceRoom", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Room:", description: "Choose a SmartThings room (not required)", multiple: false, options: smartRoomSelect, submitOnChange: true, width: 6, newLineAfter:true)
            
-            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'scene') 
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene') 
                 input(name: "pageVirtualDeviceScene", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Scene:", description: "Choose a SmartThings scene", multiple: false, options: smartSceneSelect, required: true, submitOnChange: true, width: 6, newLineAfter:true)
  
             if(oauthSelect?.size())
@@ -952,7 +953,7 @@ def pageVirtualDevice() {
 
 String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {    
     String devicesTable  = "<table id='devicesTable' role='table' class='compact' style='width:100%;'>"
-           devicesTable += "<thead><tr><th>$sSamsungIcon Virtual Device</th><th>$sHubitatIcon Hubitat Device</th><th>$sSamsungIcon Virtual Type</th><th style='text-align:center;'>$sSamsungIcon Location</th></tr></thead><tbody>"    
+           devicesTable += "<thead><tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th>$sSamsungIcon Type</th><th style='text-align:center;'>$sSamsungIcon Location</th></tr></thead><tbody>"    
     allVirtualDevices?.items?.sort{ it.label }.each { virtualDevice ->
         List hubitatDevices = getReplicaDevices(virtualDevice.deviceId)
 		for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
@@ -967,7 +968,8 @@ String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {
     }
     devicesTable +="</tbody></table>"
     if(allVirtualDevices?.items?.size() > iUseJqueryDataTables) {
-        devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ]} );});</script>"""                
+        //devicesTable += """<script src="https://cdn.datatables.net/plug-ins/1.13.2/sorting/natural.js" type="text/javascript"></script>"""
+        devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural', targets:'_all' }]} );});</script>"""                
         devicesTable += """<style>#childDeviceList tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
     } else {
         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
@@ -984,8 +986,8 @@ String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {
 
 void pageVirtualDeviceCreateButton() {
     logDebug "${app.getLabel()} executing 'pageVirtualDeviceCreateButton()' $pageVirtualDeviceType $pageVirtualDeviceLocation $pageVirtualDeviceRoom $pageVirtualDeviceOauth $pageHubiThingDeviceType"
-    String name = getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.name
-    String prototype = getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.typeId
+    String name = getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.name
+    String prototype = getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.typeId
     
     if(!pageVirtualDeviceType)
         g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = errorMsg("Error: SmartThings Virtual Device Type selection is invalid")
@@ -1008,7 +1010,7 @@ void pageVirtualDeviceCreateButton() {
                 String componentId = "main"
                 g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createChildDevice(deviceType, name, label, deviceId, componentId)
             }
-            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'scene' && pageVirtualDeviceScene) {
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene' && pageVirtualDeviceScene) {
                 Map allSmartScenes = getSmartScenes(pageVirtualDeviceLocation)
                 String sceneName = "Scene - ${allSmartScenes?.items?.find{ it?.sceneId==pageVirtualDeviceScene }?.sceneName}"
                 app.updateSetting( "pageVirtualDeviceLabel", [type:"enum", value: sceneName] )
@@ -1017,7 +1019,7 @@ void pageVirtualDeviceCreateButton() {
                     replicaDevice?.setSceneIdValue( pageVirtualDeviceScene )
                 } 
             }
-            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType.toInteger() }?.replicaType == 'location') {
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'location') {
                 Map allSmartLocations = getSmartLocations()
                 String locationName = "Location - ${allSmartLocations?.items?.find{ it?.locationId==pageVirtualDeviceLocation }?.name}"
                 app.updateSetting( "pageVirtualDeviceLabel", [type:"enum", value: locationName] )
@@ -1126,7 +1128,7 @@ Map createVirtualDevice(String locationId, String roomId, String name, String pr
             logDebug "response data: ${resp.data}"
             response.data = resp.data
             response.statusCode = resp.status
-            logInfo "${app.getLabel()} created SmartThings create virtual device '${resp.data.label}'"
+            logInfo "${app.getLabel()} created SmartThings Virtual Device '${resp.data.label}'"
         }
     } catch (e) {
         logWarn "${app.getLabel()} has createVirtualDevice() error: $e"        
