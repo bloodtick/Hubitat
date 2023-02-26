@@ -26,7 +26,7 @@
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
-*  1.3.06 2023-02-22 Natural order sorting.
+*  1.3.06 2023-02-26 Natural order sorting.
 LINE 30 MAX */  
 
 public static String version() { return "1.3.06" }
@@ -252,7 +252,7 @@ String getOauthState() {
 }
 
 String getOauthId() {
-    return "${getHubUID().reverse().take(3).reverse()}-${app.getId()}" // I just made this up
+    return "${getHubUID().reverse().take(3).reverse()}-${app.getId().toString().padLeft(4,"0")}" // I just made this up
 }
 
 String getOauthAuthorizeUri() {
