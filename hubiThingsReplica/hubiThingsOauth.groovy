@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.08 2023-01-04 Not released
 *  1.2.09 2023-01-05 Align version to Replica for next Beta release.
 *  1.2.10 2023-01-07 Align version to Replica for next Beta release.
 *  1.2.11 2023-01-11 Align version to Replica for next Beta release.
@@ -27,9 +26,10 @@
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
+*  1.3.06 2023-02-26 Natural order sorting.
 LINE 30 MAX */  
 
-public static String version() { return "1.3.05" }
+public static String version() { return "1.3.06" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -252,7 +252,7 @@ String getOauthState() {
 }
 
 String getOauthId() {
-    return "${getHubUID().reverse().take(3).reverse()}-${app.getId()}" // I just made this up
+    return "${getHubUID().reverse().take(3).reverse()}-${app.getId().toString().padLeft(4,"0")}" // I just made this up
 }
 
 String getOauthAuthorizeUri() {
@@ -356,15 +356,16 @@ def pageMain(){
                     List smartDevicesSelect = []
                     List removeDevices = getOtherSubscribedDeviceIds()?.clone() ?: []
                     try { // not sure but sort fails sometimes. worry about it another day.
-                        smartDevices?.items?.sort{ (it?.label?:it?.name).toString() }
-                        smartDevices?.items?.sort{ "${getSmartRoomName(it?.roomId.toString())?:""} : ${(it?.label?:it?.name).toString()}" }
+                        //smartDevices?.items?.sort{ (it?.label?:it?.name).toString() }
+                        smartDevices?.items?.sort{ a,b -> naturalSort((a?.label?:a?.name).toString(), (b?.label?:b?.name).toString()) }
+                        smartDevices?.items?.sort{ a,b -> naturalSort( "${getSmartRoomName(a?.roomId.toString())?:""} : ${(a?.label?:it?.name).toString()}", "${getSmartRoomName(b?.roomId.toString())?:""} : ${(b?.label?:it?.name).toString()}") }
                     } catch(e) { 
                         logWarn "${getDefaultLabel()} pageMainSmartDevices $e"
                     }
                     smartDevices?.items?.each {
                         Map device = [ "${it.deviceId}" : "${getSmartRoomName(it?.roomId)?:""} : ${(it?.label?:it?.name).toString()}" ]
                         if( !removeDevices?.find{ removeDevice -> removeDevice==it.deviceId } )
-                        smartDevicesSelect.add(device)   
+                            smartDevicesSelect.add(device)   
                     }
                     
                     input(name: "pageMainSmartDevices", type: "enum", title: getFormat("text", "&ensp;$sSamsungIcon SmartThings Device Subscriptions (${pageMainSmartDevices?.size() ?: 0} of max ${iSmartAppDeviceLimit}):"), description: "Choose a SmartThings devices", options: smartDevicesSelect, multiple: true, submitOnChange:true, width:6, newLineAfter:true)
@@ -424,8 +425,10 @@ def smartDevicesTable(){
     String smartDeviceList = "<span><table style='width:100%;'>"
     smartDeviceList += "<tr><th>$sSamsungIcon&nbsp;Room</th><th>$sSamsungIcon&nbsp;Device</th><th style='text-align:center;'>$sSamsungIcon&nbsp;Status</th></tr>"
     try { // not sure but sort fails sometimes
-        smartDevices?.sort{ (it?.label?:it?.name).toString() }
-        smartDevices?.sort{ "${getSmartRoomName(it?.roomId)?:""} : ${(it?.label?:it?.name).toString()}" }
+        //smartDevices?.sort{ (it?.label?:it?.name).toString() }
+        //smartDevices?.sort{ "${getSmartRoomName(it?.roomId)?:""} : ${(it?.label?:it?.name).toString()}" }
+        smartDevices?.sort{ a,b -> naturalSort((a?.label?:a?.name).toString(), (b?.label?:b?.name).toString()) }
+        smartDevices?.sort{ a,b -> naturalSort( "${getSmartRoomName(a?.roomId.toString())?:""} : ${(a?.label?:it?.name).toString()}", "${getSmartRoomName(b?.roomId.toString())?:""} : ${(b?.label?:it?.name).toString()}") }
     } catch(e) { logInfo "${getDefaultLabel()} smartDevicesTable $e" }
     smartDevices?.each { device ->
         String status = (update?.select?.find{it==device?.deviceId}) ? "Pending Subscribe" : (update?.delete?.find{it==device?.deviceId}) ? "Pending Unsubscribe" : "Subscribed"        
@@ -1211,6 +1214,23 @@ def listApps() {
 	} catch (e) {
 	    logWarn "listApps() error: $e"
 	}
+}
+
+def naturalSort( def a, def b ) {
+    def aParts = a.replaceAll(/(\d+)/, '#$1#').split('#')
+    def bParts = b.replaceAll(/(\d+)/, '#$1#').split('#')
+
+    int i = 0
+    while(i < aParts.size() && i < bParts.size()) {
+        if (aParts[i] != bParts[i]) {
+            if (aParts[i].isNumber() && bParts[i].isNumber())
+                return aParts[i].toInteger() <=> bParts[i].toInteger()
+            else
+                return aParts[i] <=> bParts[i]
+        }
+        i++
+    }
+    return aParts.size() <=> bParts.size()
 }
 
 def getHtmlResponse(Boolean success=false) {
