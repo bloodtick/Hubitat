@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.08 2023-01-05 'status' support for componentID, fixes for Create & Mirror UI to support componentID
 *  1.2.09 2023-01-05 update tables to jquery.
 *  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
 *  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH if command exists.
@@ -27,9 +26,10 @@
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
+*  1.3.06 2023-02-26 Natural order sorting.
 LINE 30 MAX */ 
 
-public static String version() { return "1.3.05" }
+public static String version() { return "1.3.06" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -43,7 +43,7 @@ import groovy.transform.CompileStatic
 import groovy.transform.Field
 
 @Field static final String  sDefaultAppName="HubiThings Replica"
-@Field static final Integer iUseJqueryDataTables=10
+@Field static final Integer iUseJqueryDataTables=25
 @Field static final Integer iHttpSuccess=200
 @Field static final Integer iHttpError=400
 @Field static final String  sURI="https://api.smartthings.com"
@@ -52,6 +52,9 @@ import groovy.transform.Field
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
+@Field static final String  sNotAuthorized="&ZeroWidthSpace;Not Authorized"
+@Field static final String  sNoRules="&ZeroWidthSpace;No Rules"
+@Field static final String  sOffline="&ZeroWidthSpace;Offline"
 
 // IN-MEMORY VARIABLES (Cleared on HUB REBOOT or CODE UPDATES)
 @Field volatile static Map<Long,Map>   g_mSmartDeviceStatusMap = [:]
@@ -273,7 +276,7 @@ def pageMain(){
             input(name: "pageMainShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: true, submitOnChange: true)
             paragraph( getFormat("line") )            
             if(pageMainShowConfig) {
-                String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all permissions to enable functionality</b>. "
+                String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all Authorized Scopes permissions to enable functionality</b>. "
                        comments+= "A PAT is valid for 50 years from creation date. Click the ${sSamsungIcon} SmartThings Personal Access Token link to be directed to the SmartThings website."
                 paragraph( getFormat("comments",comments,null,"Gray") )
                 
@@ -334,8 +337,11 @@ def pageMain(){
 				if (smartDevices) {
 					String devicesTable  = "<table id='devicesTable' role='table' class='compact' style='width:100%'><thead>"
 					       devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th>$sHubitatIcon OAuth</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
-					       devicesTable += "</thead><tbody>"  
-					smartDevices?.items?.sort{ it?.label }?.each { smartDevice -> 
+					       devicesTable += "</thead><tbody>"
+                    
+                    List deviceIds = getAllReplicaDeviceIds()
+					smartDevices?.items?.sort{ it?.label }?.each { smartDevice ->
+                        deviceIds.remove(smartDevice.deviceId)
 						List hubitatDevices = getReplicaDevices(smartDevice.deviceId)
 						for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
 							def replicaDevice = hubitatDevices[i]?:null
@@ -345,16 +351,32 @@ def pageMain(){
 							devicesTable += smartDevice?.label   ? "<td>${smartDevice?.label}</td>" : "<td>--</td>"                  
 							devicesTable += replicaDevice        ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"
 							devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td>--</td>"
-							devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>--</td>"
+							devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>0</td>"
 							devicesTable += "</tr>"
 						}
-					}                
+					}                    
+                    logDebug "${app.getLabel()} deviceIds not found $deviceIds"
+ 					deviceIds?.each { deviceId ->
+						List hubitatDevices = getReplicaDevices(deviceId)
+						for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
+							def replicaDevice = hubitatDevices[i]?:null
+							String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
+							devicesTable += "<tr>"
+							devicesTable += "<td>--</td>"                  
+							devicesTable += "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>"
+							devicesTable += "<td>--</td>"
+							devicesTable += "<td style='text-align:center;color:$sColorDarkRed;'>$sNoStatusIcon $sNotAuthorized</td>"
+							devicesTable += "</tr>"
+						}
+					}                                  
+
 					devicesTable +="</tbody></table>"
                     devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
                     // Hubitat includes jquery DataTables in web code. https://datatables.net
-                    if(smartDevices?.items?.size() > iUseJqueryDataTables) {
-                        devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ]} );});</script>"""                
-					    devicesTable += """<style>#devicesTable tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
+                    if(smartDevices?.items?.size()+deviceIds?.size() > iUseJqueryDataTables) {
+                        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { destroy: true, stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
+					    //devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ] } );});</script>"""
+                        devicesTable += """<style>#devicesTable tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
                     } else {
                         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
                     }                    
@@ -362,8 +384,11 @@ def pageMain(){
 
 					String socketstatus = """<span style='color:${sColorDarkRed}' id='socketstatus'></span>"""					
 					socketstatus += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { smartEvent(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
-					socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
-					socketstatus += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
+					if(smartDevices?.items?.size()+deviceIds?.size() > iUseJqueryDataTables)
+                        socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; \$('#devicesTable').DataTable().rows().invalidate().draw(); }}</script>"""
+					else
+                        socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
+                    socketstatus += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
 					paragraph( rawHtml: true, socketstatus )
 				}            
 				input(name: "dynamic::allSmartDeviceRefresh",  type: "button", width: 2, title: "$sSamsungIcon Refresh", style:"width:75%;")
@@ -443,7 +468,7 @@ def pageHubiThingDevice(){
     Map smartDevices = getSmartDevicesMap()
 
     List smartDevicesSelect = []
-    smartDevices?.items?.sort{ it.label }?.each { smartDevice ->
+    smartDevices?.items?.sort{ a,b -> naturalSort(a.label,b.label) }?.each { smartDevice ->
         smartDevice?.components?.each { component ->
             if( !smartDevicesSelect?.find{ smartDevice.deviceId==it.keySet().getAt(0) } && (pageHubiThingDeviceShowAllDevices || !getReplicaDevices(smartDevice.deviceId, component?.id)) )
                 smartDevicesSelect.add([ "$smartDevice.deviceId" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])       
@@ -502,7 +527,7 @@ def pageHubiThingDevice(){
 
 def commonReplicaDevicesSection(String dynamicPageName) {    
     List hubitatDevicesSelect = []
-    getAllReplicaDevices()?.sort{ it.getDisplayName() }?.findAll{ (dynamicPageName=="pageHubiThingDevice" && getChildDevice( it?.deviceNetworkId )) || (dynamicPageName!="pageHubiThingDevice" && !getChildDevice( it?.deviceNetworkId )) }?.each{
+    getAllReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }?.findAll{ (dynamicPageName=="pageHubiThingDevice" && getChildDevice( it?.deviceNetworkId )) || (dynamicPageName!="pageHubiThingDevice" && !getChildDevice( it?.deviceNetworkId )) }?.each{
         Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
         hubitatDevicesSelect.add(device)   
     }
@@ -529,13 +554,14 @@ def commonReplicaDevicesSection(String dynamicPageName) {
         String oauthUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
         devicesTable += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
         devicesTable += "<td>${replicaDevice.typeName}</td>"
-        devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td style='color:$sColorDarkRed;'>$sNoStatusIcon Not Authorized</td>"
+        devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td style='color:$sColorDarkRed;'>$sNoStatusIcon $sNotAuthorized</td>"
         devicesTable += "<td style='text-align:center;'>${isChildDevice?'Child':'Mirror'}</td></tr>"
     }
     devicesTable +="</tbody></table>"
     devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(4),td:nth-of-type(4) { display: none; } }</style>"""
     if(devices?.size() > iUseJqueryDataTables) {
-        devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ]} );});</script>"""                
+        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { destroy: true, stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
+        //devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ] } );});</script>"""                
         devicesTable += """<style>#childDeviceList tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
     } else {
         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
@@ -757,7 +783,7 @@ def pageMirrorDevice(){
     Map smartDevices = getSmartDevicesMap()
     
     List smartDevicesSelect = []
-    smartDevices?.items?.sort{ it.label }?.each { smartDevice ->
+    smartDevices?.items?.sort{ a,b -> naturalSort(a.label,b.label) }?.each { smartDevice ->
         smartDevice?.components?.each { component ->
             if( !smartDevicesSelect?.find{ smartDevice.deviceId==it.keySet().getAt(0) }  )
                 smartDevicesSelect.add([ "$smartDevice.deviceId" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])       
@@ -770,7 +796,7 @@ def pageMirrorDevice(){
     }
 
     List hubitatDevicesSelect = []
-    getAuthorizedDevices().sort{ it.getDisplayName() }?.each {
+    getAuthorizedDevices().sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }?.each {
         if(pageMirrorDeviceShowAllDevices || !getReplicaDataJsonValue(it, "replica"))
             hubitatDevicesSelect.add([ "$it.deviceNetworkId" : "${it.getDisplayName()} &ensp; (deviceNetworkId: $it.deviceNetworkId)" ])
     }
@@ -886,8 +912,7 @@ def pageVirtualDevice() {
     
     Map allVirtualDevices = getVirtualDevices()
     List virtualDeviceDeleteSelect = []    
-    //allVirtualDevices?.items?.collect{ (it.label=~/\d+|\D+/).findAll() }.sort().collect{ it.join() }?.each { smartDevice ->     
-    allVirtualDevices?.items?.sort{ it.label }.each { smartDevice ->
+    allVirtualDevices?.items?.sort{ a,b -> naturalSort(a.label,b.label) }?.each { smartDevice ->
         virtualDeviceDeleteSelect.add([ "${smartDevice.deviceId}" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])   
     }    
         
@@ -956,7 +981,7 @@ def pageVirtualDevice() {
 String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {    
     String devicesTable  = "<table id='devicesTable' role='table' class='compact' style='width:100%;'>"
            devicesTable += "<thead><tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th>$sSamsungIcon Type</th><th style='text-align:center;'>$sSamsungIcon Location</th></tr></thead><tbody>"    
-    allVirtualDevices?.items?.sort{ it.label }.each { virtualDevice ->
+    allVirtualDevices?.items?.sort{ a,b -> naturalSort(a.label,b.label) }.each { virtualDevice ->
         List hubitatDevices = getReplicaDevices(virtualDevice.deviceId)
 		for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
             def replicaDevice = hubitatDevices[i]?:null
@@ -970,8 +995,8 @@ String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {
     }
     devicesTable +="</tbody></table>"
     if(allVirtualDevices?.items?.size() > iUseJqueryDataTables) {
-        //devicesTable += """<script src="https://cdn.datatables.net/plug-ins/1.13.2/sorting/natural.js" type="text/javascript"></script>"""
-        devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural', targets:'_all' }]} );});</script>"""                
+        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { destroy: true, stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
+        //devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ] } );});</script>"""
         devicesTable += """<style>#childDeviceList tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
     } else {
         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
@@ -1370,6 +1395,27 @@ void pageConfigureDeviceStoreCapabilityButton() {
     }
 }
 
+String getTimestampSmartFormat() {
+    return ((new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", TimeZone.getTimeZone('UTC'))).toString())
+}
+
+def naturalSort( def a, def b ) {
+    def aParts = a.replaceAll(/(\d+)/, '#$1#').split('#')
+    def bParts = b.replaceAll(/(\d+)/, '#$1#').split('#')
+
+    int i = 0
+    while(i < aParts.size() && i < bParts.size()) {
+        if (aParts[i] != bParts[i]) {
+            if (aParts[i].isNumber() && bParts[i].isNumber())
+                return aParts[i].toInteger() <=> bParts[i].toInteger()
+            else
+                return aParts[i] <=> bParts[i]
+        }
+        i++
+    }
+    return aParts.size() <=> bParts.size()
+}
+
 def checkFirmwareVersion(versionString) { 
     def (a1,b1,c1,d1) = location.hub.firmwareVersionString.split("\\.").collect { it.toInteger() }
     def (a2,b2,c2,d2) = versionString.split("\\.").collect { it.toInteger() }    
@@ -1389,7 +1435,7 @@ Boolean checkCommand(replicaDevice, type, commandLabel) {
 def pageConfigureDevice() {
     
     List replicaDevicesSelect = []
-    getAllReplicaDevices()?.sort{ it.getDisplayName() }.each {    
+    getAllReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }.each {    
         Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
         replicaDevicesSelect.add(device)   
     }
@@ -1930,10 +1976,10 @@ String updateSmartDeviceEventsStatus(replicaDevice) {
     String value = "--"
     if(replicaDevice) {
         String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
-        String noRules = getReplicaDataJsonValue(replicaDevice, "rules")?.components ? "" : "<span style='color:$sColorDarkRed;'>$sNoStatusIcon rules</span>"
+        String noRules = getReplicaDataJsonValue(replicaDevice, "rules")?.components ? "" : "<span style='color:$sColorDarkRed;'>$sNoStatusIcon $sNoRules</span>"
             
         String eventCount = (getReplicaDeviceEventsCache(replicaDevice)?.eventCount ?: 0).toString()
-        value = (healthState=='offline' ? "<span style='color:$sColorDarkRed;'>$sNoStatusIcon $healthState</span>" : noRules ?: eventCount)
+        value = (healthState=='offline' ? "<span style='color:$sColorDarkRed;'>$sNoStatusIcon $sOffline</span>" : noRules ?: eventCount)
         if(state.pageMainLastRefresh && (state.pageMainLastRefresh + (iPageMainRefreshInterval*1000)) > now()) { //only send if someone is watching 
             sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
         }
@@ -2053,10 +2099,6 @@ Map smartCapabilityHandler(replicaDevice, Map capabilityEvent){
         logWarn "${app.getLabel()} smartCapabilityHandler error: $e : $capabilityEvent"
     }    
     return [statusCode:response.statusCode]
-}
-
-String getTimestampSmartFormat() {
-    return ((new Date().format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", TimeZone.getTimeZone('UTC'))).toString())
 }
 
 Map replicaHasSmartCapability(replicaDevice, String capabilityId, Integer capabilityVersion=1) {
@@ -2388,6 +2430,41 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
 @Field static final String sImgMirr = """<img style="margin-Top:-6px" height="18" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxnIGlkPSJfMDFfYWxpZ25fY2VudGVyIiBkYXRhLW5hbWU9IjAxIGFsaWduIGNlbnRlciI+PHBhdGggZD0iTTkuMzU2LDAsLjM3NSwxOS43NTlBMywzLDAsMCwwLDMuMTA2LDI0SDExVjEuMDQ2TDEwLjk5MywwWk05LDIySDMuMTA2YTEsMSwwLDAsMS0uOTExLTEuNDE0TDksNS42MTZaIi8+PHBhdGggZD0iTTIzLjYyNSwxOS43NTksMTQuOTMuNjI4LDE0LjYyNiwwSDEzVjI0aDcuODk0YTMsMywwLDAsMCwyLjczMS00LjI0MVoiLz48L2c+PC9zdmc+Cg=='/>"""
 @Field static final String sImgDevh = """<img style="margin-Top:-6px;" height="22" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJMYXllcl8xIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxwYXRoIGQ9Ik0yMi43MywxOS4wNWwtLjk4LS41NWMuMTUtLjQ4LC4yNi0uOTgsLjI2LTEuNXMtLjEtMS4wMy0uMjYtMS41bC45OC0uNTVjLjQ4LS4yNywuNjUtLjg4LC4zOS0xLjM2LS4yNy0uNDgtLjg4LS42Ni0xLjM2LS4zOWwtLjk4LC41NWMtLjcxLS44Mi0xLjY3LTEuNDItMi43Ny0xLjY1di0xLjFjMC0uNTUtLjQ1LTEtMS0xcy0xLC40NS0xLDF2MS4xYy0xLjEsLjIyLTIuMDYsLjgzLTIuNzcsMS42NWwtLjk4LS41NWMtLjQ4LS4yNy0xLjA5LS4xLTEuMzYsLjM5LS4yNywuNDgtLjEsMS4wOSwuMzksMS4zNmwuOTgsLjU1Yy0uMTUsLjQ4LS4yNiwuOTgtLjI2LDEuNXMuMSwxLjAzLC4yNiwxLjVsLS45OCwuNTVjLS40OCwuMjctLjY1LC44OC0uMzksMS4zNiwuMTgsLjMzLC41MiwuNTEsLjg3LC41MSwuMTcsMCwuMzMtLjA0LC40OS0uMTNsLjk4LS41NWMuNzEsLjgyLDEuNjcsMS40MiwyLjc3LDEuNjV2MS4xYzAsLjU1LC40NSwxLDEsMXMxLS40NSwxLTF2LTEuMWMxLjEtLjIyLDIuMDYtLjgzLDIuNzctMS42NWwuOTgsLjU1Yy4xNSwuMDksLjMyLC4xMywuNDksLjEzLC4zNSwwLC42OS0uMTgsLjg3LS41MSwuMjctLjQ4LC4xLTEuMDktLjM5LTEuMzZabS01LjczLC45NWMtMS42NSwwLTMtMS4zNS0zLTNzMS4zNS0zLDMtMywzLDEuMzUsMywzLTEuMzUsMy0zLDNabS02LjIzLTkuNzVsLjk4LC41NWMuMTUsLjA5LC4zMiwuMTMsLjQ5LC4xMywuMzUsMCwuNjktLjE4LC44Ny0uNTEsLjI3LS40OCwuMS0xLjA5LS4zOS0xLjM2bC0uOTgtLjU1Yy4xNS0uNDgsLjI2LS45OCwuMjYtMS41cy0uMS0xLjAzLS4yNi0xLjVsLjk4LS41NWMuNDgtLjI3LC42NS0uODgsLjM5LTEuMzYtLjI3LS40OC0uODgtLjY2LTEuMzYtLjM5bC0uOTgsLjU1Yy0uNzEtLjgyLTEuNjctMS40Mi0yLjc3LTEuNjVWMWMwLS41NS0uNDUtMS0xLTFzLTEsLjQ1LTEsMXYxLjFjLTEuMSwuMjItMi4wNiwuODMtMi43NywxLjY1bC0uOTgtLjU1Yy0uNDgtLjI3LTEuMDktLjEtMS4zNiwuMzktLjI3LC40OC0uMSwxLjA5LC4zOSwxLjM2bC45OCwuNTVjLS4xNSwuNDgtLjI2LC45OC0uMjYsMS41cy4xLDEuMDMsLjI2LDEuNWwtLjk4LC41NWMtLjQ4LC4yNy0uNjUsLjg4LS4zOSwxLjM2LC4xOCwuMzMsLjUyLC41MSwuODcsLjUxLC4xNywwLC4zMy0uMDQsLjQ5LS4xM2wuOTgtLjU1Yy43MSwuODIsMS42NywxLjQyLDIuNzcsMS42NXYxLjFjMCwuNTUsLjQ1LDEsMSwxczEtLjQ1LDEtMXYtMS4xYzEuMS0uMjIsMi4wNi0uODMsMi43Ny0xLjY1Wm0tMy43Ny0uMjVjLTEuNjUsMC0zLTEuMzUtMy0zczEuMzUtMywzLTMsMywxLjM1LDMsMy0xLjM1LDMtMywzWiIvPjwvc3ZnPgo='/>"""
 
+/*
+ * Natural Sort algorithm for Javascript - Version 0.7 - Released under MIT license
+ * Author: Jim Palmer (based on chunking idea from Dave Koelle)
+ * Contributors: Mike Grier (mgrier.com), Clint Priest, Kyle Adams, guillermo
+ * See: http://js-naturalsort.googlecode.com/svn/trunk/naturalSort.js
+ * https://datatables.net/plug-ins/sorting/natural#Plug-in-code
+ */
+@Field static final String naturalSortFunction = """
+(function() { function naturalSort (a, b, html) {
+    var re = /(^-?[0-9]+(\\.?[0-9]*)[df]?e?[0-9]?%?\$|^0x[0-9a-f]+\$|[0-9]+)/gi, sre = /(^[ ]*|[ ]*\$)/g, hre = /^0x[0-9a-f]+\$/i, ore = /^0/, htmre = /(<([^>]+)>)/ig, 
+        dre = /(^([\\w ]+,?[\\w ]+)?[\\w ]+,?[\\w ]+\\d+:\\d+(:\\d+)?[\\w ]?|^\\d{1,4}[\\/\\-]\\d{1,4}[\\/\\-]\\d{1,4}|^\\w+, \\w+ \\d+, \\d{4})/,        
+        x = a.toString().replace(sre, '') || '', y = b.toString().replace(sre, '') || '';
+        if (!html) { x = x.replace(htmre, ''); y = y.replace(htmre, ''); }
+    var xN = x.replace(re, '\0\$1\0').replace(/\0\$/,'').replace(/^\0/,'').split('\0'), yN = y.replace(re, '\0\$1\0').replace(/\0\$/,'').replace(/^\0/,'').split('\0'),
+        xD = parseInt(x.match(hre), 10) || (xN.length !== 1 && x.match(dre) && Date.parse(x)),  yD = parseInt(y.match(hre), 10) || xD && y.match(dre) && Date.parse(y) || null;
+    if (yD) { if ( xD < yD ) { return -1; } else if ( xD > yD ) { return 1; } } 
+    for(var cLoc=0, numS=Math.max(xN.length, yN.length); cLoc < numS; cLoc++) {
+        var oFxNcL = !(xN[cLoc] || '').match(ore) && parseFloat(xN[cLoc], 10) || xN[cLoc] || 0; var oFyNcL = !(yN[cLoc] || '').match(ore) && parseFloat(yN[cLoc], 10) || yN[cLoc] || 0;
+        if (isNaN(oFxNcL) !== isNaN(oFyNcL)) { return (isNaN(oFxNcL)) ? 1 : -1; }
+        else if (typeof oFxNcL !== typeof oFyNcL) { oFxNcL += ''; oFyNcL += ''; } if (oFxNcL < oFyNcL) { return -1; }
+        if (oFxNcL > oFyNcL) { return 1; }
+    }
+    return 0;
+} 
+jQuery.extend( jQuery.fn.dataTableExt.oSort, {
+    "natural-asc": function ( a, b ) { return naturalSort(a,b,true); }, 
+    "natural-desc": function ( a, b ) { return naturalSort(a,b,true) * -1; }, 
+    "natural-nohtml-asc": function( a, b ) { return naturalSort(a,b,false); }, 
+    "natural-nohtml-desc": function( a, b ) { return naturalSort(a,b,false) * -1; }, 
+    "natural-ci-asc": function( a, b ) { a = a.toString().toLowerCase(); b = b.toString().toLowerCase(); return naturalSort(a,b,true); }, 
+    "natural-ci-desc": function( a, b ) { a = a.toString().toLowerCase(); b = b.toString().toLowerCase(); return naturalSort(a,b,true) * -1; }
+}); 
+}());
+"""
+
 // thanks to DCMeglio (Hubitat Package Manager) for a lot of formatting hints
 String getFormat(type, myText="", myHyperlink="", myColor=sColorDarkBlue){   
     if(type == "line")      return "<hr style='background-color:$myColor; height: 1px; border: 0;'>"
@@ -2467,7 +2544,7 @@ List<com.hubitat.app.DeviceWrapper> getReplicaDevices(deviceId, componentId = nu
 }
 
 List getAllReplicaDeviceIds() {
-    return getAllReplicaDevices()?.collect{ getReplicaDeviceId(it) }?.unique()
+    return getAllReplicaDevices()?.collect{ getReplicaDeviceId(it) }?.unique() ?: []
 }
 // ******** Child and Mirror Device get Functions - End ********
 
