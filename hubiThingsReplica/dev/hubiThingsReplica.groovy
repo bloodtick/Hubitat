@@ -26,7 +26,7 @@
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
-*  1.3.06 2023-02-22 Natural order sorting.
+*  1.3.06 2023-02-26 Natural order sorting.
 LINE 30 MAX */ 
 
 public static String version() { return "1.3.06" }
@@ -43,7 +43,7 @@ import groovy.transform.CompileStatic
 import groovy.transform.Field
 
 @Field static final String  sDefaultAppName="HubiThings Replica"
-@Field static final Integer iUseJqueryDataTables=10
+@Field static final Integer iUseJqueryDataTables=25
 @Field static final Integer iHttpSuccess=200
 @Field static final Integer iHttpError=400
 @Field static final String  sURI="https://api.smartthings.com"
@@ -52,6 +52,9 @@ import groovy.transform.Field
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
+@Field static final String  sNotAuthorized="&ZeroWidthSpace;Not Authorized"
+@Field static final String  sNoRules="&ZeroWidthSpace;No Rules"
+@Field static final String  sOffline="&ZeroWidthSpace;Offline"
 
 // IN-MEMORY VARIABLES (Cleared on HUB REBOOT or CODE UPDATES)
 @Field volatile static Map<Long,Map>   g_mSmartDeviceStatusMap = [:]
@@ -273,7 +276,7 @@ def pageMain(){
             input(name: "pageMainShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: true, submitOnChange: true)
             paragraph( getFormat("line") )            
             if(pageMainShowConfig) {
-                String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all permissions to enable functionality</b>. "
+                String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all Authorized Scopes permissions to enable functionality</b>. "
                        comments+= "A PAT is valid for 50 years from creation date. Click the ${sSamsungIcon} SmartThings Personal Access Token link to be directed to the SmartThings website."
                 paragraph( getFormat("comments",comments,null,"Gray") )
                 
@@ -334,8 +337,11 @@ def pageMain(){
 				if (smartDevices) {
 					String devicesTable  = "<table id='devicesTable' role='table' class='compact' style='width:100%'><thead>"
 					       devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th>$sHubitatIcon OAuth</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
-					       devicesTable += "</thead><tbody>"  
-					smartDevices?.items?.sort{ it?.label }?.each { smartDevice -> 
+					       devicesTable += "</thead><tbody>"
+                    
+                    List deviceIds = getAllReplicaDeviceIds()
+					smartDevices?.items?.sort{ it?.label }?.each { smartDevice ->
+                        deviceIds.remove(smartDevice.deviceId)
 						List hubitatDevices = getReplicaDevices(smartDevice.deviceId)
 						for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
 							def replicaDevice = hubitatDevices[i]?:null
@@ -345,15 +351,30 @@ def pageMain(){
 							devicesTable += smartDevice?.label   ? "<td>${smartDevice?.label}</td>" : "<td>--</td>"                  
 							devicesTable += replicaDevice        ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"
 							devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td>--</td>"
-							devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>--</td>"
+							devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>0</td>"
 							devicesTable += "</tr>"
 						}
-					}                
+					}                    
+                    logDebug "${app.getLabel()} deviceIds not found $deviceIds"
+ 					deviceIds?.each { deviceId ->
+						List hubitatDevices = getReplicaDevices(deviceId)
+						for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
+							def replicaDevice = hubitatDevices[i]?:null
+							String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
+							devicesTable += "<tr>"
+							devicesTable += "<td>--</td>"                  
+							devicesTable += "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>"
+							devicesTable += "<td>--</td>"
+							devicesTable += "<td style='text-align:center;color:$sColorDarkRed;'>$sNoStatusIcon $sNotAuthorized</td>"
+							devicesTable += "</tr>"
+						}
+					}                                  
+
 					devicesTable +="</tbody></table>"
                     devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
                     // Hubitat includes jquery DataTables in web code. https://datatables.net
-                    if(smartDevices?.items?.size() > iUseJqueryDataTables) {
-                        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
+                    if(smartDevices?.items?.size()+deviceIds?.size() > iUseJqueryDataTables) {
+                        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { destroy: true, stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
 					    //devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ] } );});</script>"""
                         devicesTable += """<style>#devicesTable tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
                     } else {
@@ -363,8 +384,11 @@ def pageMain(){
 
 					String socketstatus = """<span style='color:${sColorDarkRed}' id='socketstatus'></span>"""					
 					socketstatus += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { smartEvent(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
-					socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
-					socketstatus += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
+					if(smartDevices?.items?.size()+deviceIds?.size() > iUseJqueryDataTables)
+                        socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; \$('#devicesTable').DataTable().rows().invalidate().draw(); }}</script>"""
+					else
+                        socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
+                    socketstatus += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
 					paragraph( rawHtml: true, socketstatus )
 				}            
 				input(name: "dynamic::allSmartDeviceRefresh",  type: "button", width: 2, title: "$sSamsungIcon Refresh", style:"width:75%;")
@@ -530,13 +554,13 @@ def commonReplicaDevicesSection(String dynamicPageName) {
         String oauthUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
         devicesTable += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
         devicesTable += "<td>${replicaDevice.typeName}</td>"
-        devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td style='color:$sColorDarkRed;'>$sNoStatusIcon Not Authorized</td>"
+        devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td style='color:$sColorDarkRed;'>$sNoStatusIcon $sNotAuthorized</td>"
         devicesTable += "<td style='text-align:center;'>${isChildDevice?'Child':'Mirror'}</td></tr>"
     }
     devicesTable +="</tbody></table>"
     devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(4),td:nth-of-type(4) { display: none; } }</style>"""
     if(devices?.size() > iUseJqueryDataTables) {
-        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
+        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { destroy: true, stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
         //devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ] } );});</script>"""                
         devicesTable += """<style>#childDeviceList tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
     } else {
@@ -971,7 +995,7 @@ String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {
     }
     devicesTable +="</tbody></table>"
     if(allVirtualDevices?.items?.size() > iUseJqueryDataTables) {
-        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
+        devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { destroy: true, stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
         //devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ] } );});</script>"""
         devicesTable += """<style>#childDeviceList tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
     } else {
@@ -1952,10 +1976,10 @@ String updateSmartDeviceEventsStatus(replicaDevice) {
     String value = "--"
     if(replicaDevice) {
         String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
-        String noRules = getReplicaDataJsonValue(replicaDevice, "rules")?.components ? "" : "<span style='color:$sColorDarkRed;'>$sNoStatusIcon rules</span>"
+        String noRules = getReplicaDataJsonValue(replicaDevice, "rules")?.components ? "" : "<span style='color:$sColorDarkRed;'>$sNoStatusIcon $sNoRules</span>"
             
         String eventCount = (getReplicaDeviceEventsCache(replicaDevice)?.eventCount ?: 0).toString()
-        value = (healthState=='offline' ? "<span style='color:$sColorDarkRed;'>$sNoStatusIcon $healthState</span>" : noRules ?: eventCount)
+        value = (healthState=='offline' ? "<span style='color:$sColorDarkRed;'>$sNoStatusIcon $sOffline</span>" : noRules ?: eventCount)
         if(state.pageMainLastRefresh && (state.pageMainLastRefresh + (iPageMainRefreshInterval*1000)) > now()) { //only send if someone is watching 
             sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
         }
@@ -2520,7 +2544,7 @@ List<com.hubitat.app.DeviceWrapper> getReplicaDevices(deviceId, componentId = nu
 }
 
 List getAllReplicaDeviceIds() {
-    return getAllReplicaDevices()?.collect{ getReplicaDeviceId(it) }?.unique()
+    return getAllReplicaDevices()?.collect{ getReplicaDeviceId(it) }?.unique() ?: []
 }
 // ******** Child and Mirror Device get Functions - End ********
 
