@@ -26,7 +26,7 @@
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
-*  1.3.06 2023-02-26 Natural order sorting.
+*  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
 LINE 30 MAX */ 
 
 public static String version() { return "1.3.06" }
@@ -385,8 +385,8 @@ def pageMain(){
 					String socketstatus = """<span style='color:${sColorDarkRed}' id='socketstatus'></span>"""					
 					socketstatus += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { smartEvent(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
 					if(smartDevices?.items?.size()+deviceIds?.size() > iUseJqueryDataTables)
-                        socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; \$('#devicesTable').DataTable().rows().invalidate().draw(); }}</script>"""
-					else
+                        socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent'){ \$('#devicesTable').DataTable().cell(`#\${dt.deviceNetworkId}`)?.data(evt.value).draw(false); }}</script>"""
+                    else
                         socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
                     socketstatus += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
 					paragraph( rawHtml: true, socketstatus )
