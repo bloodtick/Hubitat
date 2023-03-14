@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.09 2023-01-05 update tables to jquery.
 *  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
 *  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH if command exists.
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
@@ -27,9 +26,10 @@
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
+*  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning. 
 LINE 30 MAX */ 
 
-public static String version() { return "1.3.06" }
+public static String version() { return "1.3.07" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -341,8 +341,8 @@ def pageMain(){
                     
                     List deviceIds = getAllReplicaDeviceIds()
 					smartDevices?.items?.sort{ it?.label }?.each { smartDevice ->
-                        deviceIds.remove(smartDevice.deviceId)
-						List hubitatDevices = getReplicaDevices(smartDevice.deviceId)
+                        deviceIds.remove(smartDevice?.deviceId)
+						List hubitatDevices = getReplicaDevices(smartDevice?.deviceId)
 						for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
 							def replicaDevice = hubitatDevices[i]?:null
 							String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
@@ -1363,7 +1363,7 @@ void replicaDevicesRuleSection(){
         }
     }
 
-    if(checkFirmwareVersion("2.3.4.132") && false) {
+    if(checkFirmwareVersion("2.3.4.132") && true) {
         section(menuHeader("Replica Handler Development")) {
             input(name: "pageConfigureDeviceFetchCapabilityFileName", type: "text", title: "Replica Capabilities Filename:", description: "Capability JSON Local Filename", width: 4, submitOnChange: true, newLineAfter:true)
             input(name: "dynamic::pageConfigureDevicefetchCapabilityButton", type: "button", title: "Fetch", width: 2, style:"width:75%;")
@@ -1419,7 +1419,7 @@ def naturalSort( def a, def b ) {
 def checkFirmwareVersion(versionString) { 
     def (a1,b1,c1,d1) = location.hub.firmwareVersionString.split("\\.").collect { it.toInteger() }
     def (a2,b2,c2,d2) = versionString.split("\\.").collect { it.toInteger() }    
-    return (a1>=a2 && b1>=b2 && c1>=c2 && d1>=d2)
+    return (a1>=a2 || (a1>=a2 && b1>=b2) || (a1>=a2 && b1>=b2 && c1>=c2) || (a1>=a2 && b1>=b2 && c1>=c2 && d1>=d2))
 }
 
 Boolean checkTrigger(replicaDevice, type, triggerLabel) {
