@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.09 2023-01-05 Align version to Replica for next Beta release.
 *  1.2.10 2023-01-07 Align version to Replica for next Beta release.
 *  1.2.11 2023-01-11 Align version to Replica for next Beta release.
 *  1.2.12 2023-01-12 Align version to Replica for next Beta release.
@@ -27,9 +26,10 @@
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting.
+*  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
 LINE 30 MAX */  
 
-public static String version() { return "1.3.06" }
+public static String version() { return "1.3.07" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -219,7 +219,10 @@ public Integer getMaxDeviceLimit() {
     return iSmartAppDeviceLimit
 }
 
-public String getAuthStatus() {    
+public String getAuthStatus() {
+    if(!state?.oauthCallbackUrl) state.oauthCallbackUrl = getTargetUrl() //added 1.3.07 to help with C-8 migrations
+    if(state.oauthCallbackUrl != getTargetUrl()) state.oauthCallback = "INVALID" //added 1.3.07 to help with C-8 migrations    
+    
     String response = "UNKNOWN"    
     if(state?.oauthCallback=="CONFIRMED" && state?.authTokenError==false && state.authTokenExpires>now())
         response = "AUTHORIZED"
@@ -234,7 +237,7 @@ public void updateLocationSubscriptionSettings(Boolean value) {
     app.updateSetting('enableDeviceLifecycleSubscription', value)
     app.updateSetting('enableHealthSubscription', value)
     app.updateSetting('enableModeSubscription', value)
-    app.updateSetting('enableSceneLifecycleSubscription', value) // not supported yet
+    app.updateSetting('enableSceneLifecycleSubscription', value)
 }
 
 /************************************** PARENT METHODS STOP ********************************************************/
@@ -268,14 +271,13 @@ def pageMain(){
         def install = installHelper()
         if(install) return install
     }
-    //app.removeSetting('hubitatQueryString')
     
     Integer refreshInterval = state.refreshInterval ?: ((state.appId && !state.installedAppId) ? 5 : 0)
     String refreshTime = "${(new Date( now()+refreshInterval*1000 ).format("h:mm:ss a"))}"
     
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
-        
+      
         String comments = "This application utilizes the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 30 devices per installed application, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
                comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings location.<br><br>"
@@ -314,7 +316,10 @@ def pageMain(){
                           status += "• Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
                           status += "• Location: ${getSmartLocationName(state.locationId)}\n"     
                           status += "• Token Expiration: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
-                          status += "${(getAuthStatus()=="FAILURE") ? getFormat("text","\nAction: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed) : ""}"
+                          if(state?.oauthCallback=="INVALID")
+                              status += getFormat("text","\nAction: Callback Invalid! 'Delete API' is required to restore!",null,sColorDarkRed)
+                          else if(getAuthStatus()=="FAILURE")
+                              status += getFormat("text","\nAction: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed)
                     }
                     paragraph(status)                      
                 
@@ -560,6 +565,7 @@ Map confirmation(Map confirmationData) {
             if (resp?.data?.targetUrl == getTargetUrl()) {
                 logInfo "${getDefaultLabel()} callback confirmation success"
                 state.oauthCallback = "CONFIRMED"
+                state.oauthCallbackUrl = getTargetUrl() //added 1.3.07 to help with C-8 migrations
             }
             else {
                 logWarn "${getDefaultLabel()} callback confirmation failure with url:${resp?.data?.targetUrl}"
