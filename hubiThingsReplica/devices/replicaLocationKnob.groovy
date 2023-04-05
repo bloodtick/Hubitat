@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.3.0"}
+public static String version() {return "1.3.1"}
 
 metadata 
 {
@@ -20,6 +20,7 @@ metadata
     {
         capability "Actuator"
         capability "Configuration"
+        capability "Notification"
         capability "Switch"
         capability "Refresh"
         
@@ -37,7 +38,15 @@ metadata
 
         command "deleteLocationMode", [[name: "modeName*", type: "STRING", description: "Delete mode name"]]
         command "createLocationMode", [[name: "modeName*", type: "STRING", description: "Create mode name"]]
-        command "setLocationMode", [[name: "modeName*", type: "STRING", description: "Set mode string"]]
+        command "setLocationMode", [[name: "modeName*", type: "STRING", description: "Set mode string"]]        
+        
+        // https://github.com/SmartThingsCommunity/smartthings-core-sdk/blob/main/src/endpoint/notifications.ts
+        // https://community.smartthings.com/t/notifications-on-rest-api/221042
+        command "sendLocationNotification", [
+            [name: "title*", type: "STRING", description: "Notification title text"], 
+            [name: "message*", type: "STRING", description: "Notification message text"],
+            [name: "notification", type: "ENUM", description: "Notification type", constraints: ["ALERT","SUGGESTED_ACTION","EVENT_LOGGING","AUTOMATION_INFO","WARNING","WARNING_CLEAR","FLASH_TOAST","OPTION"]]
+        ]        
     }
     preferences {
         input(name:"deviceModeHubitatFollows", type: "bool", title: "<b>Hubitat Hub follows SmartThings Mode Updates:</b>", defaultValue: false)
@@ -324,6 +333,50 @@ Map getLocationInfo() {
         }
     } catch (e) {
         logWarn "${device.displayName} has getLocationInfo() error: $e"        
+    }
+    return response
+}
+
+def deviceNotification(String message) {
+    if (message && message[0] == "{") {
+        try {
+            Map jsonMsg = new groovy.json.JsonSlurper().parseText(message)
+            sendLocationNotification( jsonMsg?.title ?:"Notification Alert", jsonMsg?.message ?:"Alert Message", jsonMsg?.notification ?:"ALERT" )
+        } catch(e) {
+            logWarn "${device.displayName} deviceNotification() JSON format expects: { \"title\":\"the title\", \"message\":\"the message\" }"
+        }
+    } else {    
+        sendLocationNotification("Notification Alert", message)
+    }
+}
+
+Map sendLocationNotification(String title, String message, String notification="ALERT") {
+    logDebug "${device.displayName} executing 'sendLocationNotification($title, $message, $notification)'"
+    Map response = [statusCode:iHttpError]
+    
+    Map body = [
+      locationId: getLocationId(),
+      type: notification,
+      messages: [ [ default: [ title: title, body: message ] ] ]
+    ]
+    
+    Map params = [
+        uri: sURI,
+        body: groovy.json.JsonOutput.toJson(body), 
+        path: "/notification",
+        contentType: "application/json",
+        requestContentType: "application/json",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    try {
+        httpPost(params) { resp ->
+            logDebug "response data: ${resp.data}"
+            response.data = resp.data
+            response.statusCode = resp.status
+            logInfo "${device.displayName} sent SmartThings $notification notification"
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has sendLocationNotification() error: $e"        
     }
     return response
 }
