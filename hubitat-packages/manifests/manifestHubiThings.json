@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.3.07 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.\n1.3.0 (optional) Replica Sonos @bthrock.",
+    "releaseNotes": "1.3.1 Replica Location Knob updated to support mobile push messages",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
@@ -159,7 +159,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaLocationKnob.groovy",
             "required": true,
-            "version": "1.3.0"
+            "version": "1.3.1"
         },
         {
             "id": "d78a680a-91a9-4113-9105-b6dd28f5348c",
