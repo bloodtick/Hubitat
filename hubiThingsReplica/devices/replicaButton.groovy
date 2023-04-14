@@ -76,14 +76,14 @@ def setBatteryValue(value) {
     logInfo descriptionText
 }
 
-def setDoubleTappedValue(value=deviceDefaultButton) {
+def setDoubleTappedValue(value=deviceDefaultButton?:1) {
     if(debounce("setDoubleTappedValue")) return
     String descriptionText = "${device.displayName} button $value was double tapped"
     sendEvent(name: "doubleTapped", value: value, descriptionText: descriptionText, isStateChange: true)
     logInfo descriptionText
 }
 
-def setHeldValue(value=deviceDefaultButton) {
+def setHeldValue(value=deviceDefaultButton?:1) {
     if(debounce("setHeldValue")) return
     String descriptionText = "${device.displayName} button $value was held"
     sendEvent(name: "held", value: value, descriptionText: descriptionText, isStateChange: true)
@@ -94,14 +94,14 @@ def setNumberOfButtonsValue(value=1) {
     sendEvent(name: "numberOfButtons", value: value, descriptionText: "${device.displayName} has $value number of buttons")
 }
 
-def setPushedValue(value=deviceDefaultButton) {
+def setPushedValue(value=deviceDefaultButton?:1) {
     if(debounce("setPushedValue")) return
     String descriptionText = "${device.displayName} button $value was pushed"
     sendEvent(name: "pushed", value: value, descriptionText: descriptionText, isStateChange: true)
     logInfo descriptionText
 }
 
-def setReleasedValue(value=deviceDefaultButton) {
+def setReleasedValue(value=deviceDefaultButton?:1) {
     if(debounce("setReleasedValue")) return
     String descriptionText = "${device.displayName} button $value was released"
     sendEvent(name: "released", value: value, descriptionText: descriptionText, isStateChange: true)
@@ -129,19 +129,19 @@ private def sendCommand(String name, def value=null, String unit=null, data=[:])
     parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
 }
 
-def doubleTap(value=deviceDefaultButton) {
+def doubleTap(value=deviceDefaultButton?:1) {
     sendCommand("doubleTap", value)    
 }
 
-def hold(value=deviceDefaultButton) {
+def hold(value=deviceDefaultButton?:1) {
     sendCommand("hold", value)    
 }
 
-def push(value=deviceDefaultButton) {
+def push(value=deviceDefaultButton?:1) {
     sendCommand("push", value)    
 }
 
-def release(value=deviceDefaultButton) {
+def release(value=deviceDefaultButton?:1) {
     sendCommand("release", value)    
 }
 
