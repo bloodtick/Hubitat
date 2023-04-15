@@ -12,7 +12,7 @@
 *
 */
 @SuppressWarnings('unused')
-public static String version() {return "1.3.0"}
+public static String version() {return "1.3.1"}
 
 metadata 
 {
@@ -25,6 +25,9 @@ metadata
         capability "Refresh"
         
         attribute "healthStatus", "enum", ["offline", "online"]
+        
+        command "arrived"
+        command "departed"
     }
     preferences {
         input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
@@ -82,7 +85,7 @@ def setHealthStatusValue(value) {
 
 // Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
 Map getReplicaTriggers() {
-    return ([ "refresh":[]])
+    return ([ "refresh":[], "arrived":[], "departed":[]])
 }
 
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
@@ -90,12 +93,21 @@ private def sendCommand(String name, def value=null, String unit=null, data=[:])
     parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
 }
 
+
+void arrived() {
+    sendCommand("arrived")
+}
+
+void departed() {
+    sendCommand("departed")
+}
+
 void refresh() {
     sendCommand("refresh")
 }
 
 String getReplicaRules() {
-    return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"PresenceState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"presenceSensor","attribute":"presence","label":"attribute: presence.*"},"command":{"name":"setPresenceValue","label":"command: setPresenceValue(presence*)","type":"command","parameters":[{"name":"presence*","type":"ENUM"}]},"type":"smartTrigger"}]}"""
+    return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"PresenceState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"presenceSensor","attribute":"presence","label":"attribute: presence.*"},"command":{"name":"setPresenceValue","label":"command: setPresenceValue(presence*)","type":"command","parameters":[{"name":"presence*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"name":"arrived","label":"command: arrived()","type":"command"},"command":{"type":"attribute","properties":{"value":{"title":"PresenceState","type":"string","enum":["present","not present"]}},"additionalProperties":false,"required":["value"],"capability":"presenceSensor","attribute":"presence","label":"attribute: presence.present","value":"present","dataType":"ENUM"},"type":"hubitatTrigger"},{"trigger":{"name":"departed","label":"command: departed()","type":"command"},"command":{"type":"attribute","properties":{"value":{"title":"PresenceState","type":"string","enum":["present","not present"]}},"additionalProperties":false,"required":["value"],"capability":"presenceSensor","attribute":"presence","label":"attribute: presence.not present","value":"not present","dataType":"ENUM"},"type":"hubitatTrigger"}]}"""
 }
 
 private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
