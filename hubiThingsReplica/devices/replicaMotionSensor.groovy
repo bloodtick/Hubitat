@@ -48,6 +48,7 @@ def updated() {
 def initialize() {
     updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers()))
     updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands()))
+    refresh()
 }
 
 def configure() {
