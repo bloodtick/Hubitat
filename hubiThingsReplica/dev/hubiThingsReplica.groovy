@@ -26,7 +26,7 @@
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
-*  1.3.08 2023-04-21 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
+*  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
 LINE 30 MAX */ 
 
 public static String version() { return "1.3.08" }
@@ -292,9 +292,8 @@ def pageMain(){
                     paragraph( getFormat("line") )
   
                     input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: "$sHubitatIcon Advanced Configuration", defaultValue: false, submitOnChange: true)                
-                    if(pageMainShowAdvanceConfiguration) {
-                        def deviceText = (deviceAuthCount<1 ? ": (Select to Authorize Devices to Mirror)" : (deviceAuthCount==1 ?  ": ($deviceAuthCount Device Authorized)" : ": ($deviceAuthCount Devices Authorized)"))
-                        href "pageAuthDevice", title: "$sHubitatIcon Authorize Hubitat Devices $deviceText", description: "Click to show"                
+                    if(pageMainShowAdvanceConfiguration) {             
+                        pageAuthDeviceUserInputCtl()
                         paragraph("")
    
                         input(name: "pageMainPageAppLabel", type: "text", title: "&ensp;$sHubitatIcon Hubitat SmartApp Name:", width: 6, submitOnChange: true, newLineAfter:true)
@@ -420,21 +419,34 @@ void updatePageMain() {
     app.updateSetting("appTraceEnable", false)    
 }
 
-def pageAuthDevice(){    
-    Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0    
+def pageAuthDevice() {    
+//    Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0    
     return dynamicPage(name: "pageAuthDevice", uninstall: false) {
-        displayHeader()
+//        displayHeader()
 
-        section(menuHeader("Authorize Hubitat Devices $sHubitatIconStatic $sSamsungIconStatic")) {                         
+        section(menuHeader("Authorize Hubitat Devices to Mirror $sHubitatIconStatic $sSamsungIconStatic")) {                         
             paragraph( getFormat("comments","<b>Hubitat Security</b> requires each local device to be authorized with internal controls before HubiThings Replica can access. Please select Hubitat devices below before attempting mirror functions.",null,"Gray") ) 
-            input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, submitOnChange: true)
-            /*if(deviceAuthCount>0) {
-                paragraph( getFormat("line") )
-                href "pageMirrorDevice", title: "Mirror Hubitat Device (Advanced)", description: "Click to show"
-            }*/    
+            input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, submitOnChange: true, newLineAfter:true)
+
+            paragraph( """<br/><br/><br/><input type="button" class="mdl-button mdl-button--raised btn" value="Done" onclick="self.close()">""" )
         }
     }
 }
+
+def pageAuthDeviceUserInputCtl() {   
+    //http://192.168.1.33/installedapp/configure/314/pageMain/pageAuthDevice
+    String authorizeUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${app.getId()}/pageAuthDevice"
+    //String authorizeTitle = "&ensp;$sHubitatIcon Select Hubitat Device:"
+    //authorizeTitle = """<a href="$authorizeUrl" target="popup" onclick="var w=800; var h=1400; window.open('$authorizeUrl','popup','left='+(screen.width-w)/2+',top='+(screen.height-h)/4+',width='+w+',height='+h+''); return true;">$authorizeTitle</a>"""
+                
+    Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
+    String deviceText = (deviceAuthCount<1 ? ": (Select to Authorize Devices to Mirror)" : (deviceAuthCount==1 ?  ": ($deviceAuthCount Device Authorized to Mirror)" : ": ($deviceAuthCount Devices Authorized to Mirror)"))
+    // this is a workaround for the form data submission on 'external' modal boxes. not sure why hubitat is failing. 
+    paragraph (rawHtml: true, """<script>\$(function() { const pageUri = window.location.href; const pageUriNoQueryString = pageUri.split("?")[0]; if (pageUri != pageUriNoQueryString) window.location.href = pageUriNoQueryString;});</script>""")
+    href url: authorizeUrl, style: "external", title: "$sHubitatIcon Authorize Hubitat Devices $deviceText", description: "Click to show"
+    //href "pageAuthDevice", title: "$sHubitatIcon Authorize Hubitat Devices $deviceText", description: "Click to show"    
+}
+
 
 void pageMainChangeAppNameButton() {
     logDebug "${app.getLabel()} executing 'pageMainChangeAppNameButton()' $pageMainPageAppLabel"
@@ -955,14 +967,11 @@ def pageVirtualDevice() {
                 getAuthorizedDevices().sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }?.each {
                 if(pageMirrorDeviceShowAllDevices || !getReplicaDataJsonValue(it, "replica"))
                     hubitatDevicesSelect.add([ "$it.deviceNetworkId" : "${it.getDisplayName()} &ensp; (deviceNetworkId: $it.deviceNetworkId)" ])
-                }                
+                }
                 
-                //http://192.168.1.33/installedapp/configure/314/pageMain/pageAuthDevice
-                String authorizeTitle = "&ensp;$sHubitatIcon Select Hubitat Device:"
-                String authorizeUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${app.getId()}/pageAuthDevice"
-                authorizeTitle = """<a href="$authorizeUrl" target="popup" onclick="var w=800; var h=1400; window.open('$authorizeUrl','popup','left='+(screen.width-w)/2+',top='+(screen.height-h)/4+',width='+w+',height='+h+''); return true;">$authorizeTitle</a>"""
-   
-                input(name: "pageVirtualDeviceHubitatDevice", type: "enum", title: "$authorizeTitle", description: "Choose a Hubitat device", options: hubitatDevicesSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
+                pageAuthDeviceUserInputCtl()
+ 
+                input(name: "pageVirtualDeviceHubitatDevice", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device:", description: "Choose a Hubitat device", options: hubitatDevicesSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
                 paragraph( hubitatStats )             
                 input(name: "pageMirrorDeviceShowAllDevices", type: "bool", title: "Show All Authorized Hubitat Devices", defaultValue: false, submitOnChange: true, width: 6, newLineAfter:true)
                 input(name: "dynamic::pageVirtualDeviceCreateButton", type: "button", width: 2, title: "$sHubitatIcon Mirror", style:"width:75%;", newLineAfter:true)
@@ -1829,30 +1838,34 @@ void locationModeHandler(def event) {
         }
     }   
 }
-// called from subscribe HE devices. value is a string, but just converting anyway to be sure.
+
 void deviceTriggerHandler(def event) {
+    // called from subscribe HE device events. value is always string, but just converting anyway to be sure.
     //event.properties.each { logInfo "$it.key -> $it.value" }
     deviceTriggerHandlerPrivate(event?.getDevice(), event?.name, event?.value.toString(), event?.unit, event?.getJsonData())
 }
-// called from replica HE drivers. value might not be a string, converting it to normalize.
+
 void deviceTriggerHandler(def replicaDevice, Map event) {
-  
-    Boolean refresh = deviceTriggerHandlerPrivate(replicaDevice, event?.name, event?.value.toString(), event?.unit, event?.data, event?.now)    
+    // called from replica HE drivers. value might not be a string, converting it to normalize with events above.
+    Boolean result = deviceTriggerHandlerPrivate(replicaDevice, event?.name, event?.value.toString(), event?.unit, event?.data, event?.now)    
     if(event?.name == "configure") {
         clearReplicaDataCache(replicaDevice)
         replicaDeviceRefresh(replicaDevice)       
-    }
-    if(event?.name == "refresh") {
+    } 
+    else if(event?.name == "refresh") {
         clearReplicaDataCache(replicaDevice)
         String deviceId = getReplicaDeviceId(replicaDevice)    
-        if(deviceId&&refresh) getSmartDeviceStatus(deviceId)
+        if(deviceId&&result) getSmartDeviceStatus(deviceId)
         else replicaDeviceRefresh(replicaDevice)      
+    }
+    else if(!result) {
+        logInfo "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' event:'${event?.name}' is not rule configured"
     }
 }
            
 private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName, String eventValue, String eventUnit, Map eventJsonData, Long eventPostTime=null) {
     eventPostTime = eventPostTime ?: now()
-    logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' name:'$eventName' value:'$eventValue' unit:'$eventUnit', data:'$eventJsonData'"
+    logDebug "${app.getLabel()} executing 'deviceTriggerHandlerPrivate()' replicaDevice:'${replicaDevice.getDisplayName()}' name:'$eventName' value:'$eventValue' unit:'$eventUnit', data:'$eventJsonData'"
     Boolean response = false
     
     getReplicaDataJsonValue(replicaDevice, "rules")?.components?.findAll{ it?.type=="hubitatTrigger" && it?.trigger?.name==eventName && (!it?.trigger?.value || it?.trigger?.value==eventValue) }?.each { rule ->            
@@ -1878,7 +1891,7 @@ private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName,
                         Map map = new JsonSlurper().parseText(eventValue)
                         arguments = [ map ] //updated version v1.2.10
                     } catch (e) {
-                        logWarn "${app.getLabel()} deviceTriggerHandler() received $eventValue and not type 'object' as expected"
+                        logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() received $eventValue and not type 'object' as expected"
                     }
                     break
                 case 'array':   // A list of values of a single type.
@@ -1886,7 +1899,7 @@ private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName,
                         List list = new JsonSlurper().parseText(eventValue)
                         arguments = (command?.type!="attribute") ? list : [ list ]
                     } catch (e) {
-                        logWarn "${app.getLabel()} deviceTriggerHandler() received $eventValue and not type 'array' as expected"
+                        logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() received $eventValue and not type 'array' as expected"
                     }
                     break
                 case 'string':  // enum cases
@@ -1896,7 +1909,7 @@ private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName,
                     arguments = []
                     break
                 default:
-                    logWarn "${app.getLabel()} deviceTriggerHandler() ${trigger?.type?:"event"}:'$eventName' has unknown argument type: $type"
+                    logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() ${trigger?.type?:"event"}:'$eventName' has unknown argument type: $type"
                     arguments = []
                 break
             }
@@ -1916,7 +1929,7 @@ private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName,
                 // fix some brokes
                 eventUnit = eventUnit?.replaceAll('°','')
                 eventJsonData?.remove("version")                
-                if( command?.required?.contains("unit") && !command?.properties?.unit?.enum?.contains(eventUnit) ) logWarn "${app.getLabel()} deviceTriggerHandler requires unit value defined as ${command?.properties?.unit?.enum?:""} but found $eventUnit"
+                if( command?.required?.contains("unit") && !command?.properties?.unit?.enum?.contains(eventUnit) ) logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() requires unit value defined as ${command?.properties?.unit?.enum?:""} but found $eventUnit"
                 
                 response = setVirtualDeviceAttribute(deviceId, componentId, command?.capability, command?.attribute, arguments?.getAt(0), eventUnit, eventJsonData)?.statusCode==iHttpSuccess
                 if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ${type?:""} ○ trigger:${trigger?.type=="command"?"command":"event"}:${eventName} ➣ command:${command?.attribute}:${arguments?.getAt(0)?.toString()} ● delay:${now() - eventPostTime}ms"
