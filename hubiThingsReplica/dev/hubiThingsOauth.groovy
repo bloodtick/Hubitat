@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.10 2023-01-07 Align version to Replica for next Beta release.
 *  1.2.11 2023-01-11 Align version to Replica for next Beta release.
 *  1.2.12 2023-01-12 Align version to Replica for next Beta release.
 *  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate.
@@ -27,9 +26,10 @@
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting.
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
+*  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. 
 LINE 30 MAX */  
 
-public static String version() { return "1.3.07" }
+public static String version() { return "1.3.08" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -1106,6 +1106,7 @@ void stopApp() { // called by deleteApp() directly.
     state.remove('location')
     state.remove('locationId')
     state.remove('oauthCallback')
+    state.remove('oauthCallbackUrl')
     state.remove('oauthClientId')
     state.remove('oauthClientSecret')
     state.remove('refreshToken')
