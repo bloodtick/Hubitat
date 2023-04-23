@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.10 2023-01-07 update to object command to support color bulbs. thanks to @djgutheinz for the patch!
 *  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH if command exists.
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 *  1.3.00 2023-01-13 Formal Release Candidate
@@ -26,10 +25,11 @@
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
-*  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning. 
+*  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
+*  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
 LINE 30 MAX */ 
 
-public static String version() { return "1.3.07" }
+public static String version() { return "1.3.08" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -273,7 +273,7 @@ def pageMain(){
         
         section(menuHeader("Replica Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
             
-            input(name: "pageMainShowConfig", type: "bool", title: getFormat("text","$sHubitatIcon Show Configuration"), defaultValue: true, submitOnChange: true)
+            input(name: "pageMainShowConfig", type: "bool", title: "$sHubitatIcon Show Configuration", defaultValue: true, submitOnChange: true)
             paragraph( getFormat("line") )            
             if(pageMainShowConfig) {
                 String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all Authorized Scopes permissions to enable functionality</b>. "
@@ -291,13 +291,12 @@ def pageMain(){
                     app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: "${getFormat("text","$sSamsungIcon Authorize SmartThings Devices")} : Create OAuth Applications", multiple: true)                
                     paragraph( getFormat("line") )
   
-                    input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: getFormat("text","$sHubitatIcon Advanced Configuration"), defaultValue: false, submitOnChange: true)                
-                    if(pageMainShowAdvanceConfiguration) {
-                        def deviceText = (deviceAuthCount<1 ? ": (Select to Authorize Devices to Mirror)" : (deviceAuthCount==1 ?  ": ($deviceAuthCount Device Authorized)" : ": ($deviceAuthCount Devices Authorized)"))
-                        href "pageAuthDevice", title: getFormat("text","$sHubitatIcon Authorize Hubitat Devices $deviceText"), description: "Click to show"                
+                    input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: "$sHubitatIcon Advanced Configuration", defaultValue: false, submitOnChange: true)                
+                    if(pageMainShowAdvanceConfiguration) {             
+                        pageAuthDeviceUserInputCtl()
                         paragraph("")
    
-                        input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","&ensp;$sHubitatIcon Hubitat SmartApp Name:"), width: 6, submitOnChange: true, newLineAfter:true)
+                        input(name: "pageMainPageAppLabel", type: "text", title: "&ensp;$sHubitatIcon Hubitat SmartApp Name:", width: 6, submitOnChange: true, newLineAfter:true)
                         input(name: "dynamic::pageMainChangeAppNameButton", type: "button", title: "Change Name", width: 3, style:"width:50%;", newLineAfter:true)                
                     }
                 }
@@ -420,20 +419,34 @@ void updatePageMain() {
     app.updateSetting("appTraceEnable", false)    
 }
 
-def pageAuthDevice(){    
-    Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0    
+def pageAuthDevice() {    
+//    Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0    
     return dynamicPage(name: "pageAuthDevice", uninstall: false) {
-        displayHeader()
+//        displayHeader()
 
-        section(menuHeader("Authorize Hubitat Devices $sHubitatIconStatic $sSamsungIconStatic")) {
-          input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, submitOnChange: true)
-            if(deviceAuthCount>0) {
-                paragraph( getFormat("line") )
-                href "pageMirrorDevice", title: "Mirror Hubitat Device (Advanced)", description: "Click to show"
-            }    
+        section(menuHeader("Authorize Hubitat Devices to Mirror $sHubitatIconStatic $sSamsungIconStatic")) {                         
+            paragraph( getFormat("comments","<b>Hubitat Security</b> requires each local device to be authorized with internal controls before HubiThings Replica can access. Please select Hubitat devices below before attempting mirror functions.",null,"Gray") ) 
+            input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, submitOnChange: true, newLineAfter:true)
+
+            paragraph( """<br/><br/><br/><input type="button" class="mdl-button mdl-button--raised btn" value="Done" onclick="self.close()">""" )
         }
     }
 }
+
+def pageAuthDeviceUserInputCtl() {   
+    //http://192.168.1.33/installedapp/configure/314/pageMain/pageAuthDevice
+    String authorizeUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${app.getId()}/pageAuthDevice"
+    //String authorizeTitle = "&ensp;$sHubitatIcon Select Hubitat Device:"
+    //authorizeTitle = """<a href="$authorizeUrl" target="popup" onclick="var w=800; var h=1400; window.open('$authorizeUrl','popup','left='+(screen.width-w)/2+',top='+(screen.height-h)/4+',width='+w+',height='+h+''); return true;">$authorizeTitle</a>"""
+                
+    Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
+    String deviceText = (deviceAuthCount<1 ? ": (Select to Authorize Devices to Mirror)" : (deviceAuthCount==1 ?  ": ($deviceAuthCount Device Authorized to Mirror)" : ": ($deviceAuthCount Devices Authorized to Mirror)"))
+    // this is a workaround for the form data submission on 'external' modal boxes. not sure why hubitat is failing. 
+    paragraph (rawHtml: true, """<script>\$(function() { const pageUri = window.location.href; const pageUriNoQueryString = pageUri.split("?")[0]; if (pageUri != pageUriNoQueryString) window.location.href = pageUriNoQueryString;});</script>""")
+    href url: authorizeUrl, style: "external", title: "$sHubitatIcon Authorize Hubitat Devices $deviceText", description: "Click to show"
+    //href "pageAuthDevice", title: "$sHubitatIcon Authorize Hubitat Devices $deviceText", description: "Click to show"    
+}
+
 
 void pageMainChangeAppNameButton() {
     logDebug "${app.getLabel()} executing 'pageMainChangeAppNameButton()' $pageMainPageAppLabel"
@@ -822,7 +835,7 @@ def pageMirrorDevice(){
             
             input(name: "pageMirrorDeviceHubitatDevice", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device:", description: "Choose a Hubitat device", options: hubitatDevicesSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
             paragraph( hubitatStats )
-            input(name: "pageMirrorDeviceShowAllDevices", type: "bool", title: "Show All Authorized Hubitat Devices", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
+            input(name: "pageMirrorDeviceShowAllDevices", type: "bool", title: "Show All Authorized Hubitat Devices", defaultValue: false, submitOnChange: true, width: 6, newLineAfter:true)
             input(name: "dynamic::pageMirrorDeviceMirrorButton", type: "button", width: 2, title: "$sHubitatIcon Mirror", style:"width:75%;")
             
             if( g_mAppDeviceSettings?.pageMirrorDeviceMirrorButton) {
@@ -905,11 +918,6 @@ def pageVirtualDevice() {
         }
     }
     
-    List hubitatDeviceTypes = []
-    getDeviceHandlers()?.items?.sort{ a,b -> b?.namespace <=> a?.namespace ?: a?.name <=> b?.name }?.each {    
-        hubitatDeviceTypes.add([ "$it.id" : "$it.name &ensp; (namespace: $it.namespace)" ])   
-    }
-    
     Map allVirtualDevices = getVirtualDevices()
     List virtualDeviceDeleteSelect = []    
     allVirtualDevices?.items?.sort{ a,b -> naturalSort(a.label,b.label) }?.each { smartDevice ->
@@ -922,25 +930,22 @@ def pageVirtualDevice() {
         app.updateSetting( "pageVirtualDeviceLabel", deviceLabel )
     }
     
-    if(pageVirtualDeviceType!=g_mAppDeviceSettings?.pageVirtualDeviceType) {
-        g_mAppDeviceSettings['pageVirtualDeviceType'] = pageVirtualDeviceType
-        String replicaName = getVirtualDeviceTypes()?.find{it.id.toString() == pageVirtualDeviceType}?.replicaName ?: ""
-        String hubitatType = hubitatDeviceTypes?.find{ it?.find{ k,v -> v?.contains( replicaName ) } }?.keySet()?.getAt(0)       
-        app.updateSetting( "pageVirtualDeviceHubitatType", [type:"enum", value: hubitatType] )
-    }
-    
     Integer refreshInterval = (g_mAppDeviceSettings?.pageVirtualDeviceCreateButton || g_mAppDeviceSettings?.pageVirtualDeviceModifyButtons) ? 15 : 0    
     return dynamicPage(name: "pageVirtualDevice", uninstall: false, refreshInterval:refreshInterval) {
         displayHeader()
 
         section(menuHeader("Create Virtual Device, Mode or Scene $sHubitatIconStatic $sSamsungIconStatic")) {
             
-            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'location')
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'location') {
                 paragraph( getFormat("comments","<b>Location Mode Knob</b> allows for creation, deletion, updating and mirroring the SmartThings mode within a Hubitat Device. Similar to Hubitat, each SmartThings location only supports a singular mode.",null,"Gray") ) 
-
-            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene')
+                app.updateSetting("pageVirtualDeviceEnableMirrorHubitatDevice", false)
+            }
+                
+            if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene') {
                 paragraph( getFormat("comments","<b>Scene Knob</b> allows for triggering and mirroring a SmartThings scene within a Hubitat Device. <b>NOTE for proper usage:</b> A SmartThings virtual switch will be created, and it <b>must be added</b> to the SmartThings Scene 'actions' to update the switch to 'Turn on' when the scene is triggered.",null,"Gray") ) 
-           
+                app.updateSetting("pageVirtualDeviceEnableMirrorHubitatDevice", false)
+            }
+                
             input(name: "pageVirtualDeviceType", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Virtual Device Type:", description: "Choose a SmartThings virtual device type", multiple: false, options: virtualDeviceTypesSelect, required: false, submitOnChange: true, width: 6, newLineAfter:true)
             input(name: "pageVirtualDeviceLocation", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Location:", description: "Choose a SmartThings location", multiple: false, options: smartLocationSelect, required: false, submitOnChange: true, width: 6, newLineAfter:true)
             input(name: "pageVirtualDeviceRoom", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Room:", description: "Choose a SmartThings room (not required)", multiple: false, options: smartRoomSelect, submitOnChange: true, width: 6, newLineAfter:true)
@@ -954,14 +959,48 @@ def pageVirtualDevice() {
                app.removeSetting('pageVirtualDeviceOauth')
                paragraph("No HubiThings OAuth authorized for this location or have reached maximum capacity of devices.") 
             }
-            if(oauthSelect?.size() && pageVirtualDeviceOauth)
-               input(name: "pageVirtualDeviceHubitatType", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device Type:", description: "Choose a Hubitat device type (not required)", options: hubitatDeviceTypes, submitOnChange:true, width: 6, newLineAfter:true)
-                                  
-            input(name: "dynamic::pageVirtualDeviceCreateButton",  type: "button", width: 2, title: "$sSamsungIcon Create", style:"width:75%;")
+            
+            input(name: "pageVirtualDeviceEnableMirrorHubitatDevice", type: "bool", title: "Mirror Existing Hubitat Devices", defaultValue: false, submitOnChange: true, width: 6, newLineAfter:true)
+            
+            if(pageVirtualDeviceEnableMirrorHubitatDevice) {
+                List hubitatDevicesSelect = []
+                getAuthorizedDevices().sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }?.each {
+                if(pageMirrorDeviceShowAllDevices || !getReplicaDataJsonValue(it, "replica"))
+                    hubitatDevicesSelect.add([ "$it.deviceNetworkId" : "${it.getDisplayName()} &ensp; (deviceNetworkId: $it.deviceNetworkId)" ])
+                }
+                
+                pageAuthDeviceUserInputCtl()
+ 
+                input(name: "pageVirtualDeviceHubitatDevice", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device:", description: "Choose a Hubitat device", options: hubitatDevicesSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
+                paragraph( hubitatStats )             
+                input(name: "pageMirrorDeviceShowAllDevices", type: "bool", title: "Show All Authorized Hubitat Devices", defaultValue: false, submitOnChange: true, width: 6, newLineAfter:true)
+                input(name: "dynamic::pageVirtualDeviceCreateButton", type: "button", width: 2, title: "$sHubitatIcon Mirror", style:"width:75%;", newLineAfter:true)
+            }
+            else {
+                    
+                List hubitatDeviceTypes = []
+                getDeviceHandlers()?.items?.sort{ a,b -> b?.namespace <=> a?.namespace ?: a?.name <=> b?.name }?.each {    
+                    hubitatDeviceTypes.add([ "$it.id" : "$it.name &ensp; (namespace: $it.namespace)" ])   
+                }
+                
+                if(pageVirtualDeviceType!=g_mAppDeviceSettings?.pageVirtualDeviceType) {
+                    g_mAppDeviceSettings['pageVirtualDeviceType'] = pageVirtualDeviceType
+                    String replicaName = getVirtualDeviceTypes()?.find{it.id.toString() == pageVirtualDeviceType}?.replicaName ?: ""
+                    String hubitatType = hubitatDeviceTypes?.find{ it?.find{ k,v -> v?.contains( replicaName ) } }?.keySet()?.getAt(0)       
+                    app.updateSetting( "pageVirtualDeviceHubitatType", [type:"enum", value: hubitatType] )
+                }
+                
+                if(oauthSelect?.size() && pageVirtualDeviceOauth)
+                   input(name: "pageVirtualDeviceHubitatType", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device Type:", description: "Choose a Hubitat device type (not required)", options: hubitatDeviceTypes, submitOnChange:true, width: 6, newLineAfter:true)
+                input(name: "dynamic::pageVirtualDeviceCreateButton",  type: "button", width: 2, title: "$sSamsungIcon Create", style:"width:75%;", newLineAfter:true)
+            }
+            
             if(g_mAppDeviceSettings?.pageVirtualDeviceCreateButton)  {
+                paragraph( getFormat("line") )
                 paragraph( g_mAppDeviceSettings.pageVirtualDeviceCreateButton )
                 g_mAppDeviceSettings.pageVirtualDeviceCreateButton = null
-           }            
+                href "pageConfigureDevice", title: "$sImgRule Configure HubiThings Rules", description: "Click to show"
+            }
         }
         section(menuHeader("Modify Virtual Device, Mode or Scene")) {
             paragraph( getFormat("comments","<b>Create</b> and <b>Remove</b> utilize the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces a rate limit of 15 requests per 15 minutes to query the subscription API for status updates.",null,"Gray") ) 
@@ -1012,7 +1051,7 @@ String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {
 }
 
 void pageVirtualDeviceCreateButton() {
-    logDebug "${app.getLabel()} executing 'pageVirtualDeviceCreateButton()' $pageVirtualDeviceType $pageVirtualDeviceLocation $pageVirtualDeviceRoom $pageVirtualDeviceOauth $pageHubiThingDeviceType"
+    logDebug "${app.getLabel()} executing 'pageVirtualDeviceCreateButton()' $pageVirtualDeviceType $pageVirtualDeviceLocation $pageVirtualDeviceRoom $pageVirtualDeviceOauth $pageHubiThingDeviceType $pageVirtualDeviceHubitatDevice"
     String name = getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.name
     String prototype = getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.typeId
     
@@ -1032,12 +1071,19 @@ void pageVirtualDeviceCreateButton() {
             if(pageVirtualDeviceOauth) {
                 getChildAppById(pageVirtualDeviceOauth.toLong())?.createSmartDevice(pageVirtualDeviceLocation, response?.data?.deviceId, true)
             }
-            if(pageVirtualDeviceOauth&&pageVirtualDeviceHubitatType) {
-                Map deviceType = getDeviceHandlers()?.items?.find{ it?.id==pageVirtualDeviceHubitatType }
-                String label = name
+            if(pageVirtualDeviceOauth&&(pageVirtualDeviceHubitatType&&!pageVirtualDeviceEnableMirrorHubitatDevice || pageVirtualDeviceHubitatDevice&&pageVirtualDeviceEnableMirrorHubitatDevice)) {
                 String deviceId = response?.data?.deviceId
                 String componentId = "main"
-                g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createChildDevice(deviceType, name, label, deviceId, componentId)
+                if(pageVirtualDeviceEnableMirrorHubitatDevice) {
+                    if(getVirtualDeviceRules(prototype)) setReplicaDataValue(getDevice(pageVirtualDeviceHubitatDevice), "rules", getVirtualDeviceRules(prototype))
+                    g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createMirrorDevice(deviceId, componentId, pageVirtualDeviceHubitatDevice)
+                    renameVirtualDevice(deviceId, getDevice(pageVirtualDeviceHubitatDevice)?.getDisplayName())
+                }
+                else {
+                    Map deviceType = getDeviceHandlers()?.items?.find{ it?.id==pageVirtualDeviceHubitatType }
+                    String label = name                    
+                    g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createChildDevice(deviceType, name, label, deviceId, componentId)
+                }                
             }
             if(getVirtualDeviceTypes()?.find{ it?.id==pageVirtualDeviceType?.toInteger() }?.replicaType == 'scene') {
                 Map allSmartScenes = getSmartScenes(pageVirtualDeviceLocation)
@@ -1069,7 +1115,7 @@ void pageVirtualDeviceRemoveButton() {
             g_mVirtualDeviceListCache[app.getId()]=null
             g_mAppDeviceSettings['pageVirtualDeviceModifyButtons'] = statusMsg("'$label' was removed with deviceId: $pageVirtualDeviceModify")
             getReplicaDevices(pageVirtualDeviceModify)?.each{ replicaDevice->
-                if(replicaDevice?.getLabel()==label) deleteChildDevice( replicaDevice?.deviceNetworkId )
+                deleteChildDevice( replicaDevice?.deviceNetworkId )
             }
             app.removeSetting("pageVirtualDeviceModify")
         }
@@ -1103,30 +1149,59 @@ void pageVirtualDeviceButtonRefresh() {
     g_mSmartSceneListCache[app.getId()] = null
 }
 
+String getVirtualDeviceRules(typeId) {
+     switch(typeId) {
+         case 'VIRTUAL_SWITCH':
+             return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.off","value":"off"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.on","value":"on"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.off","value":"off","dataType":"ENUM"},"command":{"name":"off","type":"command","label":"command: off()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.on","value":"on","dataType":"ENUM"},"command":{"name":"on","type":"command","label":"command: on()"},"type":"smartTrigger"}]}"""
+         case 'VIRTUAL_DIMMER':
+             return """{"version":1,"components":[{"trigger":{"dataType":"NUMBER","name":"level","type":"attribute","label":"attribute: level.*"},"command":{"name":"setLevel","arguments":[{"name":"level","optional":false,"schema":{"type":"integer","minimum":0,"maximum":100}},{"name":"rate","optional":true,"schema":{"title":"PositiveInteger","type":"integer","minimum":0}}],"type":"command","capability":"switchLevel","label":"command: setLevel(level*, rate)"},"type":"hubitatTrigger"},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"switchLevel","attribute":"level","label":"attribute: level.*"},"command":{"arguments":["NUMBER","NUMBER"],"parameters":[{"name":"Level*","type":"NUMBER","constraints":["NUMBER"]},{"name":"Duration","type":"NUMBER","constraints":["NUMBER"]}],"name":"setLevel","type":"command","label":"command: setLevel(level*, duration)"},"type":"smartTrigger"}]}"""
+         case 'VIRTUAL_DIMMER_SWITCH':
+             return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.on","value":"on"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.off","value":"off"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"level","type":"attribute","label":"attribute: level.*"},"command":{"name":"setLevel","arguments":[{"name":"level","optional":false,"schema":{"type":"integer","minimum":0,"maximum":100}},{"name":"rate","optional":true,"schema":{"title":"PositiveInteger","type":"integer","minimum":0}}],"type":"command","capability":"switchLevel","label":"command: setLevel(level*, rate)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.off","value":"off","dataType":"ENUM"},"command":{"name":"off","type":"command","label":"command: off()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.on","value":"on","dataType":"ENUM"},"command":{"name":"on","type":"command","label":"command: on()"},"type":"smartTrigger"},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"switchLevel","attribute":"level","label":"attribute: level.*"},"command":{"arguments":["NUMBER","NUMBER"],"parameters":[{"name":"Level*","type":"NUMBER","constraints":["NUMBER"]},{"name":"Duration","type":"NUMBER","constraints":["NUMBER"]}],"name":"setLevel","type":"command","label":"command: setLevel(level*, duration)"},"type":"smartTrigger","disableStatus":true}]}"""
+         case 'VIRTUAL_BUTTON':
+             return """{"version":1,"components":[{"trigger":{"dataType":"NUMBER","name":"pushed","type":"attribute","label":"attribute: pushed.*"},"command":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string","enum":["pushed","held","double","pushed_2x","pushed_3x","pushed_4x","pushed_5x","pushed_6x","down","down_2x","down_3x","down_4x","down_5x","down_6x","down_hold","up","up_2x","up_3x","up_4x","up_5x","up_6x","up_hold","swipe_up","swipe_down","swipe_left","swipe_right"]}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.pushed","value":"pushed","dataType":"ENUM"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"numberOfButtons","type":"attribute","label":"attribute: numberOfButtons.*"},"command":{"type":"attribute","properties":{"value":{"title":"PositiveInteger","type":"integer","minimum":0}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"numberOfButtons","label":"attribute: numberOfButtons.*"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"held","type":"attribute","label":"attribute: held.*"},"command":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string","enum":["pushed","held","double","pushed_2x","pushed_3x","pushed_4x","pushed_5x","pushed_6x","down","down_2x","down_3x","down_4x","down_5x","down_6x","down_hold","up","up_2x","up_3x","up_4x","up_5x","up_6x","up_hold","swipe_up","swipe_down","swipe_left","swipe_right"]}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.held","value":"held","dataType":"ENUM"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"doubleTapped","type":"attribute","label":"attribute: doubleTapped.*"},"command":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string","enum":["pushed","held","double","pushed_2x","pushed_3x","pushed_4x","pushed_5x","pushed_6x","down","down_2x","down_3x","down_4x","down_5x","down_6x","down_hold","up","up_2x","up_3x","up_4x","up_5x","up_6x","up_hold","swipe_up","swipe_down","swipe_left","swipe_right"]}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.double","value":"double","dataType":"ENUM"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"released","type":"attribute","label":"attribute: released.*"},"command":{"type":"attribute","properties":{"value":{"title":"ButtonState","type":"string","enum":["pushed","held","double","pushed_2x","pushed_3x","pushed_4x","pushed_5x","pushed_6x","down","down_2x","down_3x","down_4x","down_5x","down_6x","down_hold","up","up_2x","up_3x","up_4x","up_5x","up_6x","up_hold","swipe_up","swipe_down","swipe_left","swipe_right"]}},"additionalProperties":false,"required":["value"],"capability":"button","attribute":"button","label":"attribute: button.up","value":"up","dataType":"ENUM"},"type":"hubitatTrigger"}]}"""
+         case 'VIRTUAL_CONTACT_SENSOR':
+             return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"contact","type":"attribute","label":"attribute: contact.*"},"command":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string","enum":["closed","open"]}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.*"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.closed","value":"closed","dataType":"ENUM"},"command":{"name":"close","type":"command","label":"command: close()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.open","value":"open","dataType":"ENUM"},"command":{"name":"open","type":"command","label":"command: open()"},"type":"smartTrigger"}]}"""
+         case 'VIRTUAL_GARAGE_DOOR_OPENER':
+             return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"contact","type":"attribute","label":"attribute: contact.*"},"command":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string","enum":["closed","open"]}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.*"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.closed","value":"closed","dataType":"ENUM"},"command":{"name":"close","type":"command","label":"command: close()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.open","value":"open","dataType":"ENUM"},"command":{"name":"open","type":"command","label":"command: open()"},"type":"smartTrigger"},{"trigger":{"dataType":"ENUM","name":"door","type":"attribute","label":"attribute: door.closed","value":"closed"},"command":{"type":"attribute","properties":{"value":{"type":"string","enum":["closed","closing","open","opening","unknown"]}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.closed","value":"closed","dataType":"ENUM"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"door","type":"attribute","label":"attribute: door.open","value":"open"},"command":{"type":"attribute","properties":{"value":{"type":"string","enum":["closed","closing","open","opening","unknown"]}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.open","value":"open","dataType":"ENUM"},"type":"hubitatTrigger"}]}"""         
+         case 'VIRTUAL_METERED_SWITCH':
+             return """{"version":1,"components":[{"trigger":{"dataType":"NUMBER","name":"energy","type":"attribute","label":"attribute: energy.*"},"command":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["Wh","kWh","mWh","kVAh"],"default":"kWh"}},"additionalProperties":false,"required":["value"],"capability":"energyMeter","attribute":"energy","label":"attribute: energy.*"},"type":"hubitatTrigger","mute":true},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.off","value":"off"},"command":{"name":"off","type":"command","capability":"switch","label":"command: switch:off()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.on","value":"on"},"command":{"name":"on","type":"command","capability":"switch","label":"command: switch:on()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"power","type":"attribute","label":"attribute: power.*"},"command":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["W"],"default":"W"}},"additionalProperties":false,"required":["value"],"capability":"powerMeter","attribute":"power","label":"attribute: power.*"},"type":"hubitatTrigger","mute":true},{"trigger":{"dataType":"ENUM","name":"healthStatus","type":"attribute","label":"attribute: healthStatus.*"},"command":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"type":"hubitatTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"arguments":["ENUM"],"parameters":[{"name":"healthStatus*","type":"ENUM","constraints":["online","offline"]}],"name":"setHealthStatus","type":"command","label":"command: setHealthStatus(healthStatus*)"},"type":"smartTrigger"}]}"""
+         case 'VIRTUAL_MOTION_SENSOR':
+             return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"command":{"arguments":["Number"],"parameters":[{"type":"Number"}],"name":"setTemperature","type":"command","label":"command: setTemperature(number*)"},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.active","value":"active","dataType":"ENUM"},"command":{"name":"active","type":"command","label":"command: active()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.inactive","value":"inactive","dataType":"ENUM"},"command":{"name":"inactive","type":"command","label":"command: inactive()"},"type":"smartTrigger"},{"trigger":{"dataType":"ENUM","name":"motion","type":"attribute","label":"attribute: motion.*"},"command":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string","enum":["active","inactive"]}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.*"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"battery","type":"attribute","label":"attribute: battery.*"},"command":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"temperature","type":"attribute","label":"attribute: temperature.*"},"command":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"type":"hubitatTrigger","mute":true}]}"""
+         case 'VIRTUAL_MULTI_SENSOR':
+             return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"acceleration","type":"attribute","label":"attribute: acceleration.*"},"command":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string","enum":["active","inactive"]}},"additionalProperties":false,"required":["value"],"capability":"accelerationSensor","attribute":"acceleration","label":"attribute: acceleration.*"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"battery","type":"attribute","label":"attribute: battery.*"},"command":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"contact","type":"attribute","label":"attribute: contact.*"},"command":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string","enum":["closed","open"]}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.*"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"temperature","type":"attribute","label":"attribute: temperature.*"},"command":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"type":"hubitatTrigger"}]}"""
+         case 'VIRTUAL_PRESENCE_SENSOR':
+             return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"presence","type":"attribute","label":"attribute: presence.*"},"command":{"type":"attribute","properties":{"value":{"title":"PresenceState","type":"string","enum":["present","not present"]}},"additionalProperties":false,"required":["value"],"capability":"presenceSensor","attribute":"presence","label":"attribute: presence.*"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"PresenceState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"presenceSensor","attribute":"presence","label":"attribute: presence.present","value":"present","dataType":"ENUM"},"command":{"name":"arrived","type":"command","label":"command: arrived()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"PresenceState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"presenceSensor","attribute":"presence","label":"attribute: presence.not present","value":"not present","dataType":"ENUM"},"command":{"name":"departed","type":"command","label":"command: departed()"},"type":"smartTrigger"}]}"""
+         case 'VIRTUAL_SIREN':
+             return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"alarm","type":"attribute","label":"attribute: alarm.both","value":"both"},"command":{"name":"both","type":"command","capability":"alarm","label":"command: both()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"alarm","type":"attribute","label":"attribute: alarm.off","value":"off"},"command":{"name":"off","type":"command","capability":"alarm","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"alarm","type":"attribute","label":"attribute: alarm.siren","value":"siren"},"command":{"name":"siren","type":"command","capability":"alarm","label":"command: siren()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"alarm","type":"attribute","label":"attribute: alarm.strobe","value":"strobe"},"command":{"name":"strobe","type":"command","capability":"alarm","label":"command: strobe()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"AlertState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"alarm","attribute":"alarm","label":"attribute: alarm.both","value":"both","dataType":"ENUM"},"command":{"name":"both","type":"command","label":"command: both()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"AlertState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"alarm","attribute":"alarm","label":"attribute: alarm.off","value":"off","dataType":"ENUM"},"command":{"name":"off","type":"command","label":"command: off()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"AlertState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"alarm","attribute":"alarm","label":"attribute: alarm.siren","value":"siren","dataType":"ENUM"},"command":{"name":"siren","type":"command","label":"command: siren()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"AlertState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"alarm","attribute":"alarm","label":"attribute: alarm.strobe","value":"strobe","dataType":"ENUM"},"command":{"name":"strobe","type":"command","label":"command: strobe()"},"type":"smartTrigger"}]}"""
+         default:
+            return null
+     }
+}
+
 List getVirtualDeviceTypes() {
     // https://community.smartthings.com/t/smartthings-virtual-devices-using-cli/244347
     // https://community.smartthings.com/t/smartthings-cli-create-virtual-device/249199
     // https://raw.githubusercontent.com/SmartThingsCommunity/smartthings-cli/eb1aab896d4248d293c662317056097aad777438/packages/cli/src/lib/commands/virtualdevices-util.ts
     List devices = [ 
-        [id:1, name: 'Switch', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Switch'  ],
-        [id:2, name: 'Dimmer Switch', typeId: 'VIRTUAL_DIMMER_SWITCH', replicaName: 'Replica Dimmer' ],
-        //[id:3, name: 'Button', typeId: 'VIRTUAL_BUTTON' ],
-        //[id:4, name: 'Camera', typeId: 'VIRTUAL_CAMERA' ],
-        //[id:5, name: 'Color Bulb', typeId: 'VIRTUAL_COLOR_BULB' ],
-        //[id:6, name: 'Contact Sensor', typeId: 'VIRTUAL_CONTACT_SENSOR' ],
-        //[id:7, name: 'Dimmer (no switch)', typeId: 'VIRTUAL_DIMMER' ],
-        //[id:8, name: 'Garage Door Opener', typeId: 'VIRTUAL_GARAGE_DOOR_OPENER' ],
-        //[id:9, name: 'Lock', typeId: 'VIRTUAL_LOCK' ],
-        //[id:10, name: 'Metered Switch', typeId: 'VIRTUAL_METERED_SWITCH' ],
-        //[id:11, name: 'Motion Sensor', typeId: 'VIRTUAL_MOTION_SENSOR' ],
-        //[id:12, name: 'Multi-Sensor', typeId: 'VIRTUAL_MULTI_SENSOR' ],
-        //[id:13, name: 'Presence Sensor', typeId: 'VIRTUAL_PRESENCE_SENSOR' ],
-        //[id:14, name: 'Refrigerator', typeId: 'VIRTUAL_REFRIGERATOR' ],
-        //[id:15, name: 'RGBW Bulb', typeId: 'VIRTUAL_RGBW_BULB' ],
-        //[id:16, name: 'Siren', typeId: 'VIRTUAL_SIREN' ],
-        //[id:17, name: 'Thermostat', typeId: 'VIRTUAL_THERMOSTAT' ],
-        [id:18, name: 'Location Mode Knob', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Location Knob', replicaType: 'location' ],
-        [id:19, name: 'Scene Knob', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Scene Knob', replicaType: 'scene' ]
+        [id:1, name: 'Virtual Switch', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Switch'  ],
+        [id:2, name: 'Virtual Dimmer Switch', typeId: 'VIRTUAL_DIMMER_SWITCH', replicaName: 'Replica Dimmer' ],
+        [id:3, name: 'Virtual Button', typeId: 'VIRTUAL_BUTTON', replicaName: 'Replica Button' ],
+        //[id:4, name: 'Virtual Camera', typeId: 'VIRTUAL_CAMERA' ],
+        //[id:5, name: 'Virtual Color Bulb', typeId: 'VIRTUAL_COLOR_BULB' ],
+        [id:6, name: 'Virtual Contact Sensor', typeId: 'VIRTUAL_CONTACT_SENSOR', replicaName: 'Replica Multipurpose Sensor' ],
+        //[id:7, name: 'Virtual Dimmer (no switch)', typeId: 'VIRTUAL_DIMMER', replicaName: 'Replica Dimmer' ], // why does this exist? 
+        [id:8, name: 'Virtual Garage Door Opener', typeId: 'VIRTUAL_GARAGE_DOOR_OPENER', replicaName: 'Replica Garage Door' ],
+        //[id:9, name: 'Virtual Lock', typeId: 'VIRTUAL_LOCK' ],
+        //[id:10, name: 'Virtual Metered Switch', typeId: 'VIRTUAL_METERED_SWITCH' ], // strange healthCheck config. needs ST to fix.
+        [id:11, name: 'Virtual Motion Sensor', typeId: 'VIRTUAL_MOTION_SENSOR', replicaName: 'Replica Motion Sensor' ],
+        [id:12, name: 'Virtual Multipurpose Sensor', typeId: 'VIRTUAL_MULTI_SENSOR', replicaName: 'Replica Multipurpose Sensor' ],
+        [id:13, name: 'Virtual Presence Sensor', typeId: 'VIRTUAL_PRESENCE_SENSOR', replicaName: 'Replica Presence' ],
+        //[id:14, name: 'Virtual Refrigerator', typeId: 'VIRTUAL_REFRIGERATOR' ],
+        //[id:15, name: 'Virtual RGBW Bulb', typeId: 'VIRTUAL_RGBW_BULB' ],
+        [id:16, name: 'Virtual Siren', typeId: 'VIRTUAL_SIREN', replicaName: 'Replica Alarm' ],
+        //[id:17, name: 'Virtual Thermostat', typeId: 'VIRTUAL_THERMOSTAT' ],
+        [id:18, name: 'Location Mode Knob', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Location Knob', replicaType: 'location', mirror: false ],
+        [id:19, name: 'Scene Knob', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Scene Knob', replicaType: 'scene', mirror: false ]
     ]
     return devices
 } 
@@ -1627,7 +1702,9 @@ Map getSmartCommandOptions(replicaDevice) {
             if(value?.arguments==[]) value.remove('arguments')
             smartCommandOptions[value.label] = value
         } 
-    }
+    }    
+    if(getReplicaDataJsonValue(replicaDevice, "description")?.type=="VIRTUAL") smartCommandOptions+=getSmartAttributeOptions(replicaDevice)
+    
     return smartCommandOptions
 }
 
@@ -1761,90 +1838,101 @@ void locationModeHandler(def event) {
         }
     }   
 }
-// called from subscribe HE devices
+
 void deviceTriggerHandler(def event) {
+    // called from subscribe HE device events. value is always string, but just converting anyway to be sure.
     //event.properties.each { logInfo "$it.key -> $it.value" }
-    deviceTriggerHandler(event?.getDevice(), event?.name, event?.value, event?.unit, event?.getJsonData())
+    deviceTriggerHandlerPrivate(event?.getDevice(), event?.name, event?.value.toString(), event?.unit, event?.getJsonData())
 }
-// called from replica HE drivers
+
 void deviceTriggerHandler(def replicaDevice, Map event) {
-  
-    Boolean refresh = deviceTriggerHandler(replicaDevice, event?.name, event?.value, event?.unit, event?.data, event?.now)    
+    // called from replica HE drivers. value might not be a string, converting it to normalize with events above.
+    Boolean result = deviceTriggerHandlerPrivate(replicaDevice, event?.name, event?.value.toString(), event?.unit, event?.data, event?.now)    
     if(event?.name == "configure") {
         clearReplicaDataCache(replicaDevice)
         replicaDeviceRefresh(replicaDevice)       
-    }
-    if(event?.name == "refresh") {
+    } 
+    else if(event?.name == "refresh") {
+        clearReplicaDataCache(replicaDevice)
         String deviceId = getReplicaDeviceId(replicaDevice)    
-        if(deviceId&&refresh) getSmartDeviceStatus(deviceId)
+        if(deviceId&&result) getSmartDeviceStatus(deviceId)
         else replicaDeviceRefresh(replicaDevice)      
+    }
+    else if(!result) {
+        logInfo "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' event:'${event?.name}' is not rule configured"
     }
 }
            
-Boolean deviceTriggerHandler(def replicaDevice, String eventName, def eventValue, String eventUnit, Map eventJsonData, Long eventPostTime=null) {
+private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName, String eventValue, String eventUnit, Map eventJsonData, Long eventPostTime=null) {
     eventPostTime = eventPostTime ?: now()
-    logDebug "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' name:'$eventName' value:'$eventValue' unit:'$eventUnit', data:'$eventJsonData'"
+    logDebug "${app.getLabel()} executing 'deviceTriggerHandlerPrivate()' replicaDevice:'${replicaDevice.getDisplayName()}' name:'$eventName' value:'$eventValue' unit:'$eventUnit', data:'$eventJsonData'"
     Boolean response = false
     
-    String deviceId = getReplicaDeviceId(replicaDevice)
-    String componentId = getReplicaDataJsonValue(replicaDevice, "replica")?.componentId ?: "main" //componentId was not added until v1.2.06 
-
-    Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")
-    replicaDeviceRules?.components?.findAll{ it?.type == "hubitatTrigger" }?.each { rule ->            
+    getReplicaDataJsonValue(replicaDevice, "rules")?.components?.findAll{ it?.type=="hubitatTrigger" && it?.trigger?.name==eventName && (!it?.trigger?.value || it?.trigger?.value==eventValue) }?.each { rule ->            
         Map trigger = rule?.trigger
-        Map command = rule?.command
+        Map command = rule?.command        
 
-        if(eventName==trigger?.name) {
-            logTrace ">> trigger:'$trigger' eventValue:'$eventValue'"
-            // simple enum case
-            if(trigger?.type=="command" && trigger?.parameters==null || trigger?.value==eventValue) {
-                // check if this was from ST and should not be sent back
-                if(trigger?.type=="command" || !deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) { 
-                    setSmartDeviceCommand(deviceId, componentId, command?.capability, command?.name)
-                    response = true
-                    if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ● trigger:${trigger?.type=="command"?"command":eventName}:${trigger?.type=="command"?eventName:eventValue} ➣ command:${command?.name} ● delay:${now() - eventPostTime}ms"
-                }
-            }
-            // non-enum case https://developer-preview.smartthings.com/docs/devices/capabilities/capabilities
-            else if((trigger?.type=="command" && trigger?.parameters) || !trigger?.value) {
-                String evtName = eventName
-                String evtValue = eventValue.toString()            
-                logTrace "evtName:${evtName} evtValue:${evtValue}"
-                // check if this was from ST and should not be sent back
-                if(trigger?.type=="command" || !deviceTriggerHandlerCache(replicaDevice, evtName, evtValue)) {
-                    String type = command?.arguments?.getAt(0)?.schema?.type?.toLowerCase()
-                    def arguments = null
-               
-                    switch(type) {
-                        case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
-                            arguments = [ (evtValue?.isNumber() ? (evtValue?.isFloat() ? (int)(Math.round(evtValue?.toFloat())) : evtValue?.toInteger()) : null) ]
-                            break
-                        case 'number':  // A number that can have fractional values. Limits can be defined to constrain the range of possible values.
-                            arguments = [ evtValue?.toFloat() ]
-                            break
-                        case 'boolean': // Either true or false
-                            arguments = [ evtValue?.toBoolean() ]
-                            break
-                        case 'object':  // A map of name value pairs, where the values can be of different types.
-                            Map map = new JsonSlurper().parseText(eventValue)
-                            arguments = [ map ] //updated version v1.2.10
-                            break
-                        case 'array':   // A list of values of a single type.
-                            List list = new JsonSlurper().parseText(eventValue)
-                            arguments = list
-                            break
-                        default:
-                            arguments = [ evtValue ]
-                            break
+        if(trigger?.type=="command" || !deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) {
+            String type = (command?.type!="attribute") ? command?.arguments?.getAt(0)?.schema?.type?.toLowerCase() : command?.properties?.value?.type?.toLowerCase()
+            def arguments = null  
+                    
+            switch(type) {
+                case 'integer': // A whole number. Limits can be defined to constrain the range of possible values.
+                    arguments = [ (eventValue?.isNumber() ? (eventValue?.isFloat() ? (int)(Math.round(eventValue?.toFloat())) : eventValue?.toInteger()) : null) ]
+                    break
+                case 'number':  // A number that can have fractional values. Limits can be defined to constrain the range of possible values.
+                    arguments = [ eventValue?.toFloat() ]
+                    break
+                case 'boolean': // Either true or false
+                    arguments = [ eventValue?.toBoolean() ]
+                    break
+                case 'object':  // A map of name value pairs, where the values can be of different types.
+                    try {
+                        Map map = new JsonSlurper().parseText(eventValue)
+                        arguments = [ map ] //updated version v1.2.10
+                    } catch (e) {
+                        logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() received $eventValue and not type 'object' as expected"
                     }
-                    if(trigger?.parameters) {
-                        // add any additonal arguments. (these should be evaluated correct type since they are not a event 'value' ^^ which is defined as string)            
-                        arguments = arguments?.plus( trigger?.parameters?.findResults{ parameter -> parameter?.data ? eventJsonData?.get(parameter?.data) : null })
-                    }                    
-                    setSmartDeviceCommand(deviceId, componentId, command?.capability, command?.name, arguments)
-                    response = true
-                    if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' $type ● trigger:${evtName} ➣ command:${command?.name}:${arguments?.toString()} ● delay:${now() - eventPostTime}ms"
-                }
+                    break
+                case 'array':   // A list of values of a single type.
+                    try {
+                        List list = new JsonSlurper().parseText(eventValue)
+                        arguments = (command?.type!="attribute") ? list : [ list ]
+                    } catch (e) {
+                        logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() received $eventValue and not type 'array' as expected"
+                    }
+                    break
+                case 'string':  // enum cases
+                    arguments = [ (command?.value?:eventValue) ]
+                    break
+                case null:      // commands with no arguments will be type null
+                    arguments = []
+                    break
+                default:
+                    logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() ${trigger?.type?:"event"}:'$eventName' has unknown argument type: $type"
+                    arguments = []
+                break
+            }
+            if(trigger?.parameters) {
+                // add any additonal arguments. (these should be evaluated correct type since they are not a event 'value' ^^ which is defined as string)
+                arguments = arguments?.plus( trigger?.parameters?.findResults{ parameter -> parameter?.data ? eventJsonData?.get(parameter?.data) : null })
+            }
+            
+            String deviceId = getReplicaDeviceId(replicaDevice)
+            String componentId = getReplicaDataJsonValue(replicaDevice, "replica")?.componentId ?: "main" //componentId was not added until v1.2.06
+            
+            if(command?.type!="attribute" && arguments!=null) {
+                response = setSmartDeviceCommand(deviceId, componentId, command?.capability, command?.name, arguments)?.statusCode==iHttpSuccess                        
+                if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ${type?:""} ● trigger:${trigger?.type=="command"?"command":"event"}:${eventName} ➣ command:${command?.name}${arguments?.size()?":"+arguments?.toString():""} ● delay:${now() - eventPostTime}ms"
+            }
+            else if(arguments!=null) {
+                // fix some brokes
+                eventUnit = eventUnit?.replaceAll('°','')
+                eventJsonData?.remove("version")                
+                if( command?.required?.contains("unit") && !command?.properties?.unit?.enum?.contains(eventUnit) ) logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() requires unit value defined as ${command?.properties?.unit?.enum?:""} but found $eventUnit"
+                
+                response = setVirtualDeviceAttribute(deviceId, componentId, command?.capability, command?.attribute, arguments?.getAt(0), eventUnit, eventJsonData)?.statusCode==iHttpSuccess
+                if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ${type?:""} ○ trigger:${trigger?.type=="command"?"command":"event"}:${eventName} ➣ command:${command?.attribute}:${arguments?.getAt(0)?.toString()} ● delay:${now() - eventPostTime}ms"
             }
         }
     }
@@ -1921,7 +2009,7 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
                             replicaDevice."$method"(*[value.value])
                         else
                             replicaDevice."$method"(*[[value:(value.value), unit:(value?.unit?:""), data:(value?.data?:[:]), stateChange:(value?.stateChange?:false), timestamp:(value?.timestamp)]]);
-                        if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getDisplayName()}' $type ○ trigger:$attribute ➢ command:${command?.name}:${value?.value} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
+                        if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getDisplayName()}' $type ● trigger:$attribute ➢ command:${command?.name}:${value?.value} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
                     }
                 }
             }
@@ -2027,7 +2115,7 @@ Map smartEventHandler(replicaDevice, Map deviceEvent, Long eventPostTime=null){
         
         if( updateSmartDeviceEventsStatus(replicaDevice) == 'offline' ) { getSmartDeviceHealth( getReplicaDeviceId(replicaDevice) ) }
     } catch (e) {
-        logWarn "${app.getLabel()} smartEventHandler error: $e : $deviceEvent"
+        logWarn "${app.getLabel()} smartEventHandler() error: $e : $deviceEvent"
     }
     return [statusCode:response.statusCode]
 }
@@ -2054,7 +2142,7 @@ Map smartHealthHandler(replicaDevice, String deviceId, Map healthEvent, Long eve
         
         updateSmartDeviceEventsStatus(replicaDevice)            
     } catch (e) {
-        logWarn "${app.getLabel()} smartHealthHandler error: $e : $healthEvent"
+        logWarn "${app.getLabel()} smartHealthHandler() error: $e : $healthEvent"
     }    
     return [statusCode:response.statusCode]
 }
@@ -2068,7 +2156,7 @@ Map smartDescriptionHandler(replicaDevice, Map descriptionEvent){
         getReplicaCapabilities(replicaDevice) // This should probably be threaded since it could be a large amount of calls.
         response.statusCode = iHttpSuccess       
     } catch (e) {
-        logWarn "${app.getLabel()} smartDescriptionHandler error: $e : $descriptionEvent"
+        logWarn "${app.getLabel()} smartDescriptionHandler() error: $e : $descriptionEvent"
     }    
     return [statusCode:response.statusCode]
 }
@@ -2096,7 +2184,7 @@ Map smartCapabilityHandler(replicaDevice, Map capabilityEvent){
         }
         response.statusCode = iHttpSuccess       
     } catch (e) {
-        logWarn "${app.getLabel()} smartCapabilityHandler error: $e : $capabilityEvent"
+        logWarn "${app.getLabel()} smartCapabilityHandler() error: $e : $capabilityEvent"
     }    
     return [statusCode:response.statusCode]
 }
@@ -2232,7 +2320,7 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
 	    asynchttpGet(callbackMethod, params, data)
         response.statusCode = iHttpSuccess
 	} catch (e) {
-	    logWarn "${app.getLabel()} asyncHttpGet error: $e"
+	    logWarn "${app.getLabel()} asyncHttpGet() error: $e"
 	}
     return response
 }
@@ -2267,23 +2355,23 @@ void asyncHttpGetCallback(resp, data) {
                 status = null
                 break      
             default:
-                logWarn "${app.getLabel()} asyncHttpGetCallback ${data?.method} not supported"
+                logWarn "${app.getLabel()} asyncHttpGetCallback() ${data?.method} not supported"
                 if (resp?.data) { logInfo resp.data }
         }
     }
     else {
-        logWarn("${app.getLabel()} asyncHttpGetCallback ${data?.method} ${data?.deviceId ? getReplicaDevices(data.deviceId) : ""}  status:${resp.status} reason:${resp.errorMessage}")
+        logWarn("${app.getLabel()} asyncHttpGetCallback() ${data?.method} ${data?.deviceId ? getReplicaDevices(data.deviceId) : ""}  status:${resp.status} reason:${resp.errorMessage}")
     }
 }
 
-Map setSmartDeviceCommand(deviceId, component, capability, command, arguments = []) {
+Map setSmartDeviceCommand(String deviceId, String component, String capability, String command, def arguments = []) {
     logDebug "${app.getLabel()} executing 'setSmartDeviceCommand()'"
     Map response = [statusCode:iHttpError]
 
     Map commands = [ commands: [[ component: component, capability: capability, command: command, arguments: arguments ]] ]
-    Map data = [
+    Map params = [
         uri: sURI,
-        path: "/devices/${deviceId}/commands",
+        path: "/devices/$deviceId/commands",
         body: JsonOutput.toJson(commands),
         method: "setSmartDeviceCommand",
         authToken: getAuthToken()        
@@ -2291,7 +2379,26 @@ Map setSmartDeviceCommand(deviceId, component, capability, command, arguments = 
     if(appLogEventEnable && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         log.info "Device:${getReplicaDevices(deviceId)?.each{ it?.label }} commands:<b>${JsonOutput.toJson(commands)}</b>"
     }
-    response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", data).statusCode
+    response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", params).statusCode
+    return response
+}
+
+Map setVirtualDeviceAttribute(String deviceId, String component, String capability, String attribute, def value, String unit=null, Map data=[:]) {
+    logDebug "${app.getLabel()} executing 'setVirtualDeviceAttribute()'"
+    Map response = [statusCode:iHttpError]
+
+    Map deviceEvents = [ deviceEvents: [ [ component: component, capability: capability, attribute: attribute, value: value, unit: unit, data: data ] ] ]
+    Map params = [
+        uri: sURI,
+        path: "/virtualdevices/$deviceId/events",
+        body: JsonOutput.toJson(deviceEvents),
+        method: "setVirtualDeviceAttribute",
+        authToken: getAuthToken()        
+    ]
+    if(appLogEventEnable && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
+        log.info "Device:${getReplicaDevices(deviceId)?.each{ it?.label }} deviceEvents:<b>${JsonOutput.toJson(deviceEvents)}</b>"
+    }
+    response.statusCode = asyncHttpPostJson("asyncHttpPostCallback", params).statusCode
     return response
 }
 
@@ -2311,7 +2418,7 @@ private Map asyncHttpPostJson(String callbackMethod, Map data) {
 	    asynchttpPost(callbackMethod, params, data)
         response.statusCode = iHttpSuccess
 	} catch (e) {
-	    logWarn "${app.getLabel()} asyncHttpPostJson error: $e"
+	    logWarn "${app.getLabel()} asyncHttpPostJson() error: $e"
 	}    
     return response
 }
@@ -2325,17 +2432,18 @@ void asyncHttpPostCallback(resp, data) {
         
         switch(data?.method) {
             case "setSmartDeviceCommand":
+            case "setVirtualDeviceAttribute":
                 Map command = new JsonSlurper().parseText(resp.data)
                 logDebug "${app.getLabel()} successful ${data?.method}:${command}"
                 break
             default:
-                logWarn "${app.getLabel()} asyncHttpPostCallback ${data?.method} not supported"
+                logWarn "${app.getLabel()} asyncHttpPostCallback() ${data?.method} not supported"
                 if (resp?.data) { logInfo resp.data }
         }
     }
     else {
         resp.headers.each { logTrace "${it.key} : ${it.value}" }
-        logWarn("${app.getLabel()} asyncHttpPostCallback ${data?.method} status:${resp.status} reason:${resp.errorMessage}")
+        logWarn("${app.getLabel()} asyncHttpPostCallback ${data?.method} body:${data?.body} status:${resp.status} reason:${resp.errorMessage}")
     }
 }
 
@@ -2400,11 +2508,11 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
                         getChildApps()?.findAll{ it?.getLocationId()==event?.deviceLifecycleEvent?.locationId }.each{ it?.getSmartDeviceList() }
                         break
                     default:
-                        logWarn "${app.getLabel()} 'oauthEventHandler() DEVICE_LIFECYCLE_EVENT' did not handle $event"
+                        logWarn "${app.getLabel()} oauthEventHandler() DEVICE_LIFECYCLE_EVENT did not handle $event"
                 }
                 break            
             default:
-                logInfo "${app.getLabel()} 'oauthEventHandler()' did not handle $event"
+                logInfo "${app.getLabel()} oauthEventHandler() did not handle $event"
         }
     }
    
