@@ -11,7 +11,9 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-@SuppressWarnings('unused')
+
+//file:noinspection unused
+
 public static String version() {return "1.3.0"}
     
 metadata 
@@ -59,7 +61,7 @@ def configure() {
 }
 
 // Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
-Map getReplicaCommands() {
+static Map getReplicaCommands() {
     return ([ "setEnergyValue":[[name:"energy*",type:"NUMBER"]], "setPowerValue":[[name:"power*",type:"NUMBER"]], "setShadeLevelValue":[[name:"shadeLevel*",type:"NUMBER"]], 
               "setSupportedWindowShadeCommandsValue":[[name:"supportedWindowShadeCommands*",type:"JSON_OBJECT"]], "setWindowShadeValue":[[name:"windowShade*",type:"ENUM"]], 
               "setWindowShadePartiallyOpen":[], "setWindowShadeClosed":[], "setWindowShadeOpen":[], "setWindowShadeClosing":[], "setWindowShadeUnknown":[], 
@@ -95,6 +97,23 @@ def setWindowShadeValue(value) {
     String descriptionText = "${device.displayName} window shade is $value"
     sendEvent(name: "windowShade", value: value, descriptionText: descriptionText)
     logInfo descriptionText
+    switch (value){
+        case 'open':
+            setPositionValue(100)
+            break
+        case 'closed':
+            setPositionValue(0)
+            break
+        case 'partially open':
+            setPositionValue(50)
+            break
+    }
+}
+
+def setPositionValue(value) {
+    String descriptionText = "${device.displayName} position is $value"
+    sendEvent(name: "position", value: "$value", unit: "%", descriptionText: descriptionText)
+    logInfo descriptionText
 }
 
 def setWindowShadeOpening() {
@@ -126,7 +145,7 @@ def setHealthStatusValue(value) {
 }
 
 // Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
-Map getReplicaTriggers() {
+static Map getReplicaTriggers() {
     return ([ "close":[] , "open":[], "pause":[], "setShadeLevel":[[name:"shadeLevel*",type:"NUMBER"]], "setPosition":[[name:"position*",type:"NUMBER"]], "startPositionChange":[[name:"direction*",type:"ENUM"]], "refresh":[]])
 }
 
@@ -167,7 +186,7 @@ void refresh() {
     sendCommand("refresh")
 }
 
-String getReplicaRules() {
+static String getReplicaRules() {
     return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"OpenableState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"windowShade","attribute":"windowShade","label":"attribute: windowShade.*"},"command":{"name":"setWindowShadeValue","label":"command: setWindowShadeValue(windowShade*)","type":"command","parameters":[{"name":"windowShade*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"windowShadeLevel","attribute":"shadeLevel","label":"attribute: shadeLevel.*"},"command":{"name":"setShadeLevelValue","label":"command: setShadeLevelValue(shadeLevel*)","type":"command","parameters":[{"name":"shadeLevel*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"name":"close","label":"command: close()","type":"command"},"command":{"name":"close","type":"command","capability":"windowShade","label":"command: close()"},"type":"hubitatTrigger"},{"trigger":{"name":"open","label":"command: open()","type":"command"},"command":{"name":"open","type":"command","capability":"windowShade","label":"command: open()"},"type":"hubitatTrigger"},{"trigger":{"name":"pause","label":"command: pause()","type":"command"},"command":{"name":"pause","type":"command","capability":"windowShade","label":"command: pause()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"array","items":{"type":"string","enum":["open","close","pause"]}}},"additionalProperties":false,"required":[],"capability":"windowShade","attribute":"supportedWindowShadeCommands","label":"attribute: supportedWindowShadeCommands.*"},"command":{"name":"setSupportedWindowShadeCommandsValue","label":"command: setSupportedWindowShadeCommandsValue(supportedWindowShadeCommands*)","type":"command","parameters":[{"name":"supportedWindowShadeCommands*","type":"JSON_OBJECT"}]},"type":"smartTrigger"},{"trigger":{"name":"setShadeLevel","label":"command: setShadeLevel(shadeLevel*)","type":"command","parameters":[{"name":"shadeLevel*","type":"NUMBER"}]},"command":{"name":"setShadeLevel","arguments":[{"name":"shadeLevel","optional":false,"schema":{"type":"integer","minimum":0,"maximum":100}}],"type":"command","capability":"windowShadeLevel","label":"command: setShadeLevel(shadeLevel*)"},"type":"hubitatTrigger"}]}
 status: {"components":{"main":{"contactSensor":{"contact":{"value":"closed","timestamp":"2022-12-05T14:46:32.409Z"}},"windowShadeLevel":{"shadeLevel":{"value":50,"unit":"%","timestamp":"2022-12-05T16:09:20.462Z"}},"windowShade":{"supportedWindowShadeCommands":{"value":["open","close"],"timestamp":"2022-12-05T14:46:32.347Z"},"windowShade":{"value":"partially open","timestamp":"2022-12-05T16:09:20.461Z"}}}}}"""
 }
