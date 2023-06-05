@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.11 2023-01-11 Align version to Replica for next Beta release.
 *  1.2.12 2023-01-12 Align version to Replica for next Beta release.
 *  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate.
 *  1.3.02 2023-01-26 Remove ST Virtual Device support and move to Replica (not completed)
@@ -26,10 +25,11 @@
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting.
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
-*  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. 
-LINE 30 MAX */  
+*  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices.
+*  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization. 
+*  LINE 30 MAX */  
 
-public static String version() { return "1.3.08" }
+public static String version() { return "1.3.09" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -54,6 +54,7 @@ import groovy.transform.Field
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
+@Field static final String  sColorYellow="#8B8000"
 
 definition(
     parent: 'replica:HubiThings Replica',
@@ -220,13 +221,15 @@ public Integer getMaxDeviceLimit() {
 }
 
 public String getAuthStatus() {
-    if(!state?.oauthCallbackUrl) state.oauthCallbackUrl = getTargetUrl() //added 1.3.07 to help with C-8 migrations
-    if(state.oauthCallbackUrl != getTargetUrl()) state.oauthCallback = "INVALID" //added 1.3.07 to help with C-8 migrations    
+    if(state?.oauthClientId && !state?.oauthCallbackUrl) state.oauthCallbackUrl = getTargetUrl() //added 1.3.07 to help with C-8 migrations
+    if(state?.oauthClientId && state.oauthCallbackUrl != getTargetUrl()) state.oauthCallback = "INVALID" //added 1.3.07 to help with C-8 migrations    
     
     String response = "UNKNOWN"    
-    if(state?.oauthCallback=="CONFIRMED" && state?.authTokenError==false && state.authTokenExpires>now())
+    if(state?.oauthCallback=="CONFIRMED" && state?.authTokenError==false && state?.authTokenExpires>now())
         response = "AUTHORIZED"
-    if((state?.oauthCallback!="CONFIRMED" || state?.authTokenError==true) && (state.authTokenExpires>0))
+    else if((state?.oauthCallback!="CONFIRMED" || state?.authTokenError==true) && state?.authTokenExpires>now())
+        response = "WARNING"    
+    else if((state?.oauthCallback!="CONFIRMED" || state?.authTokenError==true) && state?.authTokenExpires>0)
         response = "FAILURE"    
     if(!state?.authTokenExpires)
         response = "PENDING"    
@@ -317,9 +320,11 @@ def pageMain(){
                           status += "• Location: ${getSmartLocationName(state.locationId)}\n"     
                           status += "• Token Expiration: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
                           if(state?.oauthCallback=="INVALID")
-                              status += getFormat("text","\nAction: Callback Invalid! 'Delete API' is required to restore!",null,sColorDarkRed)
+                              status += getFormat("text","<br><br>Action: Callback Invalid! 'Delete API' is required to restore!",null,sColorDarkRed)
+                          else if(getAuthStatus()=="WARNING")
+                              status += getFormat("text","<br><br>Warning: Authorization Token did not refresh and will automatically retry within three hours.",null,sColorYellow)
                           else if(getAuthStatus()=="FAILURE")
-                              status += getFormat("text","\nAction: Token Invalid! New OAuth Authorization is required to restore!",null,sColorDarkRed)
+                              status += getFormat("text","<br><br>Action: Token Invalid! New OAuth Authorization or 'Delete API' is required to restore!",null,sColorDarkRed)
                     }
                     paragraph(status)                      
                 
@@ -504,7 +509,8 @@ void appButtonHandler(String btn) {
                             deleteApp(state.appId)
                             break
                         case "refreshApp":
-                            refreshApp()
+                            if(getAuthStatus()!="AUTHORIZED") oauthRefresh() // calls refreshApp()
+                            else refreshApp()
                             break
                     }                            
                     break
@@ -1069,8 +1075,11 @@ void appStatus() {
     if(getAuthStatus()=="AUTHORIZED") {
         app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorized")}" ) // this will send updated() command
     }
+    else if (getAuthStatus()=="WARNING") {
+        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorization Warning",null,sColorYellow)}" ) // this will send updated() command
+    }
     else if (getAuthStatus()=="FAILURE") {
-        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorization Error",null,sColorDarkRed)}" ) // this will send updated() command
+        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorization Failure",null,sColorDarkRed)}" ) // this will send updated() command
     }
     else {
         app.updateLabel( "$pageMainPageAppLabel ${getOauthId()}" ) // this will send updated() command
