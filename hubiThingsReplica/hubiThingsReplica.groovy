@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.11 2023-01-11 Fix for mirror rules config. Allow for replicaEvent, replicaStatus, replicaHealth to be sent to DH if command exists.
 *  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 *  1.3.00 2023-01-13 Formal Release Candidate
 *  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
@@ -27,9 +26,10 @@
 *  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
-LINE 30 MAX */ 
+*  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization. 
+*  LINE 30 MAX */ 
 
-public static String version() { return "1.3.08" }
+public static String version() { return "1.3.09" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -173,9 +173,11 @@ public void childHealthChanged( childApp ) {
         if(it?.getLocationId() == locationId) {
             if(it?.getAuthStatus()=="FAILURE")
                 oauthStatus = "FAILURE"
-            else if (oauthStatus!="FAILURE" && it?.getAuthStatus()=="PENDING")
+            else if(oauthStatus!="FAILURE" && it?.getAuthStatus()=="WARNING")
+                oauthStatus = "WARNING"            
+            else if(oauthStatus!="FAILURE" && oauthStatus!="WARNING" && it?.getAuthStatus()=="PENDING")
                 oauthStatus = "PENDING"            
-            else if(oauthStatus!="FAILURE" && oauthStatus!="PENDING" && it?.getAuthStatus()=="AUTHORIZED")
+            else if(oauthStatus!="FAILURE" && oauthStatus!="WARNING" && oauthStatus!="PENDING" && it?.getAuthStatus()=="AUTHORIZED")
                 oauthStatus = "AUTHORIZED"            
         }    
     }   
@@ -264,9 +266,9 @@ def pageMain(){
         }
     }    
     
-    Map smartDevices = getSmartDevicesMap()
+    Map smartDevices = getSmartDevicesMap()?.clone()
     Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
-
+    
     return dynamicPage(name: "pageMain", install: true, refreshInterval:iPageMainRefreshInterval) {
         displayHeader()
         state.pageMainLastRefresh = now()
@@ -339,6 +341,7 @@ def pageMain(){
 					       devicesTable += "</thead><tbody>"
                     
                     List deviceIds = getAllReplicaDeviceIds()
+                    try {
 					smartDevices?.items?.sort{ it?.label }?.each { smartDevice ->
                         deviceIds.remove(smartDevice?.deviceId)
 						List hubitatDevices = getReplicaDevices(smartDevice?.deviceId)
@@ -353,7 +356,7 @@ def pageMain(){
 							devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>0</td>"
 							devicesTable += "</tr>"
 						}
-					}                    
+                    } } catch(e) { } //noop. have a concurrency problem once and a while.
                     logDebug "${app.getLabel()} deviceIds not found $deviceIds"
  					deviceIds?.each { deviceId ->
 						List hubitatDevices = getReplicaDevices(deviceId)
@@ -1149,7 +1152,7 @@ void pageVirtualDeviceButtonRefresh() {
     g_mSmartSceneListCache[app.getId()] = null
 }
 
-String getVirtualDeviceRules(typeId) {
+static final String getVirtualDeviceRules(typeId) {
      switch(typeId) {
          case 'VIRTUAL_SWITCH':
              return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.off","value":"off"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.on","value":"on"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.off","value":"off","dataType":"ENUM"},"command":{"name":"off","type":"command","label":"command: off()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.on","value":"on","dataType":"ENUM"},"command":{"name":"on","type":"command","label":"command: on()"},"type":"smartTrigger"}]}"""
@@ -1178,7 +1181,7 @@ String getVirtualDeviceRules(typeId) {
      }
 }
 
-List getVirtualDeviceTypes() {
+static final List getVirtualDeviceTypes() {
     // https://community.smartthings.com/t/smartthings-virtual-devices-using-cli/244347
     // https://community.smartthings.com/t/smartthings-cli-create-virtual-device/249199
     // https://raw.githubusercontent.com/SmartThingsCommunity/smartthings-cli/eb1aab896d4248d293c662317056097aad777438/packages/cli/src/lib/commands/virtualdevices-util.ts
