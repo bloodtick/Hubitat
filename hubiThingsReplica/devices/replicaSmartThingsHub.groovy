@@ -11,8 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-@SuppressWarnings('unused')
-public static String version() {return "1.3.0"}
+public static String version() {return "1.3.1"}
 
 metadata 
 {
@@ -31,7 +30,7 @@ metadata
         attribute "temperatureScale", "string"
         attribute "timeZoneId", "string"
         attribute "replica", "string"
-        attribute "oauthStatus", "enum", ["unknown", "authorized", "failure", "pending"]
+        attribute "oauthStatus", "enum", ["unknown", "authorized", "warning", "failure", "pending"]
         attribute "healthStatus", "enum", ["offline", "online"]        
 
         command "deleteLocationMode", [[name: "modeName*", type: "STRING", description: "Delete mode name"]]
@@ -70,7 +69,7 @@ def configure() {
 }
 
 // Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
-Map getReplicaCommands() {
+static Map getReplicaCommands() {
     return ([ "setReplicaValue":[[name:"replica*",type:"STRING"]], "setModeValue":[[name:"mode*",type:"STRING"]], "setOauthStatusValue":[[name:"oauthStatus*",type:"ENUM"]], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]])
 }
 
@@ -92,13 +91,13 @@ def setHealthStatusValue(value) {
 }
 
 // Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
-Map getReplicaTriggers() {
+static Map getReplicaTriggers() {
     return ([ "refresh":[]])
 }
 
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
     data.version=version()
-    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
 }
 
 void refresh() {
@@ -109,7 +108,7 @@ void refresh() {
     getLocationMode()
 }
 
-String getReplicaRules() {
+static String getReplicaRules() {
     return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true}]}"""
 }
 
