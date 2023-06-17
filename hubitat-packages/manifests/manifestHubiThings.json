@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.3.09 Support 'warning' for OAuth token delay but is still valid. Bug fixes.\n1.3.2 Replica Location Knob updated with weather information",
+    "releaseNotes": "1.3.10 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic\n1.3.3 Replica Location Knob updated AQI attributes\n",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
@@ -20,7 +20,7 @@
             "required": true,
             "oauth": false,
             "primary": true,
-            "version": "1.3.09"
+            "version": "1.3.10"
         },
         {
             "id": "9bb9eacb-c243-43d6-9dc4-520f0e476016",
@@ -29,7 +29,7 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
             "required": true,
             "oauth": true,
-            "version": "1.3.09"
+            "version": "1.3.10"
         }
     ],
     "drivers": [
@@ -87,7 +87,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaSmartThingsHub.groovy",
             "required": false,
-            "version": "1.3.0"
+            "version": "1.3.1"
         },
         {
             "id": "69eb9edc-5e50-400d-baa3-3dae85525782",
@@ -135,7 +135,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaLock.groovy",
             "required": false,
-            "version": "1.3.3"
+            "version": "1.3.4"
         },
         {
             "id": "ddb6e641-d67c-4fad-8c4d-533268fb269b",
@@ -159,7 +159,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaLocationKnob.groovy",
             "required": true,
-            "version": "1.3.2"
+            "version": "1.3.3"
         },
         {
             "id": "d78a680a-91a9-4113-9105-b6dd28f5348c",
@@ -183,7 +183,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaFanControl.groovy",
             "required": false,
-            "version": "1.3.0"
+            "version": "1.3.1"
         },
         {
             "id": "c40a4ecb-af1a-4d75-a2e7-a46a72fa67fd",
@@ -191,7 +191,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaThermostat.groovy",
             "required": false,
-            "version": "1.3.2"
+            "version": "1.3.3"
         },
         {
             "id": "ce575210-3348-4b03-92d0-52ed4053b7fb",
@@ -199,7 +199,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaTempHumiditySensor.groovy",
             "required": false,
-            "version": "1.3.0"
+            "version": "1.3.1"
         },
         {
             "id": "1f423d47-bb94-44de-8ca6-db8cdd9342c6",
@@ -207,7 +207,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaSonos.groovy",
             "required": false,
-            "version": "1.3.0"
+            "version": "1.3.1"
         }
     ]
 }
