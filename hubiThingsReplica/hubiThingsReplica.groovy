@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.2.12 2023-01-12 Fix for duplicate attributes(like TV). Removed debug. Update to all refresh() command to be used in rules and not captured.
 *  1.3.00 2023-01-13 Formal Release Candidate
 *  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
@@ -26,10 +25,11 @@
 *  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
-*  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization. 
+*  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
+*  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.3.09" }
+public static String version() { return "1.3.10" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -889,7 +889,7 @@ def pageVirtualDevice() {
     
     List virtualDeviceTypesSelect = []    
     getVirtualDeviceTypes()?.sort{ it.id }?.each {
-        virtualDeviceTypesSelect.add([ "${it.id}" : "${it.name}" ])   
+        virtualDeviceTypesSelect.add([ "${it.id}" : "${it.name} ${it?.attributes ? " &ensp; (${it.attributes.sort().join(', ')})" : ""}" ])   
     }    
    
     Map allSmartLocations = getSmartLocations()
@@ -963,9 +963,10 @@ def pageVirtualDevice() {
                paragraph("No HubiThings OAuth authorized for this location or have reached maximum capacity of devices.") 
             }
             
-            input(name: "pageVirtualDeviceEnableMirrorHubitatDevice", type: "bool", title: "Mirror Existing Hubitat Devices", defaultValue: false, submitOnChange: true, width: 6, newLineAfter:true)
+            if(oauthSelect?.size() && pageVirtualDeviceOauth)
+                input(name: "pageVirtualDeviceEnableMirrorHubitatDevice", type: "bool", title: "Mirror Existing Hubitat Devices", defaultValue: false, submitOnChange: true, width: 6, newLineAfter:true)
             
-            if(pageVirtualDeviceEnableMirrorHubitatDevice) {
+            if(pageVirtualDeviceEnableMirrorHubitatDevice && oauthSelect?.size() && pageVirtualDeviceOauth) {
                 List hubitatDevicesSelect = []
                 getAuthorizedDevices().sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }?.each {
                 if(pageMirrorDeviceShowAllDevices || !getReplicaDataJsonValue(it, "replica"))
@@ -979,8 +980,7 @@ def pageVirtualDevice() {
                 input(name: "pageMirrorDeviceShowAllDevices", type: "bool", title: "Show All Authorized Hubitat Devices", defaultValue: false, submitOnChange: true, width: 6, newLineAfter:true)
                 input(name: "dynamic::pageVirtualDeviceCreateButton", type: "button", width: 2, title: "$sHubitatIcon Mirror", style:"width:75%;", newLineAfter:true)
             }
-            else {
-                    
+            else {                    
                 List hubitatDeviceTypes = []
                 getDeviceHandlers()?.items?.sort{ a,b -> b?.namespace <=> a?.namespace ?: a?.name <=> b?.name }?.each {    
                     hubitatDeviceTypes.add([ "$it.id" : "$it.name &ensp; (namespace: $it.namespace)" ])   
@@ -989,8 +989,8 @@ def pageVirtualDevice() {
                 if(pageVirtualDeviceType!=g_mAppDeviceSettings?.pageVirtualDeviceType) {
                     g_mAppDeviceSettings['pageVirtualDeviceType'] = pageVirtualDeviceType
                     String replicaName = getVirtualDeviceTypes()?.find{it.id.toString() == pageVirtualDeviceType}?.replicaName ?: ""
-                    String hubitatType = hubitatDeviceTypes?.find{ it?.find{ k,v -> v?.contains( replicaName ) } }?.keySet()?.getAt(0)       
-                    app.updateSetting( "pageVirtualDeviceHubitatType", [type:"enum", value: hubitatType] )
+                    String hubitatType = hubitatDeviceTypes?.find{ it?.find{ k,v -> v?.contains( replicaName ) } }?.keySet()?.getAt(0)
+                    app.updateSetting( "pageVirtualDeviceHubitatType", [type:"enum", value: (replicaName!=""?hubitatType:null)] )
                 }
                 
                 if(oauthSelect?.size() && pageVirtualDeviceOauth)
@@ -1070,6 +1070,8 @@ void pageVirtualDeviceCreateButton() {
             g_mVirtualDeviceListCache[app.getId()]=null
             app.updateSetting( "pageVirtualDeviceModify", [type:"enum", value: response?.data?.deviceId] )
             g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = statusMsg("'$name' was created with deviceId: ${response?.data?.deviceId}")
+            
+            setVirtualDeviceDefaults(response?.data?.deviceId, prototype)
             
             if(pageVirtualDeviceOauth) {
                 getChildAppById(pageVirtualDeviceOauth.toLong())?.createSmartDevice(pageVirtualDeviceLocation, response?.data?.deviceId, true)
@@ -1152,7 +1154,7 @@ void pageVirtualDeviceButtonRefresh() {
     g_mSmartSceneListCache[app.getId()] = null
 }
 
-static final String getVirtualDeviceRules(typeId) {
+static final String getVirtualDeviceRules(String typeId) {
      switch(typeId) {
          case 'VIRTUAL_SWITCH':
              return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.off","value":"off"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.on","value":"on"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.off","value":"off","dataType":"ENUM"},"command":{"name":"off","type":"command","label":"command: off()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.on","value":"on","dataType":"ENUM"},"command":{"name":"on","type":"command","label":"command: on()"},"type":"smartTrigger"}]}"""
@@ -1166,8 +1168,10 @@ static final String getVirtualDeviceRules(typeId) {
              return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"contact","type":"attribute","label":"attribute: contact.*"},"command":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string","enum":["closed","open"]}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.*"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.closed","value":"closed","dataType":"ENUM"},"command":{"name":"close","type":"command","label":"command: close()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.open","value":"open","dataType":"ENUM"},"command":{"name":"open","type":"command","label":"command: open()"},"type":"smartTrigger"}]}"""
          case 'VIRTUAL_GARAGE_DOOR_OPENER':
              return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"contact","type":"attribute","label":"attribute: contact.*"},"command":{"type":"attribute","properties":{"value":{"title":"ContactState","type":"string","enum":["closed","open"]}},"additionalProperties":false,"required":["value"],"capability":"contactSensor","attribute":"contact","label":"attribute: contact.*"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.closed","value":"closed","dataType":"ENUM"},"command":{"name":"close","type":"command","label":"command: close()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.open","value":"open","dataType":"ENUM"},"command":{"name":"open","type":"command","label":"command: open()"},"type":"smartTrigger"},{"trigger":{"dataType":"ENUM","name":"door","type":"attribute","label":"attribute: door.closed","value":"closed"},"command":{"type":"attribute","properties":{"value":{"type":"string","enum":["closed","closing","open","opening","unknown"]}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.closed","value":"closed","dataType":"ENUM"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"door","type":"attribute","label":"attribute: door.open","value":"open"},"command":{"type":"attribute","properties":{"value":{"type":"string","enum":["closed","closing","open","opening","unknown"]}},"additionalProperties":false,"required":["value"],"capability":"doorControl","attribute":"door","label":"attribute: door.open","value":"open","dataType":"ENUM"},"type":"hubitatTrigger"}]}"""         
+         case 'VIRTUAL_LOCK':         
+             return """{"version":1,"components":[{"trigger":{"dataType":"ENUM","name":"lock","type":"attribute","label":"attribute: lock.*"},"command":{"type":"attribute","properties":{"value":{"title":"LockState","type":"string","enum":["locked","unknown","unlocked","unlocked with timeout"]},"data":{"type":"object","additionalProperties":false,"required":[],"properties":{"method":{"type":"string","enum":["manual","keypad","auto","command","rfid","fingerprint","bluetooth"]},"codeId":{"type":"string"},"codeName":{"type":"string"},"timeout":{"title":"Iso8601Date","type":"string"}}}},"additionalProperties":false,"required":["value"],"capability":"lock","attribute":"lock","label":"attribute: lock.*"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"LockState","type":"string"},"data":{"type":"object","additionalProperties":false,"required":[],"properties":{"method":{"type":"string","enum":["manual","keypad","auto","command","rfid","fingerprint","bluetooth"]},"codeId":{"type":"string"},"codeName":{"type":"string"},"timeout":{"title":"Iso8601Date","type":"string"}}}},"additionalProperties":false,"required":["value"],"capability":"lock","attribute":"lock","label":"attribute: lock.locked","value":"locked","dataType":"ENUM"},"command":{"name":"lock","type":"command","label":"command: lock()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"LockState","type":"string"},"data":{"type":"object","additionalProperties":false,"required":[],"properties":{"method":{"type":"string","enum":["manual","keypad","auto","command","rfid","fingerprint","bluetooth"]},"codeId":{"type":"string"},"codeName":{"type":"string"},"timeout":{"title":"Iso8601Date","type":"string"}}}},"additionalProperties":false,"required":["value"],"capability":"lock","attribute":"lock","label":"attribute: lock.unlocked","value":"unlocked","dataType":"ENUM"},"command":{"name":"unlock","type":"command","label":"command: unlock()"},"type":"smartTrigger"},{"trigger":{"dataType":"NUMBER","name":"battery","type":"attribute","label":"attribute: battery.*"},"command":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"type":"hubitatTrigger","mute":true}]}"""
          case 'VIRTUAL_METERED_SWITCH':
-             return """{"version":1,"components":[{"trigger":{"dataType":"NUMBER","name":"energy","type":"attribute","label":"attribute: energy.*"},"command":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["Wh","kWh","mWh","kVAh"],"default":"kWh"}},"additionalProperties":false,"required":["value"],"capability":"energyMeter","attribute":"energy","label":"attribute: energy.*"},"type":"hubitatTrigger","mute":true},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.off","value":"off"},"command":{"name":"off","type":"command","capability":"switch","label":"command: switch:off()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.on","value":"on"},"command":{"name":"on","type":"command","capability":"switch","label":"command: switch:on()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"power","type":"attribute","label":"attribute: power.*"},"command":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["W"],"default":"W"}},"additionalProperties":false,"required":["value"],"capability":"powerMeter","attribute":"power","label":"attribute: power.*"},"type":"hubitatTrigger","mute":true},{"trigger":{"dataType":"ENUM","name":"healthStatus","type":"attribute","label":"attribute: healthStatus.*"},"command":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string","enum":["offline","online"]}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"type":"hubitatTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"arguments":["ENUM"],"parameters":[{"name":"healthStatus*","type":"ENUM","constraints":["online","offline"]}],"name":"setHealthStatus","type":"command","label":"command: setHealthStatus(healthStatus*)"},"type":"smartTrigger"}]}"""
+             return """{"version":1,"components":[{"trigger":{"dataType":"NUMBER","name":"energy","type":"attribute","label":"attribute: energy.*"},"command":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["Wh","kWh","mWh","kVAh"],"default":"kWh"}},"additionalProperties":false,"required":["value"],"capability":"energyMeter","attribute":"energy","label":"attribute: energy.*"},"type":"hubitatTrigger","mute":true},{"trigger":{"dataType":"NUMBER","name":"power","type":"attribute","label":"attribute: power.*"},"command":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["W"],"default":"W"}},"additionalProperties":false,"required":["value"],"capability":"powerMeter","attribute":"power","label":"attribute: power.*"},"type":"hubitatTrigger","mute":true},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.off","value":"off"},"command":{"name":"off","type":"command","capability":"switch","label":"command: switch:off()"},"type":"hubitatTrigger"},{"trigger":{"dataType":"ENUM","name":"switch","type":"attribute","label":"attribute: switch.on","value":"on"},"command":{"name":"on","type":"command","capability":"switch","label":"command: switch:on()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.off","value":"off","dataType":"ENUM"},"command":{"name":"off","type":"command","label":"command: off()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.on","value":"on","dataType":"ENUM"},"command":{"name":"on","type":"command","label":"command: on()"},"type":"smartTrigger"}]}"""
          case 'VIRTUAL_MOTION_SENSOR':
              return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"command":{"arguments":["Number"],"parameters":[{"type":"Number"}],"name":"setTemperature","type":"command","label":"command: setTemperature(number*)"},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.active","value":"active","dataType":"ENUM"},"command":{"name":"active","type":"command","label":"command: active()"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.inactive","value":"inactive","dataType":"ENUM"},"command":{"name":"inactive","type":"command","label":"command: inactive()"},"type":"smartTrigger"},{"trigger":{"dataType":"ENUM","name":"motion","type":"attribute","label":"attribute: motion.*"},"command":{"type":"attribute","properties":{"value":{"title":"ActivityState","type":"string","enum":["active","inactive"]}},"additionalProperties":false,"required":["value"],"capability":"motionSensor","attribute":"motion","label":"attribute: motion.*"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"battery","type":"attribute","label":"attribute: battery.*"},"command":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"type":"hubitatTrigger"},{"trigger":{"dataType":"NUMBER","name":"temperature","type":"attribute","label":"attribute: temperature.*"},"command":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"type":"hubitatTrigger","mute":true}]}"""
          case 'VIRTUAL_MULTI_SENSOR':
@@ -1181,33 +1185,80 @@ static final String getVirtualDeviceRules(typeId) {
      }
 }
 
+static final List getVirtualDeviceDefaults(String typeId) {
+    switch(typeId) {
+        case 'VIRTUAL_SWITCH':
+            return [ [componentId:"main", capability:"switch", attribute:"switch", value:"off", unit:null, data:null] ]
+        case 'VIRTUAL_DIMMER':
+            return [ [componentId:"main", capability:"switchLevel", attribute:"level", value:100, unit:null, data:null] ]
+        case 'VIRTUAL_DIMMER_SWITCH':
+            return [ [componentId:"main", capability:"switch", attribute:"switch", value:"off", unit:null, data:null], [componentId:"main", capability:"switchLevel", attribute:"level", value:100, unit:null, data:null] ]
+        case 'VIRTUAL_BUTTON':
+            return [ [componentId:"main", capability:"button", attribute:"numberOfButtons", value:1, unit:null, data:null] ]            
+        case 'VIRTUAL_CONTACT_SENSOR': 
+            return [ [componentId:"main", capability:"contactSensor", attribute:"contact", value:"closed", unit:null, data:null] ]
+        case 'VIRTUAL_GARAGE_DOOR_OPENER':
+            return [ [componentId:"main", capability:"contactSensor", attribute:"contact", value:"closed", unit:null, data:null], [componentId:"main", capability:"doorControl", attribute:"door", value:"closed", unit:null, data:null] ]
+        case 'VIRTUAL_LOCK':
+             return [ [componentId:"main", capability:"lock", attribute:"lock", value:"unknown", unit:null, data:null], [componentId:"main", capability:"battery", attribute:"battery", value:100, unit:"%", data:null] ]
+        case 'VIRTUAL_METERED_SWITCH':
+            return [ [componentId:"main", capability:"healthCheck", attribute:"DeviceWatch-DeviceStatus", value:"online", unit:null, data:null], [componentId:"main", capability:"energyMeter", attribute:"energy", value:0, unit:"kWh", data:null], [componentId:"main", capability:"switch", attribute:"switch", value:"off", unit:null, data:null], [componentId:"main", capability:"powerMeter", attribute:"power", value:0, unit:"W", data:null] ]
+        case 'VIRTUAL_MOTION_SENSOR':
+            return [ [componentId:"main", capability:"temperatureMeasurement", attribute:"temperature", value:0, unit:"C", data:null], [componentId:"main", capability:"motionSensor", attribute:"motion", value:"inactive", unit:null, data:null], [componentId:"main", capability:"battery", attribute:"battery", value:100, unit:"%", data:null] ]
+        case 'VIRTUAL_MULTI_SENSOR':
+            return [ [componentId:"main", capability:"accelerationSensor", attribute:"acceleration", value:"inactive", unit:null, data:null], [componentId:"main", capability:"threeAxis", attribute:"threeAxis", value:[0,0,0], unit:null, data:null], [componentId:"main", capability:"battery", attribute:"battery", value:100, unit:"%", data:null], [componentId:"main", capability:"contactSensor", attribute:"contact", value:"closed", unit:null, data:null], [componentId:"main", capability:"temperatureMeasurement", attribute:"temperature", value:0, unit:"C", data:null] ]
+        case 'VIRTUAL_PRESENCE_SENSOR':
+            return [ [componentId:"main", capability:"presenceSensor", attribute:"presence", value:"not present", unit:null, data:null] ]
+        case 'VIRTUAL_SIREN':
+            return [ [componentId:"main", capability:"alarm", attribute:"alarm", value:"off", unit:null, data:null] ]       
+         default:
+            return null
+    }
+}
+
 static final List getVirtualDeviceTypes() {
     // https://community.smartthings.com/t/smartthings-virtual-devices-using-cli/244347
     // https://community.smartthings.com/t/smartthings-cli-create-virtual-device/249199
     // https://raw.githubusercontent.com/SmartThingsCommunity/smartthings-cli/eb1aab896d4248d293c662317056097aad777438/packages/cli/src/lib/commands/virtualdevices-util.ts
     List devices = [ 
-        [id:1, name: 'Virtual Switch', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Switch'  ],
-        [id:2, name: 'Virtual Dimmer Switch', typeId: 'VIRTUAL_DIMMER_SWITCH', replicaName: 'Replica Dimmer' ],
-        [id:3, name: 'Virtual Button', typeId: 'VIRTUAL_BUTTON', replicaName: 'Replica Button' ],
-        //[id:4, name: 'Virtual Camera', typeId: 'VIRTUAL_CAMERA' ],
-        //[id:5, name: 'Virtual Color Bulb', typeId: 'VIRTUAL_COLOR_BULB' ],
-        [id:6, name: 'Virtual Contact Sensor', typeId: 'VIRTUAL_CONTACT_SENSOR', replicaName: 'Replica Multipurpose Sensor' ],
-        //[id:7, name: 'Virtual Dimmer (no switch)', typeId: 'VIRTUAL_DIMMER', replicaName: 'Replica Dimmer' ], // why does this exist? 
-        [id:8, name: 'Virtual Garage Door Opener', typeId: 'VIRTUAL_GARAGE_DOOR_OPENER', replicaName: 'Replica Garage Door' ],
-        //[id:9, name: 'Virtual Lock', typeId: 'VIRTUAL_LOCK' ],
-        //[id:10, name: 'Virtual Metered Switch', typeId: 'VIRTUAL_METERED_SWITCH' ], // strange healthCheck config. needs ST to fix.
-        [id:11, name: 'Virtual Motion Sensor', typeId: 'VIRTUAL_MOTION_SENSOR', replicaName: 'Replica Motion Sensor' ],
-        [id:12, name: 'Virtual Multipurpose Sensor', typeId: 'VIRTUAL_MULTI_SENSOR', replicaName: 'Replica Multipurpose Sensor' ],
-        [id:13, name: 'Virtual Presence Sensor', typeId: 'VIRTUAL_PRESENCE_SENSOR', replicaName: 'Replica Presence' ],
-        //[id:14, name: 'Virtual Refrigerator', typeId: 'VIRTUAL_REFRIGERATOR' ],
-        //[id:15, name: 'Virtual RGBW Bulb', typeId: 'VIRTUAL_RGBW_BULB' ],
-        [id:16, name: 'Virtual Siren', typeId: 'VIRTUAL_SIREN', replicaName: 'Replica Alarm' ],
-        //[id:17, name: 'Virtual Thermostat', typeId: 'VIRTUAL_THERMOSTAT' ],
-        [id:18, name: 'Location Mode Knob', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Location Knob', replicaType: 'location', mirror: false ],
-        [id:19, name: 'Scene Knob', typeId: 'VIRTUAL_SWITCH', replicaName: 'Replica Scene Knob', replicaType: 'scene', mirror: false ]
+        [id:1, name: "Virtual Switch", typeId: "VIRTUAL_SWITCH", replicaName: "Replica Switch", attributes:["rw:switch"]  ],
+        [id:2, name: "Virtual Dimmer Switch", typeId: "VIRTUAL_DIMMER_SWITCH", replicaName: "Replica Dimmer", attributes:["rw:switch","rw:level"] ],
+        [id:3, name: "Virtual Button", typeId: "VIRTUAL_BUTTON", replicaName: "Replica Button", attributes:["r:held","r:pushed","r:doubleTapped","r:released"] ],
+        //[id:4, name: "Virtual Camera", typeId: "VIRTUAL_CAMERA" ],
+        //[id:5, name: "Virtual Color Bulb", typeId: "VIRTUAL_COLOR_BULB" ],
+        [id:6, name: "Virtual Contact Sensor", typeId: "VIRTUAL_CONTACT_SENSOR", replicaName: "Replica Multipurpose Sensor", attributes:["r:contact"] ],
+        //[id:7, name: "Virtual Dimmer (no switch)", typeId: "VIRTUAL_DIMMER", replicaName: "Replica Dimmer" ], // why does this exist? 
+        [id:8, name: "Virtual Garage Door Opener", typeId: "VIRTUAL_GARAGE_DOOR_OPENER", replicaName: "Replica Garage Door", attributes:["r:contact","rw:door"] ],
+        [id:9, name: "Virtual Lock", typeId: "VIRTUAL_LOCK", replicaName: "Replica Lock", attributes:["rw:lock","r:battery"] ],
+        [id:10, name: "Virtual Metered Switch", typeId: "VIRTUAL_METERED_SWITCH", attributes:["r:energy","r:power","rw:switch"] ],
+        [id:11, name: "Virtual Motion Sensor", typeId: "VIRTUAL_MOTION_SENSOR", replicaName: "Replica Motion Sensor", attributes:["r:temperature","r:motion","r:battery"] ],
+        [id:12, name: "Virtual Multipurpose Sensor", typeId: "VIRTUAL_MULTI_SENSOR", replicaName: "Replica Multipurpose Sensor", attributes:["r:acceleration","r:contact","r:temperature","r:battery"] ],
+        [id:13, name: "Virtual Presence Sensor", typeId: "VIRTUAL_PRESENCE_SENSOR", replicaName: "Replica Presence", attributes:["r:presence"] ],
+        //[id:14, name: "Virtual Refrigerator", typeId: "VIRTUAL_REFRIGERATOR" ],
+        //[id:15, name: "Virtual RGBW Bulb", typeId: "VIRTUAL_RGBW_BULB" ],
+        [id:16, name: "Virtual Siren", typeId: "VIRTUAL_SIREN", replicaName: "Replica Alarm", attributes:["rw:alarm"] ],
+        //[id:17, name: "Virtual Thermostat", typeId: "VIRTUAL_THERMOSTAT" ],
+        [id:18, name: "Location Mode Knob", typeId: "VIRTUAL_SWITCH", replicaName: "Replica Location Knob", replicaType: "location", mirror: false ],
+        [id:19, name: "Scene Knob", typeId: "VIRTUAL_SWITCH", replicaName: "Replica Scene Knob", replicaType: "scene", mirror: false ]
     ]
     return devices
-} 
+}
+
+void setVirtualDeviceDefaults(String deviceId, String prototype) {
+    logDebug "${app.getLabel()} executing 'setVirtualDeviceDefaults($deviceId, $prototype)'"
+    runIn(5, setVirtualDeviceDefaultsHelper, [data: [deviceId:deviceId, prototype:prototype]])    
+}
+
+void setVirtualDeviceDefaultsHelper(data) {
+    setVirtualDeviceDefaultsPrivate(data.deviceId, data.prototype)    
+}
+
+private void setVirtualDeviceDefaultsPrivate(String deviceId, String prototype) {
+    logDebug "${app.getLabel()} executing 'setVirtualDeviceDefaultsPrivate($deviceId, $prototype)'"
+    getVirtualDeviceDefaults(prototype)?.each{
+        setVirtualDeviceAttribute(deviceId, it.componentId, it.capability, it.attribute, it.value, it.unit, it.data)
+    }
+}
 
 Map createVirtualDevice(String locationId, String roomId, String name, String prototype) {
     logDebug "${app.getLabel()} executing 'createVirtualDevice($locationId, $prototype, $name)'"
