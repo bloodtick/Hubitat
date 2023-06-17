@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.2"}
+public static String version() {return "1.3.3"}
 
 metadata 
 {
@@ -107,7 +107,7 @@ metadata
         attribute "pm10Amount", "number"
         attribute "pm10Index" , "number"
         attribute "pm25Amount", "number"
-        attribute "pm25Index", "number"      
+        attribute "pm25Index", "number"
 
         // deviceAdditionalAttributes
         attribute "isDay", "enum", ["true", "false"]
@@ -116,7 +116,9 @@ metadata
         attribute "alertExpireTime", "string"
         attribute "alertSeverity", "string"
         attribute "alertHeadlineText", "string"                
-        attribute "lastUpdateTime", "string"   
+        attribute "lastUpdateTime", "string"                
+        attribute "airQualityLevel", "string"
+        attribute "airQualityDescription", "string"
        
         command "pollServices"
         command "testServiceAlert"
@@ -142,7 +144,7 @@ metadata
 
 void delLocationAdditionalAttributesAttributes(Boolean force=false) {
     if(settings.deviceAdditionalAttributes.toBoolean()==false || force)
-        for(String item : ["isDay", "alert", "alertIssueTime", "alertExpireTime", "alertSeverity", "alertHeadlineText", "lastUpdateTime"]) {
+        for(String item : ["isDay", "alert", "alertIssueTime", "alertExpireTime", "alertSeverity", "alertHeadlineText", "lastUpdateTime", "airQualityLevel", "airQualityDescription"]) {
             device.deleteCurrentState(item)
         }    
 }
@@ -815,6 +817,12 @@ void setLocationAirQualityAttributes(Map airQualityMap) {
                        "coAmount","coIndex","pm10Amount","pm10Index","pm25Amount","pm25Index"]) {
         if(airQualityMap?.containsKey(item)) sendEvent(name: item, value: airQualityMap."$item"?.value, unit: airQualityMap."$item"?.unit?:"")
     }
+    if(settings?.deviceAdditionalAttributes && airQualityMap?.airQualityIndex) {
+        Integer aqi = (airQualityMap.airQualityIndex.value.toInteger()<=500) ? airQualityMap.airQualityIndex.value.toInteger() : 500
+        Integer key = AQICodePLU.find{ k, v -> v.rangeLo<=aqi && v.rangeHi>=aqi }.key
+        sendEvent(name: "airQualityLevel", value: AQICodePLU[key].level)
+        sendEvent(name: "airQualityDescription", value: AQICodePLU[key].desription)        
+    }
 }
 
 Map convertMeasureIfNeeded(BigDecimal value, String unit, String format, Integer precision) {
@@ -871,21 +879,31 @@ String getWUIconName(String wxPhraseLong, Boolean isDay)     {
     return wuIcon
 }
 
+// https://www.airnow.gov/aqi/aqi-basics/#:~:text=Think%20of%20the%20AQI%20as,300%20represents%20hazardous%20air%20quality.
+@Field static final Map<Integer, List<Object>> AQICodePLU = [
+    0: [color:"green",  level:"Good", rangeLo:0, rangeHi:50,  desription:"Air quality is satisfactory and air pollution poses little or no risk"],
+    1: [color:"yellow", level:"Moderate", rangeLo:51, rangeHi:100, desription:"Air quality is acceptable. There may be a risk for people who are unusually sensitive to air pollution"],
+    2: [color:"orange", level:"Unhealthy Sensitive Groups", rangeLo:101, rangeHi:150, desription:"Members of sensitive groups may experience health effects"],
+    3: [color:"red",    level:"Unhealthy", rangeLo:151, rangeHi:200, desription:"Some members of the general public may experience health effects; members of sensitive groups may experience more serious health effects"],
+    4: [color:"purple", level:"Very Unhealthy", rangeLo:201, rangeHi:300, desription:"Health alert: The risk of health effects is increased for everyone"],
+    5: [color:"maroon", level:"Hazardous",  rangeLo:301, rangeHi:500, desription:"Health warning of emergency conditions: everyone is more likely to be affected"]
+];
+
 // Starting to map the Weather Channel iconCode to weatherIcon expected values. Haven't found any documentation to match. Else try matching from the long phrase.
 // Found this for sharptools.io https://gist.github.com/joshualyon/7bb3b2a9e2a6801ff673bf4c1e159452
 // ["chanceflurries", "chancerain", "chancesleet", "chancesnow", "chancetstorms", "clear", "cloudy", "flurries", "fog", "hazy", "mostlycloudy", "mostlysunny", "partlycloudy", "partlysunny", "rain", "sleet", "snow", "sunny", "tstorms"]
 @Field static final Map<Integer, List<Object>> iconCodePLU = [
-     0: [1000, 1.0, "clear",        ["Clear","Sunny","Fair"]],
-     1: [1003, 0.8, "partlycloudy", ["Partly Cloudy"]],
-     2: [1006, 0.6, "cloudy",       ["Cloudy", "Mostly Cloudy", "Mostly Cloudy/Wind", "Cloudy/Wind", "Showers in the Vicinity"]],
-     3: [1135, 0.2, "fog",          ["Fog"]],
+     0: [1000, 1.0, "clear",        ["Clear","Sunny","Fair","Showers in the Vicinity","Sunny/Wind","Fair/Wind"]],
+     1: [1003, 0.8, "partlycloudy", ["Partly Cloudy","Partly Cloudy/Wind","Showers in the Vicinity"]],
+     2: [1006, 0.6, "cloudy",       ["Cloudy","Mostly Cloudy","Mostly Cloudy/Wind","Cloudy/Wind","Showers in the Vicinity"]],
+     3: [1135, 0.2, "fog",          ["Fog","Haze","Smoke","Fog/Wind"]],
      4: [1189, 0.4, "rain",         ["Rain"]],
-     5: [1183, 0.7, "chancerain",   ["Light Rain","Rain Shower"]],
+     5: [1183, 0.7, "chancerain",   ["Light Rain","Rain Shower","Light Rain/Wind"]],
      9: [1087, 0.2, "tstorms",      ["Thunder","Thunder in the Vicinity"]],
     10: [1213, 0.7, "snow",         ["Light Snow","Light Snow/Wind"]],
     14: [1219, 0.5, "snow",         ["Snow"]],
     15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain"]],
-    20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm"]]
+    20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm","Thunderstorm/Wind"]]
 ];
 
 // values pulled from https://github.com/adey/bangali/blob/4145c4ef4430a04530129a9d39ca7636944c8dc2/driver/apixu-weather.groovy#L481
