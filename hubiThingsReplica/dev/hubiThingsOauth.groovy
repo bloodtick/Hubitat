@@ -17,8 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.2.12 2023-01-12 Align version to Replica for next Beta release.
-*  1.3.00 2023-01-13 Update to modal for OAuth redirect. UI refinement. Formal Release Candidate.
 *  1.3.02 2023-01-26 Remove ST Virtual Device support and move to Replica (not completed)
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
@@ -26,10 +24,12 @@
 *  1.3.06 2023-02-26 Natural order sorting.
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices.
-*  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization. 
+*  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
+*  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic (no OAuth changes)
+*  1.3.11 2023-07-01 Support for building your own Virtual Devices. (no OAuth changes)
 *  LINE 30 MAX */  
 
-public static String version() { return "1.3.09" }
+public static String version() { return "1.3.11" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
