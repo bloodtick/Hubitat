@@ -26,7 +26,7 @@
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic
-*  1.3.11 2023-07-01 Support for building your own Virtual Devices.
+*  1.3.11 2023-07-03 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules.
 *  LINE 30 MAX */ 
 
 public static String version() { return "1.3.11" }
@@ -1678,18 +1678,22 @@ void updateRuleList(action, type) {
 
 void replicaDevicesRuleSection(){
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
-    Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules" )
+    Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")
+    String X = "<i class='he-checkbox-checked'></i>"
+	String O = "<i class='he-checkbox-unchecked'></i>"
+    if(g_mAppDeviceSettings['replicaDevicesRuleSection']) g_mAppDeviceSettings['replicaDevicesRuleSection'].clear(); else g_mAppDeviceSettings['replicaDevicesRuleSection'] = [:]
     
     String replicaDeviceRulesList = "<table style='width:100%;'>"
-    replicaDeviceRulesList += "<tr><th>Trigger</th><th>Action</th></tr>"
-    replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.label <=> b?.trigger?.label ?: a?.command?.label <=> b?.command?.label }?.each { rule ->    
-        String muteflag = rule?.mute ? "$sLogMuteIcon" : ""
-        String disableStatusFlag = rule?.disableStatus ? "$sNoStatusIcon" : ""
+    replicaDeviceRulesList += "<tr><th>Trigger</th><th>Action</th><th style='width:5%;text-align:center;'>$sLogMuteIcon</th><th style='width:5%;text-align:center;'>$sNoStatusIcon</th></tr>"
+    replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.label <=> b?.trigger?.label ?: a?.command?.label <=> b?.command?.label }?.eachWithIndex { rule, i ->    
         String trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.label}"
-        String command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.label} $muteflag $disableStatusFlag"
+        String command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.label}"
         trigger = checkTrigger(replicaDevice, rule?.type, rule?.trigger?.label) ? trigger : "<span style='color:$sColorDarkRed;'>$trigger</span>"
         command = checkCommand(replicaDevice, rule?.type, rule?.command?.label) ? command : "<span style='color:$sColorDarkRed;'>$command</span>"
-        replicaDeviceRulesList += "<tr><td>$trigger</td><td>$command</td></tr>"
+        g_mAppDeviceSettings['replicaDevicesRuleSection'].put( i.toString(), rule )
+        replicaDeviceRulesList += "<tr><td>$trigger</td><td>$command</td>"
+        replicaDeviceRulesList += "<td  style='text-align:center;'>${buttonLink("dynamic::pageConfigureDeviceMuteButton::$i", rule?.mute?X:O)}</td>"
+        replicaDeviceRulesList += "<td  style='text-align:center;'>${buttonLink("dynamic::pageConfigureDeviceStatusButton::$i", rule?.disableStatus?X:O)}</td></tr>"
     }
     replicaDeviceRulesList +="</table>"
     
@@ -1700,12 +1704,40 @@ void replicaDevicesRuleSection(){
         }
     }
 
-    if(checkFirmwareVersion("2.3.4.132") && true) {
+    if(checkFirmwareVersion("2.3.4.132") && state?.user=="bloodtick") {
         section(menuHeader("Replica Handler Development")) {
             input(name: "pageConfigureDeviceFetchCapabilityFileName", type: "text", title: "Replica Capabilities Filename:", description: "Capability JSON Local Filename", width: 4, submitOnChange: true, newLineAfter:true)
             input(name: "dynamic::pageConfigureDevicefetchCapabilityButton", type: "button", title: "Fetch", width: 2, style:"width:75%;")
             input(name: "dynamic::pageConfigureDeviceStoreCapabilityButton", type: "button", title: "Store", width: 2, style:"width:75%;")
         }
+    }
+}
+
+String buttonLink(String btnName, String linkText) {
+	return "<div class='form-group'><input type='hidden' name='${btnName}.type' value='button'></div><div><div class='submitOnChange' onclick='buttonClick(this)' style='cursor:pointer;'>$linkText</div></div><input type='hidden' name='settings[$btnName]' value=''>"
+}
+
+void pageConfigureDeviceMuteButton(String index) {
+    logDebug "${app.getLabel()} executing 'pageConfigureDeviceMuteButton($index)'"
+    def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
+    Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")    
+    Map match = g_mAppDeviceSettings['replicaDevicesRuleSection']?.get(index)    
+    Map rule = replicaDeviceRules?.components?.find{ it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
+    if(rule) {
+        rule['mute'] = rule?.mute ? false : true
+        setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
+    }
+}
+
+void pageConfigureDeviceStatusButton(String index) {
+    logDebug "${app.getLabel()} executing 'pageConfigureDeviceStatusButton($index)'"
+    def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
+    Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")    
+    Map match = g_mAppDeviceSettings['replicaDevicesRuleSection']?.get(index)    
+    Map rule = replicaDeviceRules?.components?.find{ it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
+    if(rule) {
+        rule['disableStatus'] = rule?.disableStatus ? false : true
+        setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
     }
 }
 
@@ -1831,8 +1863,8 @@ def pageConfigureDevice() {
             paragraph( getFormat("line") )     
             
             input(name: "pageConfigureDeviceAllowDuplicateAttribute", type: "bool", title: "Allow duplicate Attribute <b>TRIGGER</b>", defaultValue: false, submitOnChange: true, width: 3)
-            input(name: "pageConfigureDeviceMuteTriggerRuleInfo", type: "bool", title: "Mute $sLogMuteIcon <b>TRIGGER</b> rule Logging", defaultValue: false, submitOnChange: true, width: 3)
-            input(name: "pageConfigureDeviceDisableStatusUpdate", type: "bool", title: "Disable $sNoStatusIcon periodic device refresh", defaultValue: false, submitOnChange: true, width: 3)
+            input(name: "pageConfigureDeviceMuteTriggerRuleInfo", type: "bool", title: "$sLogMuteIcon Mute <b>TRIGGER</b> rule Logging", defaultValue: false, submitOnChange: true, width: 3)
+            input(name: "pageConfigureDeviceDisableStatusUpdate", type: "bool", title: "$sNoStatusIcon Disable periodic device refresh", defaultValue: false, submitOnChange: true, width: 3)
             app.updateSetting("pageConfigureDeviceAllowActionAttribute", false)
             input(name: "pageConfigureDeviceShowDetail", type: "bool", title: "Show detail for attributes and commands", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
             
@@ -2022,6 +2054,7 @@ void appButtonHandler(String btn) {
         if(items && items.size() > 1 && items[1]) {
             String k = (String)items[0]
             String v = (String)items[1]
+            String a = (String)items[2]
             logTrace "Button [$k] [$v] pressed"
             switch(k) {                
                 case "pageConfigureDevice":
@@ -2056,7 +2089,8 @@ void appButtonHandler(String btn) {
                     }
                     break
                 case "dynamic":
-                    this."$v"()
+                    if(a) this."$v"(a)
+                    else  this."$v"()
                     break
                 default:
                     logInfo "Not supported"
