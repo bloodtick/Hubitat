@@ -26,7 +26,7 @@
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices.
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic (no OAuth changes)
-*  1.3.11 2023-07-03 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. (no OAuth changes)
+*  1.3.11 2023-07-04 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers. (no OAuth changes)
 *  LINE 30 MAX */  
 
 public static String version() { return "1.3.11" }
