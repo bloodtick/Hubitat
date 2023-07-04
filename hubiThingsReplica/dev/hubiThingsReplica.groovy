@@ -26,7 +26,7 @@
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic
-*  1.3.11 2023-07-03 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules.
+*  1.3.11 2023-07-04 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers.
 *  LINE 30 MAX */ 
 
 public static String version() { return "1.3.11" }
@@ -1684,23 +1684,27 @@ void replicaDevicesRuleSection(){
     if(g_mAppDeviceSettings['replicaDevicesRuleSection']) g_mAppDeviceSettings['replicaDevicesRuleSection'].clear(); else g_mAppDeviceSettings['replicaDevicesRuleSection'] = [:]
     
     String replicaDeviceRulesList = "<table style='width:100%;'>"
-    replicaDeviceRulesList += "<tr><th>Trigger</th><th>Action</th><th style='width:5%;text-align:center;'>$sLogMuteIcon</th><th style='width:5%;text-align:center;'>$sNoStatusIcon</th></tr>"
-    replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.label <=> b?.trigger?.label ?: a?.command?.label <=> b?.command?.label }?.eachWithIndex { rule, i ->    
+    replicaDeviceRulesList += "<tr><th style='width:4%;text-align:center;'>$X</th><th>Trigger</th><th>Action</th><th style='width:4%;text-align:center;'>$sLogMuteIcon</th><th style='width:4%;text-align:center;'>$sNoStatusIcon</th></tr>"
+    replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.label <=> b?.trigger?.label ?: a?.command?.label <=> b?.command?.label }?.eachWithIndex { rule, index ->    
         String trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.label}"
         String command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.label}"
         trigger = checkTrigger(replicaDevice, rule?.type, rule?.trigger?.label) ? trigger : "<span style='color:$sColorDarkRed;'>$trigger</span>"
         command = checkCommand(replicaDevice, rule?.type, rule?.command?.label) ? command : "<span style='color:$sColorDarkRed;'>$command</span>"
-        g_mAppDeviceSettings['replicaDevicesRuleSection'].put( i.toString(), rule )
-        replicaDeviceRulesList += "<tr><td>$trigger</td><td>$command</td>"
-        replicaDeviceRulesList += "<td  style='text-align:center;'>${buttonLink("dynamic::pageConfigureDeviceMuteButton::$i", rule?.mute?X:O)}</td>"
-        replicaDeviceRulesList += "<td  style='text-align:center;'>${buttonLink("dynamic::pageConfigureDeviceStatusButton::$i", rule?.disableStatus?X:O)}</td></tr>"
+        g_mAppDeviceSettings['replicaDevicesRuleSection'].put( index.toString(), rule )
+        replicaDeviceRulesList += "<tr><td  style='text-align:center;'>${buttonLink("dynamic::pageConfigureDeviceSelectButton::$index", g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.get(index.toString())?X:O)}</td>"
+        replicaDeviceRulesList += "<td>$trigger</td><td>$command</td>"
+        replicaDeviceRulesList += "<td  style='text-align:center;'>${buttonLink("dynamic::pageConfigureDeviceMuteButton::$index", rule?.mute?X:O)}</td>"
+        replicaDeviceRulesList += "<td  style='text-align:center;'>${buttonLink("dynamic::pageConfigureDeviceStatusButton::$index", rule?.disableStatus?X:O)}</td></tr>"
     }
     replicaDeviceRulesList +="</table>"
     
     if (replicaDeviceRules?.components?.size){        
         section(menuHeader("Active Rules ➢ $replicaDevice")) {    
-            paragraph( replicaDeviceRulesList )
+            paragraph( replicaDeviceRulesList )          
+            if(g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.find { key, value -> value==true })
+                input(name: "dynamic::pageConfigureDeviceDeleteSelected", type: "button", title: "Delete Selected", width: 2, style:"width:75%;")
             paragraph(rawHtml: true, """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>""")
+            paragraph(rawHtml: true, """<style>@media screen and (max-width:800px) { table th:nth-of-type(1),td:nth-of-type(1),th:nth-of-type(4),td:nth-of-type(4) { display: none; } }</style>""")
         }
     }
 
@@ -1717,14 +1721,32 @@ String buttonLink(String btnName, String linkText) {
 	return "<div class='form-group'><input type='hidden' name='${btnName}.type' value='button'></div><div><div class='submitOnChange' onclick='buttonClick(this)' style='cursor:pointer;'>$linkText</div></div><input type='hidden' name='settings[$btnName]' value=''>"
 }
 
+void pageConfigureDeviceDeleteSelected() {
+    logDebug "${app.getLabel()} executing 'pageConfigureDeviceDeleteSelected()'"
+    def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
+    Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")    
+    g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.each { index, value ->
+        Map match = value ? g_mAppDeviceSettings['replicaDevicesRuleSection']?.get(index) : [:]
+        replicaDeviceRules?.components?.removeAll{ it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
+    }
+    g_mAppDeviceSettings['replicaDevicesRuleSectionSelect'].clear()
+    setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
+}
+
+void pageConfigureDeviceSelectButton(String index) {
+    logDebug "${app.getLabel()} executing 'pageConfigureDeviceSelectButton($index)'"
+    if(!g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']) g_mAppDeviceSettings['replicaDevicesRuleSectionSelect'] = [:]    
+    g_mAppDeviceSettings['replicaDevicesRuleSectionSelect'].put( index, g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.get(index) ? false : true )
+}
+
 void pageConfigureDeviceMuteButton(String index) {
     logDebug "${app.getLabel()} executing 'pageConfigureDeviceMuteButton($index)'"
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
     Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")    
     Map match = g_mAppDeviceSettings['replicaDevicesRuleSection']?.get(index)    
-    Map rule = replicaDeviceRules?.components?.find{ it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
+    Map rule = replicaDeviceRules?.components?.find{ it?.type==match?.type && it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
     if(rule) {
-        rule['mute'] = rule?.mute ? false : true
+        rule['mute'] = !rule?.mute
         setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
     }
 }
@@ -1734,9 +1756,9 @@ void pageConfigureDeviceStatusButton(String index) {
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
     Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")    
     Map match = g_mAppDeviceSettings['replicaDevicesRuleSection']?.get(index)    
-    Map rule = replicaDeviceRules?.components?.find{ it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
+    Map rule = replicaDeviceRules?.components?.find{ it?.type==match?.type && it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
     if(rule) {
-        rule['disableStatus'] = rule?.disableStatus ? false : true
+        rule['disableStatus'] = !rule?.disableStatus
         setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
     }
 }
@@ -1821,6 +1843,10 @@ def pageConfigureDevice() {
                 deviceTitle = "<a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${deviceTitle}</a>"
             }
             input(name: "pageConfigureDeviceReplicaDevice", type: "enum", title: deviceTitle, description: "Choose a HubiThings device", options: replicaDevicesSelect, multiple: false, submitOnChange: true, width: 8, newLineAfter:true)
+            if(g_mAppDeviceSettings['pageConfigureDeviceReplicaDevice']!=pageConfigureDeviceReplicaDevice) {
+                g_mAppDeviceSettings['pageConfigureDeviceReplicaDevice']=pageConfigureDeviceReplicaDevice
+                g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.clear()
+            }
            
             if(pageConfigureDeviceShowDetail && replicaDevice) {
                 def hubitatStats =  getHubitatDeviceStats(replicaDevice)
@@ -1836,13 +1862,25 @@ def pageConfigureDevice() {
             Map smartCommandOptions = getSmartCommandOptions(replicaDevice)
             
             input(name: "hubitatAttribute", type: "enum", title: "&ensp;$sHubitatIcon If Hubitat Attribute <b>TRIGGER</b> changes:", description: "Choose a Hubitat Attribute", options: hubitatAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4)
-            input(name: "smartCommand", type: "enum", title: "&ensp;$sSamsungIcon Then <b>ACTION</b> SmartThings Command:", description: "Choose a SmartThings Command", options: smartCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter:true)
+            List schemaOneOfType = smartCommandOptions?.get(smartCommand)?.arguments?.getAt(0)?.schema?.oneOf?.collect{ it?.type } ?: [] 
+            input(name: "smartCommand", type: "enum", title: "&ensp;$sSamsungIcon Then <b>ACTION</b> SmartThings Command:", description: "Choose a SmartThings Command", options: smartCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter: schemaOneOfType.isEmpty())        
+            if(!schemaOneOfType.isEmpty()) {
+                input(name: "smartCommandSchemaOneOf", type: "enum", title: "&ensp;$sSamsungIcon Argument Type:", description: "Choose an Argument Type", options: schemaOneOfType.sort(), required: true, submitOnChange:true, width: 2, newLineAfter:true)
+            } else {
+                app.removeSetting("smartCommandSchemaOneOf")
+            }            
             input(name: "pageConfigureDevice::hubitatAttributeStore",  type: "button", title: "Store Rule", width: 2, style:"width:75%;")
             input(name: "pageConfigureDevice::hubitatAttributeDelete",  type: "button", title: "Delete Rule", width: 2, style:"width:75%;")
+            
+            g_mAppDeviceSettings['hubitatAttribute']?.clear()            
+            g_mAppDeviceSettings['hubitatAttribute'] = hubitatAttributeOptions?.get(hubitatAttribute) ?: [:]
+            g_mAppDeviceSettings['smartCommand']?.clear()
+            g_mAppDeviceSettings['smartCommand'] = smartCommandOptions?.get(smartCommand) ?: [:]
+            if(smartCommandSchemaOneOf) g_mAppDeviceSettings['smartCommand'].schemaOneOfType = smartCommandSchemaOneOf
 
             if(pageConfigureDeviceShowDetail) {
-                String comments = hubitatAttribute ? "$sHubitatIcon $hubitatAttribute : ${JsonOutput.toJson(hubitatAttributeOptions?.get(hubitatAttribute))}" : "$sHubitatIcon No Selection"
-                       comments += smartCommand ? "</br>$sSamsungIcon $smartCommand : ${JsonOutput.toJson(smartCommandOptions?.get(smartCommand))}" : "</br>$sSamsungIcon No Selection" 
+                String comments =  hubitatAttribute&&!g_mAppDeviceSettings['hubitatAttribute'].isEmpty() ? "$sHubitatIcon $hubitatAttribute : ${JsonOutput.toJson(g_mAppDeviceSettings['hubitatAttribute'])}" : "$sHubitatIcon No Selection"
+                       comments += smartCommand&&!g_mAppDeviceSettings['smartCommand'].isEmpty() ? "</br>$sSamsungIcon $smartCommand : ${JsonOutput.toJson(g_mAppDeviceSettings['smartCommand'])}" : "</br>$sSamsungIcon No Selection" 
                 paragraphComment(comments)
             }
             paragraph( getFormat("line") )
@@ -1855,9 +1893,14 @@ def pageConfigureDevice() {
             input(name: "pageConfigureDevice::smartAttributeStore",  type: "button", title: "Store Rule", width: 2, style:"width:75%;")
             input(name: "pageConfigureDevice::smartAttributeDelete",  type: "button", title: "Delete Rule", width: 2, style:"width:75%;")
             
+            g_mAppDeviceSettings['smartAttribute']?.clear()
+            g_mAppDeviceSettings['smartAttribute'] = smartAttributeOptions?.get(smartAttribute) ?: [:]
+            g_mAppDeviceSettings['hubitatCommand']?.clear()
+            g_mAppDeviceSettings['hubitatCommand'] = hubitatCommandOptions?.get(hubitatCommand) ?: [:]
+            
             if(pageConfigureDeviceShowDetail) {
-                String comments =  smartAttribute ? "$sSamsungIcon $smartAttribute : ${JsonOutput.toJson(smartAttributeOptions?.get(smartAttribute))}" : "$sSamsungIcon No Selection" 
-                       comments += hubitatCommand ? "</br>$sHubitatIcon $hubitatCommand : ${JsonOutput.toJson(hubitatCommandOptions?.get(hubitatCommand))}" : "</br>$sHubitatIcon No Selection"
+                String comments =  smartAttribute&&!g_mAppDeviceSettings['smartAttribute'].isEmpty() ? "$sSamsungIcon $smartAttribute : ${JsonOutput.toJson(g_mAppDeviceSettings['smartAttribute'])}" : "$sSamsungIcon No Selection" 
+                       comments += hubitatCommand&&!g_mAppDeviceSettings['hubitatCommand'].isEmpty() ? "</br>$sHubitatIcon $hubitatCommand : ${JsonOutput.toJson(g_mAppDeviceSettings['hubitatCommand'])}" : "</br>$sHubitatIcon No Selection"
                 paragraphComment(comments)
             }
             paragraph( getFormat("line") )     
@@ -1867,12 +1910,6 @@ def pageConfigureDevice() {
             input(name: "pageConfigureDeviceDisableStatusUpdate", type: "bool", title: "$sNoStatusIcon Disable periodic device refresh", defaultValue: false, submitOnChange: true, width: 3)
             app.updateSetting("pageConfigureDeviceAllowActionAttribute", false)
             input(name: "pageConfigureDeviceShowDetail", type: "bool", title: "Show detail for attributes and commands", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
-            
-            // gather these all up so when user presses store - it uses this structure.           
-            g_mAppDeviceSettings['hubitatAttribute'] = hubitatAttributeOptions?.get(hubitatAttribute) ?: null
-            g_mAppDeviceSettings['smartAttribute']   = smartAttributeOptions?.get(smartAttribute) ?: null
-            g_mAppDeviceSettings['smartCommand']     = smartCommandOptions?.get(smartCommand) ?: null
-            g_mAppDeviceSettings['hubitatCommand']   = hubitatCommandOptions?.get(hubitatCommand) ?: null            
         }        
         replicaDevicesRuleSection()
     }
@@ -2171,7 +2208,7 @@ private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName,
         Map command = rule?.command        
 
         if(trigger?.type=="command" || !deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) {
-            String type = (command?.type!="attribute") ? command?.arguments?.getAt(0)?.schema?.type?.toLowerCase() : command?.properties?.value?.type?.toLowerCase()
+            String type = (command?.type!="attribute") ? (command?.arguments?.getAt(0)?.schema?.type?.toLowerCase() ?: command?.schemaOneOfType?.toLowerCase()) : command?.properties?.value?.type?.toLowerCase()
             def arguments = null  
                     
             switch(type) {
