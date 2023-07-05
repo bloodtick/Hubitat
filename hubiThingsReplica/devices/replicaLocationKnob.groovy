@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.3"}
+public static String version() {return "1.3.4"}
 
 metadata 
 {
@@ -898,12 +898,12 @@ String getWUIconName(String wxPhraseLong, Boolean isDay)     {
      2: [1006, 0.6, "cloudy",       ["Cloudy","Mostly Cloudy","Mostly Cloudy/Wind","Cloudy/Wind","Showers in the Vicinity"]],
      3: [1135, 0.2, "fog",          ["Fog","Haze","Smoke","Fog/Wind"]],
      4: [1189, 0.4, "rain",         ["Rain"]],
-     5: [1183, 0.7, "chancerain",   ["Light Rain","Rain Shower","Light Rain/Wind"]],
+     5: [1183, 0.7, "chancerain",   ["Light Rain","Rain Shower","Light Rain/Wind","Rain Shower/Wind"]],
      9: [1087, 0.2, "tstorms",      ["Thunder","Thunder in the Vicinity"]],
     10: [1213, 0.7, "snow",         ["Light Snow","Light Snow/Wind"]],
     14: [1219, 0.5, "snow",         ["Snow"]],
     15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain"]],
-    20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm","Thunderstorm/Wind"]]
+    20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm","Thunderstorm/Wind","Heavy Thunderstorm/Wind"]]
 ];
 
 // values pulled from https://github.com/adey/bangali/blob/4145c4ef4430a04530129a9d39ca7636944c8dc2/driver/apixu-weather.groovy#L481
