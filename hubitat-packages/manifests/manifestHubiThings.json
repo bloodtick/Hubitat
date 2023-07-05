@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.3.10 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic\n1.3.3 Replica Location Knob updated AQI attributes\n",
+    "releaseNotes": "1.3.11 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers.\n1.3.1 Replica Switch Auto Off functions\n",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
@@ -20,7 +20,7 @@
             "required": true,
             "oauth": false,
             "primary": true,
-            "version": "1.3.10"
+            "version": "1.3.11"
         },
         {
             "id": "9bb9eacb-c243-43d6-9dc4-520f0e476016",
@@ -29,7 +29,7 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
             "required": true,
             "oauth": true,
-            "version": "1.3.10"
+            "version": "1.3.11"
         }
     ],
     "drivers": [
@@ -95,7 +95,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaSwitch.groovy",
             "required": true,
-            "version": "1.3.0"
+            "version": "1.3.1"
         },
         {
             "id": "3004f5cc-d684-4e98-93fe-4c2fcc4002ea",
@@ -159,7 +159,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaLocationKnob.groovy",
             "required": true,
-            "version": "1.3.3"
+            "version": "1.3.4"
         },
         {
             "id": "d78a680a-91a9-4113-9105-b6dd28f5348c",
