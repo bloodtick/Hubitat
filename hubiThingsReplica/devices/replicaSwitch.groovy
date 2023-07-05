@@ -11,8 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-@SuppressWarnings('unused')
-public static String version() {return "1.3.0"}
+public static String version() {return "1.3.1"}
 
 metadata 
 {
@@ -26,7 +25,8 @@ metadata
         attribute "healthStatus", "enum", ["offline", "online"]
     }
     preferences {
-        input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
+        input(name:"deviceEnableAutoOff", type:"enum", title: "Enable auto off:", options: ["0":"Disabled", "1":"1 second", "2":"2 seconds", "3":"3 seconds", "4":"4 seconds", "5":"5 seconds", "10":"10 seconds", "15":"15 seconds", "30":"30 seconds"], defaultValue: "0")
+        input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false) 
     }
 }
 
@@ -51,7 +51,7 @@ def configure() {
 }
 
 // Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
-Map getReplicaCommands() {
+static Map getReplicaCommands() {
     return ([ "setSwitchValue":[[name:"switch*",type:"ENUM"]], "setSwitchOff":[], "setSwitchOn":[], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]])
 }
 
@@ -59,6 +59,9 @@ def setSwitchValue(value) {
     String descriptionText = "${device.displayName} was turned $value"
     sendEvent(name: "switch", value: value, descriptionText: descriptionText)
     logInfo descriptionText
+    
+    if(value=="on" && settings?.deviceEnableAutoOff?.toInteger()>0)
+        runIn(settings.deviceEnableAutoOff.toInteger(), off)
 }
 
 def setSwitchOff() {
@@ -74,7 +77,7 @@ def setHealthStatusValue(value) {
 }
 
 // Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
-Map getReplicaTriggers() {
+static Map getReplicaTriggers() {
     return ([ "off":[] , "on":[], "refresh":[]])
 }
 
@@ -95,7 +98,7 @@ void refresh() {
     sendCommand("refresh")
 }
 
-String getReplicaRules() {
+static String getReplicaRules() {
     return """{"version":1,"components":[{"trigger":{"name":"off","label":"command: off()","type":"command"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"name":"on","label":"command: on()","type":"command"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"},"command":{"name":"setSwitchValue","label":"command: setSwitchValue(switch*)","type":"command","parameters":[{"name":"switch*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true}]}"""
 }
 
