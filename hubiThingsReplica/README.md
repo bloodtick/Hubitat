@@ -44,3 +44,4 @@ Update 2023/03/14: Release 1.3.07. Change log [here](https://community.hubitat.c
 Update 2023/04/23: Release 1.3.08. Change log [here](https://community.hubitat.com/t/release-hubithings-replica/107976/323).<br/>
 Update 2023/06/05: Release 1.3.09. Change log [here](https://community.hubitat.com/t/release-hubithings-replica/107976/334).<br/>
 Update 2023/06/17: Release 1.3.10. Change log [here](https://community.hubitat.com/t/release-hubithings-replica/107976/348).<br/>
+Update 2023/07/05: Release 1.3.11. Change log [here](https://community.hubitat.com/t/release-hubithings-replica/107976/350).<br/>
