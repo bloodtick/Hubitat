@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.4"}
+public static String version() {return "1.3.5"}
 
 metadata 
 {
@@ -893,7 +893,7 @@ String getWUIconName(String wxPhraseLong, Boolean isDay)     {
 // Found this for sharptools.io https://gist.github.com/joshualyon/7bb3b2a9e2a6801ff673bf4c1e159452
 // ["chanceflurries", "chancerain", "chancesleet", "chancesnow", "chancetstorms", "clear", "cloudy", "flurries", "fog", "hazy", "mostlycloudy", "mostlysunny", "partlycloudy", "partlysunny", "rain", "sleet", "snow", "sunny", "tstorms"]
 @Field static final Map<Integer, List<Object>> iconCodePLU = [
-     0: [1000, 1.0, "clear",        ["Clear","Sunny","Fair","Showers in the Vicinity","Sunny/Wind","Fair/Wind"]],
+     0: [1000, 1.0, "clear",        ["Clear","Sunny","Fair","Showers in the Vicinity","Sunny/Wind","Fair/Wind","Clear/Wind"]],
      1: [1003, 0.8, "partlycloudy", ["Partly Cloudy","Partly Cloudy/Wind","Showers in the Vicinity"]],
      2: [1006, 0.6, "cloudy",       ["Cloudy","Mostly Cloudy","Mostly Cloudy/Wind","Cloudy/Wind","Showers in the Vicinity"]],
      3: [1135, 0.2, "fog",          ["Fog","Haze","Smoke","Fog/Wind"]],
@@ -903,7 +903,8 @@ String getWUIconName(String wxPhraseLong, Boolean isDay)     {
     10: [1213, 0.7, "snow",         ["Light Snow","Light Snow/Wind"]],
     14: [1219, 0.5, "snow",         ["Snow"]],
     15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain"]],
-    20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm","Thunderstorm/Wind","Heavy Thunderstorm/Wind"]]
+    20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm","Thunderstorm/Wind","Heavy Thunderstorm/Wind"]],
+    21: [1195, 0.2, "rain",         ["Heavy Rain"]]
 ];
 
 // values pulled from https://github.com/adey/bangali/blob/4145c4ef4430a04530129a9d39ca7636944c8dc2/driver/apixu-weather.groovy#L481
@@ -1072,4 +1073,3 @@ pm25Amount:[value:7.45, unit:μg/m^3],
 pm25Index:[value:1, unit:EPA], 
 lastUpdateTime:[value:2023-05-25T21:19:51.000Z]]]
 */
-
