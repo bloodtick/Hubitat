@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.02 2023-01-26 Support for passing unit:'' and data:[:] structures from ST. Intial work to support ST Virtual device creation (not completed)
 *  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
@@ -27,9 +26,10 @@
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic
 *  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers.
+*  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests.
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.3.11" }
+public static String version() { return "1.3.12" }
 public static String copyright() { return "&copy; 2023 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -96,6 +96,7 @@ preferences {
     page name:"pageMirrorDevice"
     page name:"pageConfigureDevice"
     page name:"pageVirtualDevice"
+    page name:"pageSupportNewDevice"
 }
 
 def installed() {
@@ -325,7 +326,7 @@ def pageMain(){
             }
         }        
         if(state?.user=="bloodtick") {
-            section(menuHeader("Replica Application Development")) {
+            section(menuHeader("Replica Application Development [${state.user}]")) {
                 input(name: "dynamic::pageMainTestButton", type: "button", width: 2, title: "$sHubitatIcon Test", style:"width:75%;")
                 input(name: "dynamic::allSmartDeviceStatus",      type: "button", width: 2, title: "$sSamsungIcon Status", style:"width:75%;")
                 input(name: "dynamic::allSmartDeviceDescription", type: "button", width: 2, title: "$sSamsungIcon Description", style:"width:75%;")
@@ -397,10 +398,11 @@ def pageMain(){
 			}
 
 			section(menuHeader("Replica Device Creation and Control")){             
-				href "pageHubiThingDevice", title: "$sImgDevh Configure HubiThings Devices ", description: "Click to show"
-                href "pageVirtualDevice",   title: "$sImgDevv Configure Virtual Devices, Modes and Scenes", description: "Click to show"
-				href "pageConfigureDevice", title: "$sImgRule Configure HubiThings Rules", description: "Click to show"
+				href "pageHubiThingDevice",  title: "$sImgDevh Configure HubiThings Devices ", description: "Click to show"
+                href "pageVirtualDevice",    title: "$sImgDevv Configure Virtual Devices, Modes and Scenes", description: "Click to show"
+				href "pageConfigureDevice",  title: "$sImgRule Configure HubiThings Rules", description: "Click to show"
                 if(deviceAuthCount>0) href "pageMirrorDevice", title: "$sImgMirr Mirror Hubitat Devices (Advanced)", description: "Click to show"
+                href "pageSupportNewDevice", title: "$sImgGitH Support for New Device", description: "Click to show"
             }
 
 			if(pageMainShowConfig || appDebugEnable || appTraceEnable) {
@@ -472,15 +474,116 @@ Map getDeviceHandlers() {
     ]]
     getDriverList()?.items?.each{ if(it?.namespace=='replica') handlers.items.add(it) }    
     return handlers
-}    
+}
+
+def pageSupportNewDevice() {    
+    List replicaDevicesSelect = []
+    getAllReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }.each {    
+        Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
+        replicaDevicesSelect.add(device)   
+    }
+   
+    return dynamicPage(name: "pageSupportNewDevice", uninstall: false) {
+        displayHeader()
+       
+        section(menuHeader("Support for New Device $sHubitatIconStatic $sSamsungIconStatic")) {
+            
+            def replicaDevice = getDevice(pageSupportNewDeviceReplicaDevice)
+            String deviceTitle = "&ensp;$sSamsungIcon Select HubiThings Device:"
+            if(replicaDevice) {
+                String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
+                deviceTitle = "<a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${deviceTitle}</a>"
+            }
+            input(name: "pageSupportNewDeviceReplicaDevice", type: "enum", title: deviceTitle, description: "Choose a HubiThings device", options: replicaDevicesSelect, multiple: false, submitOnChange: true, width: 8, newLineAfter:true)  
+
+            paragraphComment("To request a new device or a modification of a Replica Driver, the device needs to be authorized in HubiThings OAuth. Then build a temporary device using any Replica Driver, such as 'Replica Switch' with the 'Configure HubiThings Device' page. This will populate the device's description, capabilities, and status data fields. Copy this metadata and open new request for support.")
+            paragraph( getFormat("line") )
+            if(replicaDevice) {                      
+                String title = "[NEW DEVICE SUPPORT] $replicaDevice"
+                String body = "Requesting New Device support.\nComments: {{Add your Comments Here}}\n\n***COPY REPLICA METADATA BELOW THIS LINE***\n"
+           
+                // the GitHub url is limited in size to around 2048 char. We are beyond that so the user needs to cut & paste the data into the form. :( 
+                paragraphComment("<center>↓↓↓ INCLUDE METADATA BELOW ↓↓↓") // center doesn't work with HTML5. Don't care that much.
+                paragraphComment( "[{ \"DESCRIPTION\":<br>"  + getReplicaDeviceSafeDataString(replicaDevice, "description")  + "<br>},")
+                paragraphComment(  "{ \"CAPABILITIES\":<br>" + getReplicaDeviceSafeDataString(replicaDevice, "capabilities") + "<br>}," )
+                paragraphComment(  "{ \"STATUS\":<br>"       + getReplicaDeviceSafeDataString(replicaDevice, "status")       + "<br>}," )
+                paragraphComment(  "{ \"RULES\":<br>"        + getReplicaDeviceSafeDataString(replicaDevice, "rules")        + "<br>}]" )
+                paragraphComment("<center>↑↑↑ INCLUDE METADATA ABOVE ↑↑↑")
+            
+                Map params = [ assignees:"bloodtick", labels:"new_device_support", title:title, body:body ]
+                String featUrl = "https://github.com/bloodtick/Hubitat/issues/new?${urlParamBuilder(params)}"
+                href url: featUrl, style: "external", title: "$sImgGitH Open Request for New Device Support", description: "Tap to open browser (Requires GitHub Account)"
+                // this is a workaround for the form data submission on 'external' modal boxes. not sure why hubitat is failing. 
+                paragraph (rawHtml: true, """<script>\$(".btn.hrefElem").click( function(){ if(!sessionStorage.getItem('app${app.getId()}')) sessionStorage.setItem('app${app.getId()}',JSON.stringify({ referrer : document.referrer })); window.location.reload(); });</script>""")
+                paragraph (rawHtml: true, """<script>\$("#btnDone").click( function(e){ let referrer = JSON.parse(sessionStorage.getItem('app${app.getId()}'))?.referrer; if(referrer){ sessionStorage.removeItem('app${app.getId()}'); e.preventDefault(); e.stopPropagation(); window.location.replace(referrer); } } );</script>""")
+            }
+        }
+        if(checkFirmwareVersion("2.3.4.132") && state?.user=="bloodtick") {
+            section(menuHeader("Replica Handler Development [${state.user}]")) {
+                input(name: "pageSupportNewDeviceCapabilityFileName", type: "text", title: "Replica Capabilities Filename:", description: "Capability JSON Local Filename", width: 4, submitOnChange: true, newLineAfter:true)
+                input(name: "dynamic::pageSupportNewDeviceFetchCapabilityButton", type: "button", title: "Fetch", width: 2, style:"width:75%;")
+                input(name: "dynamic::pageSupportNewDeviceStoreCapabilityButton", type: "button", title: "Store", width: 2, style:"width:75%;")
+            }
+        }
+    }
+}
+
+String urlParamBuilder(Map<String,Object> items) {
+    return items.collect { String k,v -> "${k}=${URLEncoder.encode(v.toString())}" }?.join("&")?.toString()
+}
+
+String getReplicaDeviceSafeDataString(def replicaDevice, String name) {
+    Map data = getReplicaDataJsonValue(replicaDevice, name)
+    changeKeyValue("deviceId", "<b>hidden</b>", data)
+    changeKeyValue("locationId", "<b>hidden</b>", data)
+    changeKeyValue("hubId", "<b>hidden</b>", data)
+    changeKeyValue("parentDeviceId", "<b>hidden</b>", data)
+    changeKeyValue("roomId", "<b>hidden</b>", data)
+    changeKeyValue("pattern", "<b>removed</b>", data)
+    String strData = data&&!data.isEmpty() ? JsonOutput.toJson(data) : """{"$name":"empty"}"""
+    strData = strData.replace('$', '\\\\$')   
+    return strData    
+}
+
+def changeKeyValue(String key, String value, def obj) {
+    obj?.each { k, v ->
+        if (v instanceof Map) {
+            changeKeyValue(key, value, v) // recurse into maps
+        } else if (v instanceof List) {
+            v?.each { // recurse into lists
+                if (it instanceof Map) changeKeyValue(key, value, it)
+            }
+        }
+        if (k == key) {
+            obj[k] = value
+        }
+    }
+}
+
+void pageSupportNewDeviceFetchCapabilityButton() {
+    logDebug "${app.getLabel()} executing 'pageSupportNewDeviceFetchCapabilityButton()' $pageSupportNewDeviceCapabilityFileName"
+    byte[] filebytes = downloadHubFile(pageSupportNewDeviceCapabilityFileName)
+    def replicaDevice = getDevice(pageSupportNewDeviceReplicaDevice)
+    if(filebytes && replicaDevice) {
+        String strFile = (new String(filebytes))?.replaceAll('“','"')?.replaceAll('”','"')                         
+        Map capabilities = strFile ? new JsonSlurper().parseText(strFile) : [components:[]]
+        logInfo capabilities
+        setReplicaDataJsonValue(replicaDevice, "capabilities", capabilities)
+    }
+}
+
+void pageSupportNewDeviceStoreCapabilityButton() {
+    logDebug "${app.getLabel()} executing 'pageSupportNewDeviceStoreCapabilityButton()' $pageSupportNewDeviceCapabilityFileName"
+    def replicaDevice = getDevice(pageSupportNewDeviceReplicaDevice)
+    Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
+    if(pageSupportNewDeviceCapabilityFileName && capabilities) {
+        //logInfo capabilities
+        byte[] filebytes =((String)JsonOutput.toJson(capabilities))?.getBytes()
+        uploadHubFile(pageSupportNewDeviceCapabilityFileName, filebytes)
+    }
+}
 
 def pageHubiThingDevice(){
-    app.removeSetting('pageCreateDeviceLabel') //1.3.03
-    app.removeSetting('pageCreateDeviceShowAllDevices') //1.3.03
-    app.removeSetting('pageCreateDeviceSmartDevice') //1.3.03
-    app.removeSetting('pageCreateDeviceSmartDeviceComponent') //1.3.03
-    app.removeSetting('pageCreateDeviceType') //1.3.03
-    
     Map smartDevices = getSmartDevicesMap()
 
     List smartDevicesSelect = []
@@ -623,7 +726,8 @@ String createChildDevice(Map deviceType, String name, String label, String devic
         if(replicaDevice?.hasCommand('configure')) replicaDevice.configure()
         replicaDeviceRefresh(replicaDevice)
 
-        logInfo "${app.getLabel()} created device '${replicaDevice.getDisplayName()}' with deviceId: $deviceId"    
+        logInfo "${app.getLabel()} created device '${replicaDevice.getDisplayName()}' with deviceId: $deviceId"        
+        app.updateSetting( "pageSupportNewDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
         app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
         app.updateSetting( "pageHubiThingDeviceModify", [type:"enum", value: replicaDevice.deviceNetworkId] )       
         response = statusMsg("'$label' was created with deviceId: $deviceId and deviceNetworkId: $deviceNetworkId")        
@@ -707,7 +811,8 @@ String replaceChildDevice(String deviceNetworkId, String deviceId, String compon
             clearReplicaDataCache(replicaDevice, "status", true)
             replicaDeviceRefresh(replicaDevice)
     
-            logInfo "${app.getLabel()} replaced device'${replicaDevice.getDisplayName()}' with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId"                    
+            logInfo "${app.getLabel()} replaced device'${replicaDevice.getDisplayName()}' with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId"
+            app.updateSetting( "pageSupportNewDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
             app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
             app.updateSetting( "pageHubiThingDeviceModify", [type:"enum", value: replicaDevice.deviceNetworkId] )
             response = statusMsg("'$label' was replaced with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId")
@@ -877,7 +982,8 @@ String createMirrorDevice(String deviceId, String componentId, String deviceNetw
         clearReplicaDataCache(replicaDevice, "status", true)
         replicaDeviceRefresh(replicaDevice)            
     
-        logInfo "${app.getLabel()} mirrored device'${replicaDevice.getDisplayName()}' with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId"                    
+        logInfo "${app.getLabel()} mirrored device'${replicaDevice.getDisplayName()}' with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId"
+        app.updateSetting( "pageSupportNewDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
         app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
         app.updateSetting( "pageHubiThingDeviceModify", [type:"enum", value: replicaDevice.deviceNetworkId] )
         response = statusMsg("'${replicaDevice.getDisplayName()}' was mirrored with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId")
@@ -1672,6 +1778,7 @@ void updateRuleList(action, type) {
 
 void replicaDevicesRuleSection(){
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
+    if(!replicaDevice) return
     Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")
     String X = "<i class='he-checkbox-checked'></i>"
 	String O = "<i class='he-checkbox-unchecked'></i>"
@@ -1693,22 +1800,14 @@ void replicaDevicesRuleSection(){
     replicaDeviceRulesList +="</table>"
     
     if (replicaDeviceRules?.components?.size){        
-        section(menuHeader("Active Rules ➢ $replicaDevice")) {    
+        section(menuHeader("Active Rules")) {    
             paragraph( replicaDeviceRulesList )          
             if(g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.find { key, value -> value==true })
                 input(name: "dynamic::pageConfigureDeviceDeleteSelected", type: "button", title: "Delete Selected", width: 2, style:"width:75%;")
             paragraph(rawHtml: true, """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>""")
             paragraph(rawHtml: true, """<style>@media screen and (max-width:800px) { table th:nth-of-type(1),td:nth-of-type(1),th:nth-of-type(4),td:nth-of-type(4) { display: none; } }</style>""")
         }
-    }
-
-    if(checkFirmwareVersion("2.3.4.132") && state?.user=="bloodtick") {
-        section(menuHeader("Replica Handler Development")) {
-            input(name: "pageConfigureDeviceFetchCapabilityFileName", type: "text", title: "Replica Capabilities Filename:", description: "Capability JSON Local Filename", width: 4, submitOnChange: true, newLineAfter:true)
-            input(name: "dynamic::pageConfigureDevicefetchCapabilityButton", type: "button", title: "Fetch", width: 2, style:"width:75%;")
-            input(name: "dynamic::pageConfigureDeviceStoreCapabilityButton", type: "button", title: "Store", width: 2, style:"width:75%;")
-        }
-    }
+    }    
 }
 
 String buttonLink(String btnName, String linkText) {
@@ -1754,29 +1853,6 @@ void pageConfigureDeviceStatusButton(String index) {
     if(rule) {
         rule['disableStatus'] = !rule?.disableStatus
         setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
-    }
-}
-
-void pageConfigureDevicefetchCapabilityButton() {
-    logDebug "${app.getLabel()} executing 'pageConfigureDevicefetchCapabilityButton()' $pageConfigureDeviceFetchCapabilityFileName"
-    byte[] filebytes = downloadHubFile(pageConfigureDeviceFetchCapabilityFileName)
-    def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
-    if(filebytes && replicaDevice) {
-        String strFile = (new String(filebytes))?.replaceAll('“','"')?.replaceAll('”','"')                         
-        Map capabilities = strFile ? new JsonSlurper().parseText(strFile) : [components:[]]
-        logInfo capabilities
-        setReplicaDataJsonValue(replicaDevice, "capabilities", capabilities)
-    }
-}
-
-void pageConfigureDeviceStoreCapabilityButton() {
-    logDebug "${app.getLabel()} executing 'pageConfigureDeviceStoreCapabilityButton()' $pageConfigureDeviceFetchCapabilityFileName"
-    def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
-    Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
-    if(pageConfigureDeviceFetchCapabilityFileName && capabilities) {
-        //logInfo capabilities
-        byte[] filebytes =((String)JsonOutput.toJson(capabilities))?.getBytes()
-        uploadHubFile(pageConfigureDeviceFetchCapabilityFileName, filebytes)
     }
 }
 
@@ -1842,8 +1918,9 @@ def pageConfigureDevice() {
                 app.updateSetting("pageConfigureDeviceAllowDuplicateAttribute", false)
                 app.updateSetting("pageConfigureDeviceMuteTriggerRuleInfo", false)
                 app.updateSetting("pageConfigureDeviceDisableStatusUpdate", (replicaDevice && replicaDevice?.device?.deviceType?.namespace!="replica"))
+                //logWarn JsonOutput.toJson(app)       
             }
-            
+     
             if(pageConfigureDeviceShowDetail && replicaDevice) {
                 def hubitatStats =  getHubitatDeviceStats(replicaDevice)
                 paragraphComment( hubitatStats )              
@@ -2013,6 +2090,7 @@ Map getReplicaTriggerOptions(replicaDevice) {
 Map getSmartCommandOptions(replicaDevice) {            
     Map smartCommandOptions = [:]
     Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
+    changeKeyValue("pattern", "removed", capabilities)
     capabilities?.components?.each{ capability -> 
         capability?.commands?.each{ command, value ->
             def parameterText = "("
@@ -2044,6 +2122,7 @@ Map getSmartCommandOptions(replicaDevice) {
 Map getSmartAttributeOptions(replicaDevice) {
     Map smartAttributeOptions = [:]
     Map capabilities = getReplicaDataJsonValue(replicaDevice, "capabilities")
+    changeKeyValue("pattern", "removed", capabilities)
     capabilities?.components?.each{ capability ->
         capability?.attributes?.each{ attribute, value -> Map schema = value?.schema ?: [:]
             schema["capability"] = capability.id
@@ -2206,8 +2285,9 @@ private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName,
     getReplicaDataJsonValue(replicaDevice, "rules")?.components?.findAll{ it?.type=="hubitatTrigger" && it?.trigger?.name==eventName && (!it?.trigger?.value || it?.trigger?.value==eventValue) }?.each { rule ->            
         Map trigger = rule?.trigger
         Map command = rule?.command        
-
-        if(trigger?.type=="command" || !deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) {
+        
+        // commands are always passed. // this allows for cross setting switch.off->contact.closed  // attempt to block sending anything duplicate and store for reflections
+        if(trigger?.type=="command" || command?.attribute&&command?.attribute!=eventName || !deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) {
             String type = (command?.type!="attribute") ? (command?.arguments?.getAt(0)?.schema?.type?.toLowerCase() ?: command?.schemaOneOfType?.toLowerCase()) : command?.properties?.value?.type?.toLowerCase()
             def arguments = null  
                     
@@ -2875,6 +2955,7 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
 @Field static final String sImgDevv = """<img style="margin-Top:-6px;transform: scaleX(-1);" height="22" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJMYXllcl8xIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxwYXRoIGQ9Ik0yMi43MywxOS4wNWwtLjk4LS41NWMuMTUtLjQ4LC4yNi0uOTgsLjI2LTEuNXMtLjEtMS4wMy0uMjYtMS41bC45OC0uNTVjLjQ4LS4yNywuNjUtLjg4LC4zOS0xLjM2LS4yNy0uNDgtLjg4LS42Ni0xLjM2LS4zOWwtLjk4LC41NWMtLjcxLS44Mi0xLjY3LTEuNDItMi43Ny0xLjY1di0xLjFjMC0uNTUtLjQ1LTEtMS0xcy0xLC40NS0xLDF2MS4xYy0xLjEsLjIyLTIuMDYsLjgzLTIuNzcsMS42NWwtLjk4LS41NWMtLjQ4LS4yNy0xLjA5LS4xLTEuMzYsLjM5LS4yNywuNDgtLjEsMS4wOSwuMzksMS4zNmwuOTgsLjU1Yy0uMTUsLjQ4LS4yNiwuOTgtLjI2LDEuNXMuMSwxLjAzLC4yNiwxLjVsLS45OCwuNTVjLS40OCwuMjctLjY1LC44OC0uMzksMS4zNiwuMTgsLjMzLC41MiwuNTEsLjg3LC41MSwuMTcsMCwuMzMtLjA0LC40OS0uMTNsLjk4LS41NWMuNzEsLjgyLDEuNjcsMS40MiwyLjc3LDEuNjV2MS4xYzAsLjU1LC40NSwxLDEsMXMxLS40NSwxLTF2LTEuMWMxLjEtLjIyLDIuMDYtLjgzLDIuNzctMS42NWwuOTgsLjU1Yy4xNSwuMDksLjMyLC4xMywuNDksLjEzLC4zNSwwLC42OS0uMTgsLjg3LS41MSwuMjctLjQ4LC4xLTEuMDktLjM5LTEuMzZabS01LjczLC45NWMtMS42NSwwLTMtMS4zNS0zLTNzMS4zNS0zLDMtMywzLDEuMzUsMywzLTEuMzUsMy0zLDNabS02LjIzLTkuNzVsLjk4LC41NWMuMTUsLjA5LC4zMiwuMTMsLjQ5LC4xMywuMzUsMCwuNjktLjE4LC44Ny0uNTEsLjI3LS40OCwuMS0xLjA5LS4zOS0xLjM2bC0uOTgtLjU1Yy4xNS0uNDgsLjI2LS45OCwuMjYtMS41cy0uMS0xLjAzLS4yNi0xLjVsLjk4LS41NWMuNDgtLjI3LC42NS0uODgsLjM5LTEuMzYtLjI3LS40OC0uODgtLjY2LTEuMzYtLjM5bC0uOTgsLjU1Yy0uNzEtLjgyLTEuNjctMS40Mi0yLjc3LTEuNjVWMWMwLS41NS0uNDUtMS0xLTFzLTEsLjQ1LTEsMXYxLjFjLTEuMSwuMjItMi4wNiwuODMtMi43NywxLjY1bC0uOTgtLjU1Yy0uNDgtLjI3LTEuMDktLjEtMS4zNiwuMzktLjI3LC40OC0uMSwxLjA5LC4zOSwxLjM2bC45OCwuNTVjLS4xNSwuNDgtLjI2LC45OC0uMjYsMS41cy4xLDEuMDMsLjI2LDEuNWwtLjk4LC41NWMtLjQ4LC4yNy0uNjUsLjg4LS4zOSwxLjM2LC4xOCwuMzMsLjUyLC41MSwuODcsLjUxLC4xNywwLC4zMy0uMDQsLjQ5LS4xM2wuOTgtLjU1Yy43MSwuODIsMS42NywxLjQyLDIuNzcsMS42NXYxLjFjMCwuNTUsLjQ1LDEsMSwxczEtLjQ1LDEtMXYtMS4xYzEuMS0uMjIsMi4wNi0uODMsMi43Ny0xLjY1Wm0tMy43Ny0uMjVjLTEuNjUsMC0zLTEuMzUtMy0zczEuMzUtMywzLTMsMywxLjM1LDMsMy0xLjM1LDMtMywzWiIvPjwvc3ZnPgo='/>"""
 @Field static final String sImgMirr = """<img style="margin-Top:-6px" height="18" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxnIGlkPSJfMDFfYWxpZ25fY2VudGVyIiBkYXRhLW5hbWU9IjAxIGFsaWduIGNlbnRlciI+PHBhdGggZD0iTTkuMzU2LDAsLjM3NSwxOS43NTlBMywzLDAsMCwwLDMuMTA2LDI0SDExVjEuMDQ2TDEwLjk5MywwWk05LDIySDMuMTA2YTEsMSwwLDAsMS0uOTExLTEuNDE0TDksNS42MTZaIi8+PHBhdGggZD0iTTIzLjYyNSwxOS43NTksMTQuOTMuNjI4LDE0LjYyNiwwSDEzVjI0aDcuODk0YTMsMywwLDAsMCwyLjczMS00LjI0MVoiLz48L2c+PC9zdmc+Cg=='/>"""
 @Field static final String sImgDevh = """<img style="margin-Top:-6px;" height="22" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJMYXllcl8xIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxwYXRoIGQ9Ik0yMi43MywxOS4wNWwtLjk4LS41NWMuMTUtLjQ4LC4yNi0uOTgsLjI2LTEuNXMtLjEtMS4wMy0uMjYtMS41bC45OC0uNTVjLjQ4LS4yNywuNjUtLjg4LC4zOS0xLjM2LS4yNy0uNDgtLjg4LS42Ni0xLjM2LS4zOWwtLjk4LC41NWMtLjcxLS44Mi0xLjY3LTEuNDItMi43Ny0xLjY1di0xLjFjMC0uNTUtLjQ1LTEtMS0xcy0xLC40NS0xLDF2MS4xYy0xLjEsLjIyLTIuMDYsLjgzLTIuNzcsMS42NWwtLjk4LS41NWMtLjQ4LS4yNy0xLjA5LS4xLTEuMzYsLjM5LS4yNywuNDgtLjEsMS4wOSwuMzksMS4zNmwuOTgsLjU1Yy0uMTUsLjQ4LS4yNiwuOTgtLjI2LDEuNXMuMSwxLjAzLC4yNiwxLjVsLS45OCwuNTVjLS40OCwuMjctLjY1LC44OC0uMzksMS4zNiwuMTgsLjMzLC41MiwuNTEsLjg3LC41MSwuMTcsMCwuMzMtLjA0LC40OS0uMTNsLjk4LS41NWMuNzEsLjgyLDEuNjcsMS40MiwyLjc3LDEuNjV2MS4xYzAsLjU1LC40NSwxLDEsMXMxLS40NSwxLTF2LTEuMWMxLjEtLjIyLDIuMDYtLjgzLDIuNzctMS42NWwuOTgsLjU1Yy4xNSwuMDksLjMyLC4xMywuNDksLjEzLC4zNSwwLC42OS0uMTgsLjg3LS41MSwuMjctLjQ4LC4xLTEuMDktLjM5LTEuMzZabS01LjczLC45NWMtMS42NSwwLTMtMS4zNS0zLTNzMS4zNS0zLDMtMywzLDEuMzUsMywzLTEuMzUsMy0zLDNabS02LjIzLTkuNzVsLjk4LC41NWMuMTUsLjA5LC4zMiwuMTMsLjQ5LC4xMywuMzUsMCwuNjktLjE4LC44Ny0uNTEsLjI3LS40OCwuMS0xLjA5LS4zOS0xLjM2bC0uOTgtLjU1Yy4xNS0uNDgsLjI2LS45OCwuMjYtMS41cy0uMS0xLjAzLS4yNi0xLjVsLjk4LS41NWMuNDgtLjI3LC42NS0uODgsLjM5LTEuMzYtLjI3LS40OC0uODgtLjY2LTEuMzYtLjM5bC0uOTgsLjU1Yy0uNzEtLjgyLTEuNjctMS40Mi0yLjc3LTEuNjVWMWMwLS41NS0uNDUtMS0xLTFzLTEsLjQ1LTEsMXYxLjFjLTEuMSwuMjItMi4wNiwuODMtMi43NywxLjY1bC0uOTgtLjU1Yy0uNDgtLjI3LTEuMDktLjEtMS4zNiwuMzktLjI3LC40OC0uMSwxLjA5LC4zOSwxLjM2bC45OCwuNTVjLS4xNSwuNDgtLjI2LC45OC0uMjYsMS41cy4xLDEuMDMsLjI2LDEuNWwtLjk4LC41NWMtLjQ4LC4yNy0uNjUsLjg4LS4zOSwxLjM2LC4xOCwuMzMsLjUyLC41MSwuODcsLjUxLC4xNywwLC4zMy0uMDQsLjQ5LS4xM2wuOTgtLjU1Yy43MSwuODIsMS42NywxLjQyLDIuNzcsMS42NXYxLjFjMCwuNTUsLjQ1LDEsMSwxczEtLjQ1LDEtMXYtMS4xYzEuMS0uMjIsMi4wNi0uODMsMi43Ny0xLjY1Wm0tMy43Ny0uMjVjLTEuNjUsMC0zLTEuMzUtMy0zczEuMzUtMywzLTMsMywxLjM1LDMsMy0xLjM1LDMtMywzWiIvPjwvc3ZnPgo='/>"""
+@Field static final String sImgGitH = """<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-github" viewBox="0 0 16 16"> <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/> </svg>"""
 
 /*
  * Natural Sort algorithm for Javascript - Version 0.7 - Released under MIT license
