@@ -368,7 +368,7 @@ def pageMain(){
 							devicesTable += "<td>--</td>"                  
 							devicesTable += "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>"
 							devicesTable += "<td>--</td>"
-							devicesTable += "<td style='text-align:center;color:$sColorDarkRed;'>$sNoStatusIcon $sNotAuthorized</td>"
+							devicesTable += "<td style='text-align:center;color:$sColorDarkRed;'>$sWarningsIcon $sNotAuthorized</td>"
 							devicesTable += "</tr>"
 						}
 					}                                  
@@ -673,7 +673,7 @@ def commonReplicaDevicesSection(String dynamicPageName) {
         String oauthUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
         devicesTable += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
         devicesTable += "<td>${replicaDevice.typeName}</td>"
-        devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td style='color:$sColorDarkRed;'>$sNoStatusIcon $sNotAuthorized</td>"
+        devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td style='color:$sColorDarkRed;'>$sWarningsIcon $sNotAuthorized</td>"
         devicesTable += "<td style='text-align:center;'>${isChildDevice?'Child':'Mirror'}</td></tr>"
     }
     devicesTable +="</tbody></table>"
