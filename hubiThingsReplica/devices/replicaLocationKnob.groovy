@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.5"}
+public static String version() {return "1.3.6"}
 
 metadata 
 {
@@ -129,7 +129,7 @@ metadata
         input(name:"deviceSmartThingServices", type:"enum", title: "SmartThings Services:", options: ["disable":"No Services (disable)", "weather":"Weather Only", "forecast":"Forecast Only", "airQuality":"AirQuality Only", 
                                                                                                       "weatherForecast":"Weather and Forecast", "weatherAirQuality":"Weather and AirQuality", "forecastAirQuality":"Forecast and AirQuality", "all":"All Services"], defaultValue: "disable", required: true)
         if(settings?.deviceSmartThingServices && settings.deviceSmartThingServices != "disable") {
-            input(name:"deviceServicesPollInterval", type: "enum", title: "Services Poll Interval", options: [ "manual":"Manual Poll Only", "runEvery10Minutes":"10 Minutes", "runEvery30Minutes":"30 Minutes", "runEvery1Hour":"1 Hour", "runEvery3Hour":"3 Hours"], defaultValue: "runEvery10Minutes", required: true)
+            input(name:"deviceServicesPollInterval", type: "enum", title: "Services Poll Interval", options: [ "manual":"Manual Poll Only", "runEvery10Minutes":"10 Minutes", "runEvery30Minutes":"30 Minutes", "runEvery1Hour":"1 Hour", "runEvery3Hours":"3 Hours"], defaultValue: "runEvery10Minutes", required: true)
             input(name:"deviceMeasurementFormat", type:"enum", title: "Measurement Unit:", options: ["imperial":"Imperial system (inches)", "meters":"Metric system (mm or cm)"], defaultValue: "imperial", required: true)
             input(name:"deviceWindSpeedFormat", type:"enum", title: "Wind speed Unit:", options: ["mph":"miles (mph)", "kph":"kilometers (kph)", "kn":"knots (kn)", "m/s":"meters (m/s)"], defaultValue: "mph", required: true)
             input(name:"deviceTemperaturePrecision", type:"enum", title: "Temperature Precision:", options: [0:"0", 1:"1", 2:"2", 3:"3"], defaultValue: 0, required: true)           
@@ -896,15 +896,16 @@ String getWUIconName(String wxPhraseLong, Boolean isDay)     {
      0: [1000, 1.0, "clear",        ["Clear","Sunny","Fair","Showers in the Vicinity","Sunny/Wind","Fair/Wind","Clear/Wind"]],
      1: [1003, 0.8, "partlycloudy", ["Partly Cloudy","Partly Cloudy/Wind","Showers in the Vicinity"]],
      2: [1006, 0.6, "cloudy",       ["Cloudy","Mostly Cloudy","Mostly Cloudy/Wind","Cloudy/Wind","Showers in the Vicinity"]],
-     3: [1135, 0.2, "fog",          ["Fog","Haze","Smoke","Fog/Wind"]],
-     4: [1189, 0.4, "rain",         ["Rain"]],
+     3: [1135, 0.2, "fog",          ["Fog","Haze","Smoke","Fog/Wind","Haze/Wind","Mist"]],
+     4: [1189, 0.4, "rain",         ["Rain","Rain/Wind"]],
      5: [1183, 0.7, "chancerain",   ["Light Rain","Rain Shower","Light Rain/Wind","Rain Shower/Wind"]],
      9: [1087, 0.2, "tstorms",      ["Thunder","Thunder in the Vicinity"]],
-    10: [1213, 0.7, "snow",         ["Light Snow","Light Snow/Wind"]],
-    14: [1219, 0.5, "snow",         ["Snow"]],
-    15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain"]],
+    10: [1213, 0.7, "snow",         ["Light Snow","Light Snow/Wind","Snow Shower","Snow Shower/Wind","Blowing Snow/Wind"]],
+    14: [1219, 0.5, "snow",         ["Snow","Snow/Wind"]],
+    15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain","Wintry Mix/Wind"]],
+    16: [1114, 0.3, "snow",         ["Blowing Snow","Blowing Snow/Wind"]],    
     20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm","Thunderstorm/Wind","Heavy Thunderstorm/Wind"]],
-    21: [1195, 0.2, "rain",         ["Heavy Rain"]]
+    21: [1195, 0.2, "rain",         ["Heavy Rain","Heavy Rain/Wind"]]
 ];
 
 // values pulled from https://github.com/adey/bangali/blob/4145c4ef4430a04530129a9d39ca7636944c8dc2/driver/apixu-weather.groovy#L481
