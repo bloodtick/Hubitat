@@ -11,8 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-@SuppressWarnings('unused')
-public static String version() {return "1.3.0"}
+public static String version() {return "1.3.1"}
 
 metadata 
 {
@@ -23,10 +22,13 @@ metadata
         capability "Configuration"
         capability "Refresh"
         capability "WaterSensor"
+        capability "RelativeHumidityMeasurement"
+        capability "TemperatureMeasurement"
         
+        attribute "temperatureAlarm", "enum", ["cleared", "freeze", "heat", "rateOfRise"]
         attribute "signalMetrics", "string" //custom capability
         attribute "healthStatus", "enum", ["offline", "online"]
-        
+
         command "setSignalMetrics", [[name: "value*", type: "STRING", description: "Set Signal Metrics (custom)"]] //custom capability
     }
     preferences {
@@ -55,8 +57,29 @@ def configure() {
 }
 
 // Methods documented here will show up in the Replica Command Configuration. These should be mostly setter in nature. 
-Map getReplicaCommands() {
-    return ([ "setSignalMetricsValue":[[name:"signalMetrics*",type:"STRING"]], "setWaterValue":[[name:"water*",type:"ENUM"]], "setWaterDry":[], "setWaterWet":[], "setBatteryValue":[[name:"battery*",type:"NUMBER"]], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]])
+static Map getReplicaCommands() {
+    return ([ "setHumidityValue":[[name:"humidity*",type:"NUMBER"]], "setTemperatureValue":[[name:"temperature*",type:"NUMBER"]], "setTemperatureAlarmValue":[[name:"temperatureAlarm*",type:"ENUM"]],
+              "setSignalMetricsValue":[[name:"signalMetrics*",type:"STRING"]], "setWaterValue":[[name:"water*",type:"ENUM"]], "setWaterDry":[], "setWaterWet":[], "setBatteryValue":[[name:"battery*",type:"NUMBER"]], "setHealthStatusValue":[[name:"healthStatus*",type:"ENUM"]]])
+}
+
+def setHumidityValue(value) {
+    String unit = "%rh"
+    String descriptionText = "${device.displayName} humidity is $value $unit"
+    sendEvent(name: "humidity", value: value, unit: unit, descriptionText: descriptionText)
+    logInfo descriptionText
+}
+
+def setTemperatureValue(value) {
+    String unit = "°${getTemperatureScale()}"
+    String descriptionText = "${device.displayName} temperature is $value $unit"
+    sendEvent(name: "temperature", value: value, unit: unit, descriptionText: descriptionText)
+    logInfo descriptionText
+}
+
+def setTemperatureAlarmValue(value) {
+    String descriptionText = "${device.displayName} temperature alarm is $value"
+    sendEvent(name: "temperatureAlarm", value: value, descriptionText: descriptionText)
+    logInfo descriptionText
 }
 
 def setBatteryValue(value) {
@@ -90,7 +113,7 @@ def setHealthStatusValue(value) {
 }
 
 // Methods documented here will show up in the Replica Trigger Configuration. These should be all of the native capability commands
-Map getReplicaTriggers() {
+static Map getReplicaTriggers() {
     return ([ "setSignalMetrics":[[name:"value*",type:"STRING"]], "refresh":[]])
 }
 
@@ -108,8 +131,8 @@ void refresh() {
     sendCommand("refresh")
 }
 
-String getReplicaRules() {
-    return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"MoistureState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"waterSensor","attribute":"water","label":"attribute: water.*"},"command":{"name":"setWaterValue","label":"command: setWaterValue(water*)","type":"command","parameters":[{"name":"water*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"command":{"name":"setBatteryValue","label":"command: setBatteryValue(battery*)","type":"command","parameters":[{"name":"battery*","type":"NUMBER"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"legendabsolute60149.signalMetrics","attribute":"signalMetrics","label":"attribute: signalMetrics.*"},"command":{"name":"setSignalMetricsValue","label":"command: setSignalMetricsValue(signalMetrics*)","type":"command","parameters":[{"name":"signalMetrics*","type":"STRING"}]},"type":"smartTrigger","mute":true},{"trigger":{"name":"setSignalMetrics","label":"command: setSignalMetrics(value*)","type":"command","parameters":[{"name":"value*","type":"STRING"}]},"command":{"name":"setSignalMetrics","arguments":[{"name":"value","optional":false,"schema":{"type":"string"}}],"type":"command","capability":"legendabsolute60149.signalMetrics","label":"command: setSignalMetrics(value*)"},"type":"hubitatTrigger","mute":true}]}"""
+static String getReplicaRules() {
+    return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"MoistureState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"waterSensor","attribute":"water","label":"attribute: water.*"},"command":{"name":"setWaterValue","label":"command: setWaterValue(water*)","type":"command","parameters":[{"name":"water*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"battery","attribute":"battery","label":"attribute: battery.*"},"command":{"name":"setBatteryValue","label":"command: setBatteryValue(battery*)","type":"command","parameters":[{"name":"battery*","type":"NUMBER"}]},"type":"smartTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"legendabsolute60149.signalMetrics","attribute":"signalMetrics","label":"attribute: signalMetrics.*"},"command":{"name":"setSignalMetricsValue","label":"command: setSignalMetricsValue(signalMetrics*)","type":"command","parameters":[{"name":"signalMetrics*","type":"STRING"}]},"type":"smartTrigger","mute":true},{"trigger":{"name":"setSignalMetrics","label":"command: setSignalMetrics(value*)","type":"command","parameters":[{"name":"value*","type":"STRING"}]},"command":{"name":"setSignalMetrics","arguments":[{"name":"value","optional":false,"schema":{"type":"string"}}],"type":"command","capability":"legendabsolute60149.signalMetrics","label":"command: setSignalMetrics(value*)"},"type":"hubitatTrigger","mute":true},{"trigger":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"command":{"name":"setTemperatureValue","label":"command: setTemperatureValue(temperature*)","type":"command","parameters":[{"name":"temperature*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"title":"Percent","type":"attribute","properties":{"value":{"type":"number","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"relativeHumidityMeasurement","attribute":"humidity","label":"attribute: humidity.*"},"command":{"name":"setHumidityValue","label":"command: setHumidityValue(humidity*)","type":"command","parameters":[{"name":"humidity*","type":"NUMBER"}]},"type":"smartTrigger"}]}"""
 }
 
 private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
