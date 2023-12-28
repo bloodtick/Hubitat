@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.1"}
+public static String version() {return "1.3.1.dev.1"}
 
 metadata 
 {
@@ -100,7 +100,9 @@ metadata
         attribute "lite", "enum", ["on", "off"]
         command "beepOff"
         command "beepOn"
-        attribute "beep", "enum", ["on", "off"]  
+        attribute "beep", "enum", ["on", "off"]
+        
+        command "atest"
         
     }
     preferences {
@@ -556,27 +558,34 @@ def setVolume(volume) {
 
 //https://community.smartthings.com/t/turn-off-the-beeping-sound-in-samsung-airconditioner-with-atribute-command-in-custom-app/203614
 //https://github.com/DaveGut/HubitatActive/blob/master/SamsungAppliances/Samsung_HVAC.groovy
+//https://community.smartthings.com/t/samsung-aircon-robust-way-to-determine-status-of-light-and-quiet-mode/268829/7
 def liteOff() {
     execute("mode/vs/0",[ "x.com.samsung.da.options": [ "Light_On" ] ])
+    sendEvent(name: "lite", value: "off")
 }
 
 def liteOn() {
     execute("mode/vs/0",[ "x.com.samsung.da.options": [ "Light_Off" ] ])
+    sendEvent(name: "lite", value: "on")
 }
 
 def beepOff() {
     execute("mode/vs/0",[ "x.com.samsung.da.options": [ "Volume_Mute" ] ])
+    sendEvent(name: "beep", value: "off")
 }
 
 def beepOn() {
     execute("mode/vs/0",[ "x.com.samsung.da.options": [ "Volume_100" ] ])
+    sendEvent(name: "beep", value: "on")
 }
 
-def executeDataParse(jsonData) {    
-    String lite = jsonData?.value?.payload["x.com.samsung.da.options"]?.contains("Light_On") ? "off" : "on"
-    sendEvent(name: "lite", value: lite)
-    String beep = jsonData?.value?.payload["x.com.samsung.da.options"]?.contains("Volume_Mute") ? "off" : "on"
-    sendEvent(name: "beep", value: beep)    
+def executeDataParse(jsonData) {
+    if(jsonData?.value?.payload["x.com.samsung.da.options"]) {  // might be broken as of late 2023. 
+        String lite = jsonData?.value?.payload["x.com.samsung.da.options"]?.contains("Light_On") ? "off" : "on"
+        sendEvent(name: "lite", value: lite)
+        String beep = jsonData?.value?.payload["x.com.samsung.da.options"]?.contains("Volume_Mute") ? "off" : "on"
+        sendEvent(name: "beep", value: beep)
+    }
 }
 
 //capability "execute"
@@ -585,6 +594,72 @@ def execute(command, args=null) {
     sendCommand("execute", command, null, [args: args ? (args[0]=="{"?(new groovy.json.JsonSlurper().parseText(args)) : args) : [:]])
     runIn(5, refresh)
 }
+
+def atest() {
+    getExecuteStatus()
+    getStatus()
+}
+
+private String getAuthToken() {
+    return parent?.getAuthToken()
+}
+
+private String getDeviceId() {
+    String deviceId = null
+    try {
+        String description = getDataValue("description")
+        if(description) {
+            Map descriptionJson = new groovy.json.JsonSlurper().parseText(description)
+            deviceId = descriptionJson?.deviceId
+        }        
+    } catch (e) {
+        logWarn "${device.displayName} getDeviceId error: $e"
+    }
+    return deviceId
+}
+
+Map getExecuteStatus() {
+    logDebug "${device.displayName} executing 'getExecuteStatus()'"
+    Map response = [statusCode:iHttpError]
+    
+    Map params = [
+        uri: "https://api.smartthings.com",
+        path: "/devices/${getDeviceId()}/components/main/capabilities/execute/status",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    try {
+        httpGet(params) { resp ->
+            logWarn "RESPONSE DATA: ${groovy.json.JsonOutput.toJson(resp.data)}"
+            response.data = resp.data
+            response.statusCode = resp.status
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has getExecuteStatus() error: $e"        
+    }
+    return response
+}
+
+Map getStatus() {
+    logDebug "${device.displayName} executing 'getExecuteStatus()'"
+    Map response = [statusCode:iHttpError]
+    
+    Map params = [
+        uri: "https://api.smartthings.com",
+        path: "/devices/${getDeviceId()}/status",
+        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+    ]
+    try {
+        httpGet(params) { resp ->
+            logWarn "RESPONSE DATA: ${groovy.json.JsonOutput.toJson(resp.data)}"
+            response.data = resp.data
+            response.statusCode = resp.status
+        }
+    } catch (e) {
+        logWarn "${device.displayName} has getStatus() error: $e"        
+    }
+    return response
+}
+
 
 //capability "custom.spiMode"
 def setSpiMode(mode) {
