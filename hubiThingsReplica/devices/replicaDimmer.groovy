@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.1"}
+public static String version() {return "1.3.2"}
 
 import groovy.transform.CompileStatic
 import groovy.transform.Field
@@ -95,7 +95,7 @@ static Map getReplicaTriggers() {
 private def sendCommand(String name, def value=null, String unit=null, data=[:]) {
     Long now = g_mEventSendTime[device.getId()] = now()
     data.version=version()
-    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
+    parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now])
 }
 
 def off() { 
