@@ -1,5 +1,5 @@
 /**
-*  Copyright 2023 Bloodtick
+*  Copyright 2024 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting.
@@ -27,10 +26,11 @@
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic (no OAuth changes)
 *  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers. (no OAuth changes)
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests. (no OAuth changes)
+*  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  LINE 30 MAX */  
 
-public static String version() { return "1.3.12" }
-public static String copyright() { return "&copy; 2023 ${author()}" }
+public static String version() { return "1.3.13" }
+public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
@@ -480,11 +480,9 @@ def installHelper() {
     return null
 }
 
-@Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
 void appButtonHandler(String btn) {
     logDebug "${app.getLabel()} executing 'appButtonHandler($btn)'"
-    if(g_bAppButtonHandlerLock[app.id]) return
-    appButtonHandlerLock()
+    if(!appButtonHandlerLock()) return
   
     if(btn.contains("::")) { 
         List items = btn.tokenize("::")
@@ -524,9 +522,13 @@ void appButtonHandler(String btn) {
     }
     appButtonHandlerUnLock()
 }
-void appButtonHandlerLock() {
+
+@Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
+Boolean appButtonHandlerLock() {
+    if(g_bAppButtonHandlerLock[app.id]) { logInfo "${app.getLabel()} appButtonHandlerLock is locked"; return false }
     g_bAppButtonHandlerLock[app.id] = true
     runIn(10,appButtonHandlerUnLock)
+    return true
 }
 void appButtonHandlerUnLock() {
     unschedule('appButtonHandlerUnLock')
@@ -936,7 +938,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList
                     setSmartDeviceSubscriptions()
                 }
-                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} subscription list"
+                logInfo "${getDefaultLabel()} ${getOauthId()} ${changed?"updated":"checked"} subscription list"
                 break
             case "getSmartDeviceList":            
                 Map deviceList = new JsonSlurper().parseText(resp.data)
@@ -948,7 +950,7 @@ void asyncHttpGetCallback(resp, data) {
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
                 clearSmartLocationQueryLock()
-                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} device list"
+                logInfo "${getDefaultLabel()} ${getOauthId()} ${changed?"updated":"checked"} device list"
                 break
             case "getSmartRoomList":            
                 Map roomList = new JsonSlurper().parseText(resp.data)
@@ -958,7 +960,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.rooms = g_mSmartRoomList[app.getId()] = roomList
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
-                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} room list"
+                logInfo "${getDefaultLabel()} ${getOauthId()} ${changed?"updated":"checked"} room list"
                 getSmartDeviceList()                
                 break
             case "getSmartLocationList":            
@@ -970,7 +972,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
-                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} location list"
+                logInfo "${getDefaultLabel()} ${getOauthId()} ${changed?"updated":"checked"} location list"
                 getSmartRoomList()
                 break
             default:
