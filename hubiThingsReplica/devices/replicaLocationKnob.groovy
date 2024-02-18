@@ -1,5 +1,5 @@
 /**
-*  Copyright 2023 Bloodtick
+*  Copyright 2024 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.6"}
+public static String version() {return "1.3.7"}
 
 metadata 
 {
@@ -22,6 +22,9 @@ metadata
         capability "Notification"
         capability "Switch"
         capability "Refresh"
+        
+        // special execute command to control relica application
+        command "execute", [[name: "execute", type: "ENUM", description: "Refresh all location devices (default) or all replica devices", constraints: ["REFRESH_LOCATION_DEVICES", "REFRESH_ALL_DEVICES"]]]
         
         attribute "mode", "string"
         attribute "modes", "JSON_OBJECT"
@@ -245,16 +248,26 @@ def on() {
     sendCommand("on")
 }
 
-void refresh() {
-    //sendCommand("refresh")
+def execute(String command="REFRESH_LOCATION_DEVICES") {
+    logDebug "${device.displayName} executing 'execute($command)'"
+    sendCommand("execute", "command", null, [command: command, locationId: getLocationId()])
+}
+
+def refresh() {
+    logDebug "${device.displayName} executing 'refresh()'"    
     setReplicaValue( getParent()?.getLabel() )
     getLocationInfo()
     getLocationModes()
     getLocationMode()
+ 
+    if(state?.version!=version()) {
+        state.version=version()
+        configure()
+    } else sendCommand("refresh")
 }
 
 static String getReplicaRules() {
-    return """{"version":1,"components":[{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"name":"refresh","label":"command: refresh()","type":"command"},"command":{"name":"refresh","type":"command","capability":"refresh","label":"command: refresh()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.*"},"command":{"name":"setSwitchValue","label":"command: setSwitchValue(switch*)","type":"command","parameters":[{"name":"switch*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"name":"off","label":"command: off()","type":"command"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"name":"on","label":"command: on()","type":"command"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"}]}"""
+    return """{"version":1,"components":[{"command":{"label":"command: setHealthStatusValue(healthStatus*)","name":"setHealthStatusValue","parameters":[{"name":"healthStatus*","type":"ENUM"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"healthStatus","capability":"healthCheck","label":"attribute: healthStatus.*","properties":{"value":{"title":"HealthState","type":"string"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setSwitchValue(switch*)","name":"setSwitchValue","parameters":[{"name":"switch*","type":"ENUM"}],"type":"command"},"trigger":{"additionalProperties":false,"attribute":"switch","capability":"switch","label":"attribute: switch.*","properties":{"value":{"title":"SwitchState","type":"string"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"capability":"switch","label":"command: off()","name":"off","type":"command"},"trigger":{"label":"command: off()","name":"off","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"switch","label":"command: on()","name":"on","type":"command"},"trigger":{"label":"command: on()","name":"on","type":"command"},"type":"hubitatTrigger"}]}"""
 }
 
 import groovy.transform.CompileStatic
@@ -896,13 +909,14 @@ String getWUIconName(String wxPhraseLong, Boolean isDay)     {
      0: [1000, 1.0, "clear",        ["Clear","Sunny","Fair","Showers in the Vicinity","Sunny/Wind","Fair/Wind","Clear/Wind"]],
      1: [1003, 0.8, "partlycloudy", ["Partly Cloudy","Partly Cloudy/Wind","Showers in the Vicinity"]],
      2: [1006, 0.6, "cloudy",       ["Cloudy","Mostly Cloudy","Mostly Cloudy/Wind","Cloudy/Wind","Showers in the Vicinity"]],
-     3: [1135, 0.2, "fog",          ["Fog","Haze","Smoke","Fog/Wind","Haze/Wind","Mist"]],
+     3: [1135, 0.2, "fog",          ["Fog","Haze","Smoke","Fog/Wind","Haze/Wind","Mist","Mist/Wind"]],
      4: [1189, 0.4, "rain",         ["Rain","Rain/Wind"]],
      5: [1183, 0.7, "chancerain",   ["Light Rain","Rain Shower","Light Rain/Wind","Rain Shower/Wind"]],
      9: [1087, 0.2, "tstorms",      ["Thunder","Thunder in the Vicinity"]],
     10: [1213, 0.7, "snow",         ["Light Snow","Light Snow/Wind","Snow Shower","Snow Shower/Wind","Blowing Snow/Wind"]],
+    13: [1219, 0.3, "snow",         ["Heavy Snow/Wind"]],
     14: [1219, 0.5, "snow",         ["Snow","Snow/Wind"]],
-    15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain","Wintry Mix/Wind"]],
+    15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain","Wintry Mix/Wind","Light Rain/Freezing Rain","Rain/Freezing Rain","Freezing Rain","Rain and Snow"]],
     16: [1114, 0.3, "snow",         ["Blowing Snow","Blowing Snow/Wind"]],    
     20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm","Thunderstorm/Wind","Heavy Thunderstorm/Wind"]],
     21: [1195, 0.2, "rain",         ["Heavy Rain","Heavy Rain/Wind"]]
