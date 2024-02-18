@@ -1,5 +1,5 @@
 /**
-*  Copyright 2023 Bloodtick
+*  Copyright 2024 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.03 2023-02-09 Support for SmartThings Virtual Devices. Major UI Button overhaul. Work to improve refresh.
 *  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
@@ -27,10 +26,11 @@
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic
 *  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers.
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests.
+*  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.3.12" }
-public static String copyright() { return "&copy; 2023 ${author()}" }
+public static String version() { return "1.3.13" }
+public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
@@ -431,9 +431,8 @@ def pageAuthDevice() {
 
         section(menuHeader("Authorize Hubitat Devices to Mirror $sHubitatIconStatic $sSamsungIconStatic")) {                         
             paragraphComment("<b>Hubitat Security</b> requires each local device to be authorized with internal controls before HubiThings Replica can access. Please select Hubitat devices below before attempting mirror functions.") 
-            input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, submitOnChange: true, newLineAfter:true)
-
-            paragraph( """<br/><br/><br/><input type="button" class="mdl-button mdl-button--raised btn" value="Done" onclick="self.close()">""" )
+            input(name: "userAuthorizedDevices", type: "capability.*", title: "Hubitat Devices:", description: "Choose a Hubitat devices", multiple: true, offerAll:true, submitOnChange: true, newLineAfter:true)
+            paragraph("""<br/><br/><br/><input type="button" class="mdl-button mdl-button--raised btn" value="Done" onclick="self.close()">""")
         }
     }
 }
@@ -872,9 +871,9 @@ void getReplicaDeviceRefresh(replicaDevice) {
     if(deviceId) {
         replicaDeviceSubscribe(replicaDevice)
         getSmartDeviceStatus(deviceId)
-        pauseExecution(250) // no need to hammer ST
+        pauseExecution(200) // no need to hammer ST
         getSmartDeviceHealth(deviceId)
-        pauseExecution(250) // no need to hammer ST
+        pauseExecution(200) // no need to hammer ST
         getSmartDeviceDescription(deviceId)       
     } 
     else if(replicaDevice) {
@@ -2159,11 +2158,9 @@ Map getSmartAttributeOptions(replicaDevice) {
     return smartAttributeOptions
 }
 
-@Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
 void appButtonHandler(String btn) {
     logDebug "${app.getLabel()} executing 'appButtonHandler($btn)'"
-    if(g_bAppButtonHandlerLock[app.id]) return
-    appButtonHandlerLock()
+    if(!appButtonHandlerLock()) return
    
     if(btn.contains("::")) { 
         List items = btn.tokenize("::")
@@ -2215,16 +2212,20 @@ void appButtonHandler(String btn) {
     }
     appButtonHandlerUnLock()
 }
-void appButtonHandlerLock() {
+
+@Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
+Boolean appButtonHandlerLock() {
+    if(g_bAppButtonHandlerLock[app.id]) { logInfo "${app.getLabel()} appButtonHandlerLock is locked"; return false }
     g_bAppButtonHandlerLock[app.id] = true
     runIn(10,appButtonHandlerUnLock)
+    return true
 }
 void appButtonHandlerUnLock() {
     unschedule('appButtonHandlerUnLock')
     g_bAppButtonHandlerLock[app.id] = false
 }
 
-void allSmartDeviceRefresh() {
+void allSmartDeviceRefresh(delay=1) {
     // brute force grabbing all devices in my OAuths.
     // smartLocationQuery is async so will not be available for first refresh
     Map smartDevices = [items:[]]
@@ -2233,14 +2234,8 @@ void allSmartDeviceRefresh() {
         it.smartLocationQuery()
     }
     setSmartDevicesMap( smartDevices )
-    // check that everything is Hubitat subscribed 
-    getAllReplicaDevices()?.each { replicaDevice ->
-        replicaDeviceSubscribe(replicaDevice)
-    }
-    // lets get status on everything. should this be scheduled?
-    allSmartDeviceStatus(10)
-    allSmartDeviceHealth(20)
-    allSmartDeviceDescription(30)    
+    // check that everything is happy. This blocks for a second per device and will not allow concur runs. So thread it.
+    runIn(delay<1?:1, getSmartDeviceRefresh)
 }
 
 void locationModeHandler(def event) {
@@ -2253,25 +2248,62 @@ void locationModeHandler(def event) {
     }   
 }
 
+Boolean locationKnobExecute(Map event, delay=1) {
+    logInfo "${app.getLabel()} executing 'locationKnobExecute($event)'"
+    if(event?.name=="execute" &&  event?.value=="command" && event?.data?.command) {
+        runIn(delay<1?:1, locationKnobExecuteHelper, [data: event])
+        return true
+    }
+    return false
+}
+
+void locationKnobExecuteHelper(Map event) {
+    logDebug "${app.getLabel()} executing 'locationKnobExecuteHelper($event)'"
+    getSmartDeviceRefresh( event?.data?.command=="REFRESH_LOCATION_DEVICES" ? event?.data?.locationId : null )
+}
+
+void getSmartDeviceRefresh(String locationId=null) {
+    logDebug "${app.getLabel()} executing 'getSmartDeviceRefresh(locationId=$locationId)'"
+    if(!appGetSmartDeviceRefreshLock()) return
+    
+    getAllReplicaDevices()?.each { replicaDevice -> 
+        if(locationId==null || (locationId==getReplicaDataJsonValue(replicaDevice, "description")?.locationId)) { 
+            getReplicaDeviceRefresh(replicaDevice) // this blocks for a couple seconds per device
+        }
+    }   
+    
+    appGetSmartDeviceRefreshUnLock()
+}
+
+@Field volatile static Map<Long,Boolean> g_bAppGetSmartDeviceRefreshLock = [:]
+Boolean appGetSmartDeviceRefreshLock() {
+    if(g_bAppGetSmartDeviceRefreshLock[app.id]) { logInfo "${app.getLabel()} appGetSmartDeviceRefreshLock is locked"; return false }
+    g_bAppGetSmartDeviceRefreshLock[app.id] = true
+    runIn(30,appGetSmartDeviceRefreshUnLock)
+    return true
+}
+void appGetSmartDeviceRefreshUnLock() {
+    unschedule('appGetSmartDeviceRefreshUnLock')
+    g_bAppGetSmartDeviceRefreshLock[app.id] = false
+}
+
 void deviceTriggerHandler(def event) {
     // called from subscribe HE device events. value is always string, but just converting anyway to be sure.
     //event.properties.each { logInfo "$it.key -> $it.value" }
     deviceTriggerHandlerPrivate(event?.getDevice(), event?.name, event?.value.toString(), event?.unit, event?.getJsonData())
 }
 
-void deviceTriggerHandler(def replicaDevice, Map event) {
+void deviceTriggerHandler(def replicaDevice, Map event) {    
+
     // called from replica HE drivers. value might not be a string, converting it to normalize with events above.
     Boolean result = deviceTriggerHandlerPrivate(replicaDevice, event?.name, event?.value.toString(), event?.unit, event?.data, event?.now)    
-    if(event?.name == "configure") {
+    if(locationKnobExecute(event)) {
+        // noop
+    }    
+    else if(event?.name == "configure" || event?.name == "refresh") {
         clearReplicaDataCache(replicaDevice)
         replicaDeviceRefresh(replicaDevice)       
     } 
-    else if(event?.name == "refresh") {
-        clearReplicaDataCache(replicaDevice)
-        String deviceId = getReplicaDeviceId(replicaDevice)    
-        if(deviceId&&result) getSmartDeviceStatus(deviceId)
-        else replicaDeviceRefresh(replicaDevice)      
-    }
     else if(!result) {
         logInfo "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' event:'${event?.name}' is not rule configured"
     }
