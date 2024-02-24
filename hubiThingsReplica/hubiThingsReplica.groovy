@@ -2249,7 +2249,7 @@ void locationModeHandler(def event) {
 }
 
 Boolean locationKnobExecute(Map event, delay=1) {
-    logInfo "${app.getLabel()} executing 'locationKnobExecute($event)'"
+    logDebug "${app.getLabel()} executing 'locationKnobExecute($event)'"
     if(event?.name=="execute" &&  event?.value=="command" && event?.data?.command) {
         runIn(delay<1?:1, locationKnobExecuteHelper, [data: event])
         return true
