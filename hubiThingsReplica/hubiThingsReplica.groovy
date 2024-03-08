@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.04 2023-02-16 Support for SmartThings Scene MVP. Not released.
 *  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
@@ -27,9 +26,10 @@
 *  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers.
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests.
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
+*  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger()
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.3.13" }
+public static String version() { return "1.3.14" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -1771,7 +1771,7 @@ void updateRuleList(action, type) {
         }
     }
 
-    setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules.sort{ a, b -> b.key <=> a.key })
+    setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules?.sort{ a, b -> b.key <=> a.key })
     if(type=='hubitatTrigger') replicaDeviceSubscribe(replicaDevice)
 }
 
@@ -1788,8 +1788,8 @@ void replicaDevicesRuleSection(){
     replicaDeviceRules?.components?.sort{ a,b -> a?.type <=> b?.type ?: a?.trigger?.label <=> b?.trigger?.label ?: a?.command?.label <=> b?.command?.label }?.eachWithIndex { rule, index ->    
         String trigger = "${rule?.type=='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.trigger?.label}"
         String command = "${rule?.type!='hubitatTrigger' ? sHubitatIcon : sSamsungIcon} ${rule?.command?.label}"
-        trigger = checkTrigger(replicaDevice, rule?.type, rule?.trigger?.label) ? trigger : "<span style='color:$sColorDarkRed;'>$trigger</span>"
-        command = checkCommand(replicaDevice, rule?.type, rule?.command?.label) ? command : "<span style='color:$sColorDarkRed;'>$command</span>"
+        trigger = checkTrigger(replicaDevice, rule?.type, rule?.trigger) ? trigger : "<span style='color:$sColorDarkRed;'>$trigger</span>"
+        command = checkCommand(replicaDevice, rule?.type, rule?.command) ? command : "<span style='color:$sColorDarkRed;'>$command</span>"
         g_mAppDeviceSettings['replicaDevicesRuleSection'].put( index.toString(), rule )
         replicaDeviceRulesList += "<tr><td  style='text-align:center;'>${buttonLink("dynamic::pageConfigureDeviceSelectButton::$index", g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.get(index.toString())?X:O)}</td>"
         replicaDeviceRulesList += "<td>$trigger</td><td>$command</td>"
@@ -1822,7 +1822,7 @@ void pageConfigureDeviceDeleteSelected() {
         replicaDeviceRules?.components?.removeAll{ it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
     }
     g_mAppDeviceSettings['replicaDevicesRuleSectionSelect'].clear()
-    setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
+    setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules?.sort{ a, b -> b.key <=> a.key })
 }
 
 void pageConfigureDeviceSelectButton(String index) {
@@ -1839,7 +1839,7 @@ void pageConfigureDeviceMuteButton(String index) {
     Map rule = replicaDeviceRules?.components?.find{ it?.type==match?.type && it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
     if(rule) {
         rule['mute'] = !rule?.mute
-        setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
+        setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules?.sort{ a, b -> b.key <=> a.key })
     }
 }
 
@@ -1851,7 +1851,7 @@ void pageConfigureDeviceStatusButton(String index) {
     Map rule = replicaDeviceRules?.components?.find{ it?.type==match?.type && it?.trigger?.label?.trim()==match?.trigger?.label && it?.command?.label?.trim()==match?.command?.label }
     if(rule) {
         rule['disableStatus'] = !rule?.disableStatus
-        setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules)
+        setReplicaDataJsonValue(replicaDevice, "rules", replicaDeviceRules?.sort{ a, b -> b.key <=> a.key })
     }
 }
 
@@ -1882,14 +1882,16 @@ def checkFirmwareVersion(versionString) {
     return (a1>=a2 || (a1>=a2 && b1>=b2) || (a1>=a2 && b1>=b2 && c1>=c2) || (a1>=a2 && b1>=b2 && c1>=c2 && d1>=d2))
 }
 
-Boolean checkTrigger(replicaDevice, type, triggerLabel) {
+Boolean checkTrigger(replicaDevice, type, ruleTrigger) {
     Map trigger = type=='hubitatTrigger' ? getHubitatAttributeOptions(replicaDevice) : getSmartAttributeOptions(replicaDevice)
-    return trigger?.get(triggerLabel)
+    return (type=='hubitatTrigger' ? !!trigger?.get(ruleTrigger?.label) : !!trigger?.find{ k,v -> v?.capability==ruleTrigger?.capability && v?.attribute==ruleTrigger?.attribute })
+    //return trigger?.get(ruleTrigger?.label)
 }
 
-Boolean checkCommand(replicaDevice, type, commandLabel) {
+Boolean checkCommand(replicaDevice, type, ruleCommand) {
     Map commands = type!='hubitatTrigger' ? getHubitatCommandOptions(replicaDevice) : getSmartCommandOptions(replicaDevice)
-    return commands?.get(commandLabel)
+    return (type=='hubitatTrigger' ? !!commands?.get(ruleCommand?.label) : !!commands?.find{ k,v -> v?.capability==ruleCommand?.capability && v?.name==ruleCommand?.name })
+    //return commands?.get(ruleCommand?.label)
 }       
 
 def pageConfigureDevice() {    
@@ -2435,7 +2437,7 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
                 Map command = rule?.command
 
                 // simple enum case
-                if(attribute==trigger?.attribute && value?.value==trigger?.value) {                   
+                if(capability==trigger?.capability && attribute==trigger?.attribute && value?.value==trigger?.value) {                   
                     smartTriggerHandlerCache(replicaDevice, attribute, value?.value)
                     
                     List args = []
@@ -2446,16 +2448,16 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
                     }
                 }
                 // non-enum case
-                else if(attribute==trigger?.attribute && !trigger?.value) {                    
+                else if(capability==trigger?.capability && attribute==trigger?.attribute && !trigger?.value) {                    
                     smartTriggerHandlerCache(replicaDevice, attribute, value?.value)
-                    
+                   
                     String method = command?.name
                     String argType = hasCommand(replicaDevice, method) ? hasCommandType(replicaDevice, method) : null                 
                     if(argType && !(type=="status" && rule?.disableStatus)) {
                         if(argType!="JSON_OBJECT")
                             replicaDevice."$method"(*[value.value])
                         else
-                            replicaDevice."$method"(*[[value:(value.value), unit:(value?.unit?:""), data:(value?.data?:[:]), stateChange:(value?.stateChange?:false), timestamp:(value?.timestamp)]]);
+                            replicaDevice."$method"(*[[capability:capability, attribute:attribute, value:(value.value), unit:(value?.unit?:""), data:(value?.data?:[:]), stateChange:(value?.stateChange?:false), timestamp:(value?.timestamp)]]);
                         if(!rule?.mute) logInfo "${app.getLabel()} received '${replicaDevice?.getDisplayName()}' $type ● trigger:$attribute ➢ command:${command?.name}:${value?.value} ${(eventPostTime ? "● delay:${now() - eventPostTime}ms" : "")}"
                     }
                 }
