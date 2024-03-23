@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.3.05 2023-02-18 Support for 200+ SmartThings devices. Increase OAuth maximum from 20 to 30.
 *  1.3.06 2023-02-26 Natural order sorting.
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices.
@@ -27,9 +26,10 @@
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests. (no OAuth changes)
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger() (no OAuth changes) 
+*  1.3.15 2024-03-23 Update to OAuth to give easier callback idenfication. This will only take effect on new APIs, so old ones will still have generic name. 
 *  LINE 30 MAX */  
 
-public static String version() { return "1.3.14" }
+public static String version() { return "1.3.15" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -78,8 +78,9 @@ preferences {
     page name:"pageMain"
 }
 
-mappings { 
-    path("/callback") { action: [ POST: "callback"] }
+mappings {
+    path("/callback") { action: [ POST: "callback"] } // orginal callback, deprecated in 1.3.15 to give indication of 'who' owns this. 
+    path("/replicaCallback") { action: [ POST: "callback"] } // new callback
     path("/oauth/callback") { action: [ GET: "oauthCallback" ] }
 }
 
@@ -222,7 +223,7 @@ public Integer getMaxDeviceLimit() {
 
 public String getAuthStatus() {
     if(state?.oauthClientId && !state?.oauthCallbackUrl) state.oauthCallbackUrl = getTargetUrl() //added 1.3.07 to help with C-8 migrations
-    if(state?.oauthClientId && state.oauthCallbackUrl != getTargetUrl()) state.oauthCallback = "INVALID" //added 1.3.07 to help with C-8 migrations    
+    if(state?.oauthClientId && state.oauthCallbackUrl != getTargetUrl() && state.oauthCallbackUrl != getTargetUrlOrginal()) state.oauthCallback = "INVALID" //added 1.3.07 to help with C-8 migrations, update 1.3.15    
     
     String response = "UNKNOWN"    
     if(state?.oauthCallback=="CONFIRMED" && state?.authTokenError==false && state?.authTokenExpires>now())
@@ -245,8 +246,12 @@ public void updateLocationSubscriptionSettings(Boolean value) {
 
 /************************************** PARENT METHODS STOP ********************************************************/
 
-String getTargetUrl() {
+String getTargetUrlOrginal() {
     return "${getApiServerUrl()}/${getHubUID()}/apps/${app.id}/callback?access_token=${state.accessToken}"
+}
+
+String getTargetUrl() {
+    return "${getApiServerUrl()}/${getHubUID()}/apps/${app.id}/replicaCallback?access_token=${state.accessToken}"
 }
 
 String getRedirectUri() {
