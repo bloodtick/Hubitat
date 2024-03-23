@@ -26,7 +26,7 @@
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests. (no OAuth changes)
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger() (no OAuth changes) 
-*  1.3.15 2024-03-23 Update to OAuth to give easier callback idenfication. This will only take effect on new APIs, so old ones will still have generic name. 
+*  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. 
 *  LINE 30 MAX */  
 
 public static String version() { return "1.3.15" }
