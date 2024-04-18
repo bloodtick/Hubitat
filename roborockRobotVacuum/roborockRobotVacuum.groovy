@@ -1,1 +1,1049 @@
-placeholder
+/**
+ *  Copyright 2024 Bloodtick Jones
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ *
+ *  Roborock Robot Vacuum
+ *
+ *  Thanks to: 'copystring' and the https://www.npmjs.com/package/iobroker.roborock project
+ *             'rovo89' https://gist.github.com/rovo89/dff47ed19fca0dfdda77503e66c2b7c7#file-test-js-L166
+ *             https://www.home-assistant.io/integrations/roborock/
+ *
+ *  Author: bloodtick
+ *  Date: 2024-04-18
+ */
+public static String version() {return "0.9.0"}
+
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import groovy.util.XmlSlurper
+import groovy.transform.CompileStatic
+import groovy.transform.Field
+import javax.crypto.Mac
+import javax.crypto.Cipher
+import javax.crypto.spec.SecretKeySpec
+import java.security.MessageDigest
+import java.util.Random
+import java.util.TimeZone
+import java.text.SimpleDateFormat
+
+// This value is stored hardcoded in librrcodec.so, encrypted by the value of "com.roborock.iotsdk.appsecret" from AndroidManifest.xml.
+@Field static final String salt = "TXdfu\$jyZ#TZHsg4"
+@Field static final Map life = [ main:300, side:200, fltr:150, sens:30]
+
+metadata {
+	definition (name: "Roborock Robot Vacuum Beta", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/roborockRobotVacuum/roborockRobotVacuum.groovy")
+    {
+		capability "Actuator"
+        capability "Battery"
+        capability "Initialize"
+        capability "Refresh"
+        capability "Switch"
+        // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
+        // Use Hubitat 'Button Controller' built in app to set commands to run.
+        capability "PushableButton"
+        //https://developer.smartthings.com/docs/devices/capabilities/capabilities-reference#robotCleanerCleaningMode
+        
+        command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
+        
+        command "appClean"
+        command "appDock"
+        command "appPause"
+        command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Comma delmited room ids"]]
+        command "appRoomResume"
+        command "appSelectDevice"
+        
+        //command "connect"
+        //command "disconnect"
+        //command "subscribe"
+        //command "test"
+    
+        //attribute "additional_props", "number"
+        attribute "name", "string"
+        attribute "rooms", "JSON_OBJECT"
+        attribute "state", "string"    
+        attribute "error", "string"        
+        attribute "fanPower", "string"
+        attribute "cleanTime", "number"
+        attribute "cleanArea", "number"
+        attribute "cleanPercent", "number"
+        attribute "remainingFilter", "number"
+        attribute "remainingMainBrush", "number"
+        attribute "remainingSensors", "number"
+        attribute "remainingSideBrush", "number"
+        attribute "locating", "enum", ["true","false"]
+        attribute "mopMode", "string"
+        attribute "healthStatus", "enum", ["offline", "online"]
+	}
+}
+
+preferences {
+    input(name:"username", type:"string", title: "<b>Account Username:</b>", required: true, width:4)
+    input(name:"password", type:"password", title: "<b>Account Password:</b>", required: true, width:4)
+    input(name:"regionUri", type:"enum", title: "<b>Account Region:</b>", options:["https://usiot.roborock.com":"US", "https://euiot.roborock.com":"EU"], defaultValue: "https://usiot.roborock.com", width:4)
+    input(name:"allowLogin", type:"bool", title: "<b>Authorize Account User Login:</b>", defaultValue: true, width:4, description: "<i>Enable to attempt login with username and password.</i>")
+    input(name:"areaUnit", type:"enum", title: "<b>Device Area Unit:</b>", options:["0":"Square Foot (ft²)", "1":"Square Meter (m²)"], defaultValue: "0", width:4)
+    input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false, width:4)
+    input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false, width:4)
+    //input(name:"deviceTraceEnable", type:"bool", title: "Enable Trace logging:", defaultValue: false, width:4)
+}
+
+def logsOff() {
+    device.updateSetting("deviceDebugEnable",[value:'false',type:"bool"])
+    device.updateSetting("deviceTraceEnable",[value:'false',type:"bool"])
+    logInfo "${device.displayName} disabling debug logs"
+}
+Boolean autoLogsOff() { if ((Boolean)settings.deviceDebugEnable || (Boolean)settings.deviceTraceEnable) runIn(1800, "logsOff"); else unschedule('logsOff');}
+
+def installed() {
+	initialize()
+}
+
+def updated() {
+	initialize()    
+}
+
+def initialize() {
+    unschedule()
+    autoLogsOff()
+            
+    if(settings?.allowLogin && settings?.username && settings?.password) {
+        logInfo "${device.displayName} executing 'initialize()' allowLogin"
+        // blow away all state information
+        state?.keySet()?.collect()?.each{ if(it!="sequence") state.remove(it) }
+        state.sequence = (new Random().nextInt(2000) + 1)
+        // blow away all attribute information. not sure if this 'is the way' but it worked.
+        device.currentStates?.collect{ ((new groovy.json.JsonSlurper().parseText( groovy.json.JsonOutput.toJson(it) ))?.name) }?.each{ device.deleteCurrentState(it) }        
+        if(login()?.msg=="success") {
+            device.updateSetting("allowLogin",[value:'false',type:"bool"])
+            disconnect()
+            runIn(1, "getHomeDetail") //runs getHomeData()->getHomeDataCallback() async serial
+            //runIn(3, "connect")
+        } else {
+            logWarn "${device.displayName} login failed"
+        }
+    } 
+    else if(state?.login) {
+        disconnect()
+        runIn(1, "getHomeData") //runs getHomeDataCallback() async serial
+        //runIn(3, "connect")
+    }
+}
+
+def test() {
+}
+
+void getHomeDataCallback() {
+    logDebug "${device.displayName} executing 'getHomeDataCallback()'"
+    logInfo "${device.displayName} device id is ${getDeviceId()}"    
+    if( !interfaces.mqtt.isConnected() ) {
+        runIn(3, "connect")
+    } else {
+       updateHomeData()
+    }
+}
+
+void updateHomeData() {
+    logDebug "${device.displayName} executing 'updateHomeData()'"
+    execute("get_consumable")
+    execute("get_room_mapping")
+    String name = getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.name ?: "unknown"
+    sendEvent(name: "name", value: name, descriptionText: "${device.displayName} name set to $name")
+}
+
+def appClean() { execute("app_start") }
+def appDock()  { execute("app_charge") }
+def appPause() { execute("app_pause") }
+def appRoomClean(String rooms) { execute("app_segment_clean","[$rooms]") }
+def appRoomResume()  { execute("resume_segment_clean") }
+def appSelectDevice() { 
+    String deviceId = findNextDevice( state?.duid )
+    if(state?.duid != deviceId) {
+        state?.duid = deviceId
+        initialize()
+    } else {
+        logInfo "${device.displayName} device id is ${getDeviceId()}"
+    }
+}
+
+def on() { appClean() }
+def off() { appDock() }
+
+def push(buttonNumber) {
+    sendEvent(name: "pushed", value: buttonNumber, isStateChange: true)
+}
+
+def refresh(Map data=[type:1]) {
+    logDebug "${device.displayName} executing 'refresh($data)'"
+
+    execute("get_prop", """["get_status"]""")    
+    if(data?.type==1) getHomeData()
+}
+
+def execute(String command, String args=null) {
+    def param = args ? convertNumbers((new JsonSlurper().parseText(args))) : []
+    logInfo "${device.displayName} executing execute(command:$command, param:$param)"
+    
+    Integer id = (Integer)(state.sequence++ & 0xFFFFFFFF)
+    qPush([duid: getDeviceId(), command: command, param: param, id:id])
+    if(qSize()<=1) executeQueue()
+}  
+
+void executeQueue() {
+    if(!qIsEmpty()) {
+        Map cmd = qPeek()
+        runIn(30, "watchdog") // unscheduled in processMsg()
+        publish(cmd.duid, cmd.command, cmd.param, cmd.id)
+    } else {
+        unschedule('watchdog')
+    }
+}
+
+void watchdog() {
+    logWarn "${device.displayName} executing 'watchdog()'"    
+    disconnect()
+    runIn(3, "connect")
+}
+
+void scheduleRefresh() {
+    runIn(5, "refresh", [data: [type:2]])    
+}
+
+void disconnect() {
+    logInfo "${device.displayName} executing 'disconnect()'"
+    unsubscribe()
+    interfaces.mqtt.disconnect()
+    setHealthStatusEvent(false)
+}
+
+void connect() {
+    logDebug "${device.displayName} executing 'connect()'"
+    Map rriot = getLoginData()?.rriot
+    String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
+    String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
+    
+    logInfo "${device.displayName} connecting mqttUser:$mqttUser mqttPassword:$mqttPassword to $rriot.r.m"
+    interfaces.mqtt.connect(rriot.r.m, "${device.deviceNetworkId}", mqttUser, mqttPassword, byteInterface:true)
+}
+
+def mqttClientStatus(String message) {
+    logInfo "${device.displayName} executing 'mqttClientStatus($message)'"
+    if(message.toLowerCase().contains("connection succeeded")) {
+        runIn(1, "subscribe")
+    }
+    else {
+       disconnect() 
+       runIn(60*10, "connect")
+    }
+}
+
+void subscribe() {
+    logDebug "${device.displayName} executing 'subscribe()'"
+    if(!interfaces.mqtt.isConnected()) return
+    
+    Map rriot = getLoginData()?.rriot
+    String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
+    String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
+    
+    String topic = "rr/m/o/${rriot.u}/${mqttUser}/#"
+    logInfo "${device.displayName} subscribe topic:$topic"
+    interfaces.mqtt.subscribe(topic)
+    
+    runEvery30Minutes(refresh)
+    scheduleRefresh()
+    updateHomeData()
+}
+
+void unsubscribe() {
+    logDebug "${device.displayName} executing 'unsubscribe()'"
+    if(!interfaces.mqtt.isConnected()) return
+    
+    Map rriot = getLoginData()?.rriot
+    String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
+    String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
+    
+    String topic = "rr/m/o/${rriot.u}/${mqttUser}/#"
+    logInfo "${device.displayName} unsubscribe topic:$topic"
+    interfaces.mqtt.unsubscribe(topic)
+}
+
+void processEvent(String name, def value) {
+    logDebug "${device.displayName} executing 'processEvent($name, $value)'"
+    String descriptionText = null    
+    switch(name) {
+    case "healthStatus":
+        descriptionText = "${device.displayName} healthStatus set to $value"
+        sendEvent(name: "healthStatus", value: value, descriptionText: descriptionText)
+        break
+    case "rooms":
+        descriptionText = "${device.displayName} rooms set to $value"
+        sendEvent(name: "rooms", value: value)
+        break
+    case "rpc_request":
+        break
+    case "rpc_response":
+        break
+    case "error_code":
+        String valueEnum = errorCodes[value?.toInteger()]?.toLowerCase() ?: value
+        descriptionText = "${device.displayName} error is $valueEnum ($value)"
+        sendEvent(name: "error", value: valueEnum, descriptionText: descriptionText)
+        break
+    case "state":
+        String valueEnum = stateCodes[value?.toInteger()]?.toLowerCase() ?: value
+        descriptionText = "${device.displayName} state is $valueEnum ($value)"
+        sendEvent(name: "state", value: valueEnum, descriptionText: descriptionText)
+        break
+    case "battery": 
+        descriptionText = "${device.displayName} battery level is $value%"
+        sendEvent(name: "battery", value: value.toInteger(), unit: "%", descriptionText: descriptionText)
+        break
+    case "fan_power":
+        String valueEnum = fanPowerCodes[value?.toInteger()]?.toLowerCase() ?: value
+        descriptionText = "${device.displayName} fan power is $valueEnum ($value)"
+        sendEvent(name: "fanPower", value: valueEnum, descriptionText: descriptionText)
+        break
+    case "water_box_mode":
+        break
+    case "main_brush_life": 
+        break
+    case "main_brush_work_time":
+        Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.main*60*60)) * 100).toInteger())
+        descriptionText = "${device.displayName} main brush time remaining is $percentAvail%"
+        sendEvent(name: "remainingMainBrush", value: percentAvail, unit: "%", descriptionText: descriptionText)
+        break
+    case "side_brush_life":
+        break
+    case "side_brush_work_time":
+        Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.side*60*60)) * 100).toInteger())
+        descriptionText = "${device.displayName} side brush time remaining is $percentAvail%"
+        sendEvent(name: "remainingSideBrush", value: percentAvail, unit: "%", descriptionText: descriptionText)
+        break
+    case "filter_life":
+        break
+    case "filter_work_time":
+        Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.fltr*60*60)) * 100).toInteger())
+        descriptionText = "${device.displayName} filter time remaining is $percentAvail%"
+        sendEvent(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: descriptionText)
+        break
+    case "additional_props":
+        descriptionText = "${device.displayName} additional props is $value"
+        //sendEvent(name: "additional_props", value: value.toInteger(), descriptionText: descriptionText)
+        break
+    case "task_complete":
+        break
+    case "task_cancel_low_power":
+        break
+    case "task_cancel_in_motion":
+        break
+    case "charge_status":
+        break
+    case "drying_status":
+        break
+    case "sensor_dirty_time":
+        Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.sens*60*60)) * 100).toInteger())
+        descriptionText = "${device.displayName} sensor time remaining is $percentAvail%"
+        sendEvent(name: "remainingSensors", value: percentAvail, unit: "%", descriptionText: descriptionText)
+        break
+    case "filter_element_work_time":
+        break
+    case "dust_collection_work_times":
+        break
+    case "msg_ver":
+        break
+    case "msg_seq":
+        break
+    case "clean_time":
+        //Integer totalSeconds = value.toInteger()
+        //String timeString = String.format("%02d:%02d", (totalSeconds / 3600).intValue(), ((totalSeconds % 3600) / 60).intValue())
+        //descriptionText = "${device.displayName} clean time is $timeString (hh:mm)"
+        Integer totalMinutes = Math.ceil(value.toInteger()/60).toInteger()
+        descriptionText = "${device.displayName} clean time is $totalMinutes min"
+        sendEvent(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: descriptionText)
+        break
+    case "clean_area":
+        String unit = (areaUnit==null || areaUnit=="0") ? "ft²" : "m²"
+        Integer area = (unit=="ft²") ? value.toInteger() / 92903.04 : value.toInteger() / 1000000
+        descriptionText = "${device.displayName} clean area is $area $unit"
+        sendEvent(name: "cleanArea", value: area, unit: unit, descriptionText: descriptionText)
+        break
+    case "map_present":
+        break
+    case "in_cleaning":
+        String switchString = (value==0 ? "off" : "on")
+        descriptionText = "${device.displayName} cleaning value is $switchString ($value)"
+        sendEvent(name: "switch", value: switchString, descriptionText: descriptionText)        
+        break
+    case "in_returning":
+        break
+    case "in_fresh_state":
+        break
+    case "lab_status":
+        break
+    case "water_box_status":
+        break
+    case "dnd_enabled":
+        break
+    case "map_status":
+        break
+    case "is_locating":
+        String locatingString = (value==0 ? "false" : "true")
+        descriptionText = "${device.displayName} locating value is $locatingString ($value)"
+        sendEvent(name: "locating", value: locatingString, descriptionText: descriptionText)        
+        break
+    case "lock_status":
+        break
+    case "water_box_carriage_status":
+        break
+    case "mop_forbidden_enable":
+        break
+    case "camera_status":
+        break
+    case "is_exploring":
+        break
+    case "adbumper_status":
+        break
+    case "water_shortage_status":
+        break
+    case "dock_type":
+        break
+    case "dust_collection_status":
+        break
+    case "auto_dust_collection":
+        break
+    case "avoid_count":
+        break
+    case "mop_mode": 
+        String valueEnum = mopModeCodes[value?.toInteger()]?.toLowerCase() ?: value
+        descriptionText = "${device.displayName} mop mode is $valueEnum ($value)"
+        sendEvent(name: "mopMode", value: valueEnum, descriptionText: descriptionText)
+        break
+    case "debug_mode":
+        break
+    case "collision_avoid_status":
+        break
+    case "switch_map_mode":
+        break
+    case "dock_error_status":
+        break
+    case "unsave_map_reason":
+        break
+    case "unsave_map_flag":
+        break
+    case "clean_percent":
+        descriptionText = "${device.displayName} percent completed is $value%"
+        sendEvent(name: "cleanPercent", value: value.toInteger(), unit: "%", descriptionText: descriptionText)        
+        break
+    case "rss":
+        break
+    case "dss":
+        break
+    case "events":
+        break
+    case "switch_status":
+        break
+    default:
+        logWarn "${device.displayName} did not process code:$code with value:$value"     
+    }
+    if(descriptionText) logInfo descriptionText
+}
+
+void processMsg(Map message) {
+    logDebug "${device.displayName} executing 'processMsg($message)'"
+    // we have good connection to device since we got a message back from it.
+    setHealthStatusEvent(true)
+
+    message?.dps?.each { key,value ->        
+        // look up id and find the 'code' that was mapped in the home data. duid is used find the productID. 
+        Map home = getHomeDataResult()
+        String duid = getDeviceId()        
+        String productId = home?.devices?.find{ it.duid == duid }?.productId
+        String code = home?.products?.find{ it.id == productId }?.schema?.find { it.id == key }?.code
+        
+        if(code=="rpc_response") {
+            // lets get our command that should of sent this request
+            Map cmd = qPop()
+            executeQueue()
+            
+            def jsonValue = null
+            try {
+                jsonValue = (new JsonSlurper()).parseText( value )
+            } catch(e) {
+                logWarn "${device.displayName} message not json: message:$message value:$value"
+            }
+            
+            if(cmd?.id?.toInteger() != jsonValue?.id?.toInteger()) {
+                logDebug "${device.displayName} message unknown: command:$cmd result:$jsonValue"
+                //scheduleRefresh() // this wasn't our command, so lets schedule a refresh since we are tossing the command.
+                return
+            }
+       
+            if((cmd?.command=="get_prop" && cmd?.param==["get_status"]) || cmd?.command=="get_consumable") {
+                jsonValue?.result?.each{ result ->
+                    if(result?.battery?.toInteger()==100 && result?.state?.toInteger()==8) result.state=100
+                    result?.each{ c,v -> processEvent(c,v) }
+                }
+            }
+            else if(cmd?.command=="get_room_mapping") {
+                setRoomsValue(jsonValue)
+            }
+            else if(jsonValue?.result==["ok"] || jsonValue?.result==["OK"]) {
+                logInfo "${device.displayName} command $cmd.command was accepted"
+            }                
+            else {
+                logWarn "${device.displayName} message not handled: command:$cmd result:$jsonValue"
+            }
+        }
+        else {            
+            processEvent(code,value)
+            scheduleRefresh()
+        }         
+    } 
+}
+
+void setRoomsValue(Map get_room_mapping) {
+    logDebug "${device.displayName} executing 'setRoomsValue()'"
+    Map roomsMap = getHomeDataResult()?.rooms?.collectEntries { [(it.id.toString()): it.name] }
+    if(roomsMap && get_room_mapping) {
+        List rooms = get_room_mapping?.result.collect { mapping ->
+            String roomId = mapping[1].toString()
+            String roomName = roomsMap[roomId]
+            return [mapping[0], roomName]
+        }
+        processEvent("rooms", rooms?.sort{ a, b -> a[0] <=> b[0] })
+    }
+}
+
+void setHealthStatusEvent(Boolean mqttClientStatus) {
+    Boolean deviceOnline = getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.online
+    String healthStatus = mqttClientStatus && deviceOnline ? "online" : "offline"
+    processEvent("healthStatus", healthStatus)
+}
+
+def parse(String message) {
+    logDebug "${device.displayName} executing 'parse()'"
+    Map mqttMessage = interfaces.mqtt.parseMessage(message)
+    parse( mqttMessage.topic, mqttMessage.payload.decodeHex() )
+}          
+
+def parse(String topic, byte[] message) {
+    String deviceId = topic.split('/')[-1]
+    String localKey = getLocalKey(deviceId)
+    logDebug "${device.displayName} parse deviceId:$deviceId, localKey:$localKey, topic:$topic"
+    //  .endianess('big')
+    //  .string('version', {length: 3})
+    //  .uint32('seq')
+    //  .uint32('random')
+    //  .uint32('timestamp')
+    //  .uint16('protocol')
+    //  .uint16('payloadLen')
+    //  .buffer('payload', {length: 'payloadLen'})
+    //  .uint32('crc32');
+    // Extract version as string
+    String version = bytesToString(message, 0, 3)
+    // Do some checks
+    if (version!="1.0") {// && version!="A01") {
+	    logWarn "${device.displayName} parse was not version as expected:$version, Message: ${message.encodeHex()}"
+	    return
+	}
+    Integer crc32 = CRC32(message, message.length - 4)
+	Integer expectedCrc32 = readInt32BE(message, message.length - 4)
+	if (crc32 != expectedCrc32) {
+        logWarn "${device.displayName} parse was not crc32:${(crc32 & 0xFFFFFFFFL)} as expected:${(expectedCrc32 & 0xFFFFFFFFL)}, Message: ${message.encodeHex()}"
+        return
+	}    
+
+    Integer sequence   = readInt32BE(message, 3)
+    Integer random     = readInt32BE(message, 7)
+    Integer timestamp  = readInt32BE(message, 11)
+    Integer protocol   = readInt16BE(message, 15)
+    if(protocol!=102) return // WE DONT HANDLE IMAGES YET
+    Integer payloadLen = readInt16BE(message, 17)
+    byte[] payload = message[19..(19+payloadLen-1)]    
+    logTrace "payloadLen:$payloadLen, payload:${payload.length}, byte0:${ String.format("%02x", payload[0] & 0xFF) }"
+    logTrace "payload: ${payload.encodeHex()}"    
+    logDebug "${device.displayName} parsed message deviceId:$deviceId, version:${version}, sequence:${sequence}, random:${random}, timestamp:${timestamp}, protocol:${protocol}, payloadLen:${payloadLen}, crc32:${Integer.toHexString(crc32)}"
+    
+    String key = encodeTimestamp(timestamp) + localKey + salt   
+    byte[] result = decrypt(payload, key)
+    
+    Map jsonObject = [:]
+    if(protocol==102) {
+        try {
+             jsonObject = (new JsonSlurper()).parseText( new String(result, "UTF-8") )            
+        } catch(e) {
+            logWarn "${device.displayName} payload was not json. protocol:$protocol, length:${result.length}"
+        }
+    } else {
+        logDebug "${device.displayName} payload protocol:$protocol, length:${result.length}"
+    }
+    if(!jsonObject.isEmpty()) {
+       processMsg( jsonObject )
+    }    
+}
+
+Integer publish(String deviceId, method, params, Integer id) {
+    logDebug "${device.displayName} executing 'publish($deviceId, $method, $params)'" 
+    
+    Integer timestamp = (Integer)(now() / 1000)
+    Integer protocol = 101    
+ 
+    Map inner = [id:id, method:method, params:params]
+    String payload = JsonOutput.toJson( [t:timestamp, dps:["$protocol": JsonOutput.toJson(inner)]] )
+
+    byte[] message = build(deviceId, protocol, timestamp, payload.getBytes("UTF-8"))
+    
+    Map rriot = getLoginData()?.rriot
+    String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
+    
+    String topic = "rr/m/i/${rriot.u}/${mqttUser}/${deviceId}"
+    logInfo "${device.displayName} publishing topic:'$topic'"
+    interfaces.mqtt.publish(topic, message.encodeHex().toString())
+    
+    return requestId
+}
+
+byte[] build(String deviceId, Integer protocol, Integer timestamp, byte[] payload) {
+    
+    String localKey = getLocalKey(deviceId)
+    String key = encodeTimestamp(timestamp) + localKey + salt   
+    byte[] encrypted = encrypt(payload, key)
+    
+    Random random = new Random()
+    Integer randomInt = random.nextInt(900000) + 100000
+    
+    int totalLength = 23 + encrypted.length
+    byte[] msg = new byte[totalLength]
+    // Writing fixed string '1.0'
+    msg[0] = 49 // ASCII for '1'
+    msg[1] = 46 // ASCII for '.'
+    msg[2] = 48 // ASCII for '0'
+    writeInt32BE(msg, (Integer)(state.sequence & 0xFFFFFFFF), 3)
+    writeInt32BE(msg, (Integer)(randomInt & 0xFFFFFFFF), 7)
+    writeInt32BE(msg, timestamp, 11)
+    writeInt16BE(msg, protocol, 15)
+    writeInt16BE(msg, encrypted.length, 17)
+    // Manually copying encrypted data into msg
+    for (Integer i = 0; i < encrypted.length; i++) {
+        msg[19 + i] = encrypted[i]
+    }
+    Integer crc32 = CRC32(msg, msg.length - 4)
+    writeInt32BE(msg, crc32, msg.length - 4)
+
+    return msg
+}
+
+byte[] decrypt(byte[] payload, String key) { 
+    byte[] aesKeyBytes = md5bin(key);    
+    Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding ")
+	SecretKeySpec keySpec = new SecretKeySpec(aesKeyBytes, "AES")
+	cipher.init(Cipher.DECRYPT_MODE, keySpec)
+    return cipher.doFinal(payload)
+}
+
+byte[] encrypt(byte[] payload, String key) {
+    byte[] aesKeyBytes = md5bin(key)
+    Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
+    SecretKeySpec keySpec = new SecretKeySpec(aesKeyBytes, "AES")
+    cipher.init(Cipher.ENCRYPT_MODE, keySpec)
+    return cipher.doFinal(payload)
+}
+
+Integer CRC32(bytes, length) {
+    def crc = 0xFFFFFFFF
+    for (int i = 0; i < length; i++) {
+        def b = bytes[i] & 0xFF // Make sure the byte is treated as unsigned
+        crc = crc ^ b
+        for (int j = 7; j >= 0; j--) {
+            def mask = -(crc & 1)
+            crc = (crc >>> 1) ^ (0xEDB88320 & mask) // Use unsigned right shift
+        }
+    }
+    return (crc ^ 0xFFFFFFFFL)
+}
+
+String bytesToString(byte[] data, Integer start, Integer length) {
+    return (new String( (byte[])(data[start..<start+length]), "UTF-8"))
+}
+
+Integer readInt32BE(byte[] data, Integer start) {
+    return (((data[start] & 0xFF) << 24) | ((data[start+1] & 0xFF) << 16) | ((data[start+2] & 0xFF) << 8) | (data[start+3] & 0xFF))
+}
+
+Integer readInt16BE(byte[] data, Integer start) {
+    return (((data[start] & 0xFF) << 8) | (data[start+1] & 0xFF))
+}
+
+void writeInt32BE(byte[] msg, Integer value, Integer start) {
+    msg[start + 0] = (byte) ((value >> 24) & 0xFF)
+    msg[start + 1] = (byte) ((value >> 16) & 0xFF)
+    msg[start + 2] = (byte) ((value >> 8) & 0xFF)
+    msg[start + 3] = (byte) (value & 0xFF)
+}
+
+void writeInt16BE(byte[] msg, Integer value, Integer start) {
+    msg[start + 0] = (byte) ((value >> 8) & 0xFF)
+    msg[start + 1] = (byte) (value & 0xFF)
+}
+
+byte[] md5bin(String input) {
+    MessageDigest md = MessageDigest.getInstance("MD5")
+    return md.digest(input.getBytes("UTF-8"))
+}
+
+String md5hex(String input) {
+    MessageDigest md = MessageDigest.getInstance("MD5")
+    return md.digest(input.getBytes("UTF-8")).encodeHex()
+}
+
+String datetimestring() {
+    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    return sdf.format(new Date())
+}
+
+String encodeTimestamp(int timestamp) {
+    // Convert the timestamp to a hexadecimal string and pad it to ensure it's at least 8 characters
+    String hex = new BigInteger(Long.toString(timestamp)).toString(16).padLeft(8, '0')
+    List<String> hexChars = hex.toList()
+    // Define the order in which to rearrange the hexadecimal characters
+    int[] order = [5, 6, 3, 7, 1, 2, 0, 4]
+    String result = order.collect { hexChars[it] }.join('')
+    return result
+}
+
+// Helper method to check if a string is numeric
+String.metaClass.isNumber = {
+    delegate ==~ /-?\d+(\.\d+)?/
+}
+
+def convertNumbers(element) {
+    if (element instanceof List) {
+        // Element is a List; recursively convert each item in the list
+        return element.collect { convertNumbers(it) }
+    } else if (element instanceof Map) {
+        // Element is a Map; recursively convert each value in the map
+        return element.collectEntries { key, value -> [(key): convertNumbers(value)] }
+    } else if (element instanceof String) {
+        // Element is a String; attempt to convert to a number if possible
+        if (element.isNumber()) {
+            return element.contains('.') ? element.toFloat() : element.toInteger()
+        } else {
+            // Keep as String
+            return element
+        }
+    } else {
+        // For all other types, return the element as is
+        return element
+    }
+}
+
+String getHawkAuthentication(String id, String secret, String key, String path) {
+    Integer timestamp = now() / 1000
+    String nonce = UUID.randomUUID().toString().replaceAll('-', '').take(8)
+    String prestr = "$id:$secret:${nonce}:${timestamp}:${md5hex(path)}::"
+    
+    Mac mac = Mac.getInstance("HmacSHA256")
+    SecretKeySpec secretKeySpec = new SecretKeySpec(key?.getBytes("UTF-8"), "HmacSHA256")
+    mac.init(secretKeySpec)
+    byte[] macBytes = mac.doFinal(prestr.getBytes("UTF-8"))
+    String macString = macBytes.encodeBase64().toString()
+
+    return "Hawk id=\"${id}\", s=\"${secret}\", ts=\"${timestamp}\", nonce=\"${nonce}\", mac=\"${macString}\""
+}
+
+String generateHash(String username) {
+    MessageDigest md = MessageDigest.getInstance("MD5")
+    byte[] initialHash = md.digest(username.bytes)
+    byte[] saltedHash = md.digest((new String(initialHash) + "${device.deviceNetworkId}").bytes) //adding device.deviceNetworkId to ensure we are unique
+    return saltedHash.encodeBase64().toString()
+}
+
+Map login() {   
+    String uri = settings.regionUri //"https://usiot.roborock.com" or "https://euiot.roborock.com"
+    String path = "/api/v1/login"
+    String queryString = "username=${URLEncoder.encode(settings.username, 'UTF-8')}&" + "password=${URLEncoder.encode(settings.password, 'UTF-8')}&" + "needtwostepauth=${URLEncoder.encode('false', 'UTF-8')}"
+    // Hash the username with MD5 and encode it to Base64 for the client ID header
+    String headerClientId = generateHash(settings.username)
+    Map headers = ['header_clientid':headerClientId]   
+    
+    Map response = [:]
+    httpPostJson(uri:uri, path:path, queryString:queryString, headers:headers) { resp ->
+        if(resp.status == 200) {
+            storeJsonState( "login", datetimestring(), resp.data )
+            response = resp.data
+        } else {
+            logWarn "${device.displayName} 'getToken()' failure. Status code:${response.getStatus()}"
+        }
+    }
+    g_mGetLoginData[device.getIdAsLong()]?.clear()
+    g_mGetLoginData[device.getIdAsLong()] = null
+    return response
+}
+
+void getHomeDetail() {
+    Map params = [
+        uri:  settings.regionUri,
+        path: "/api/v1/getHomeDetail",
+        headers: ['header_clientid':(md5hex(settings.username).bytes.encodeBase64().toString()), 'Authorization': (getLoginData()?.token) ]
+    ]
+    try {
+	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeDetail", store: "homeDetail"])
+	} catch (e) {
+	    logWarn "${device.displayName} 'getHomeDetail' asynchttpGet() error: $e"
+	}
+}
+
+void getHomeData() {
+    Map rriot = getLoginData()?.rriot
+    String rrHomeId = getHomeDetailData()?.rrHomeId
+    String path = "/v2/user/homes/$rrHomeId" // or "/user/homes/$rrHomeId",
+    Map params = [
+        uri: rriot?.r?.a,
+        path: path,
+        headers: [ 'Authorization': getHawkAuthentication(rriot?.u, rriot?.s, rriot?.h, path) ]
+    ]
+    try {
+	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeData", store: "homeData"])
+	} catch (e) {
+	    logWarn "${device.displayName} 'getHomeData' asynchttpGet() error: $e"
+	}
+}
+
+void getHomeRooms() {
+    Map rriot = getLoginData()?.rriot
+    String rrHomeId = getHomeDetailData()?.rrHomeId
+    String path   = "/user/homes/$rrHomeId/rooms"
+    Map params = [
+        uri: rriot?.r?.a,
+        path: path,
+        headers: [ 'Authorization': getHawkAuthentication(rriot?.u, rriot?.s, rriot?.h, path) ]
+    ]
+    try {
+	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeRooms", store: "homeRooms"])
+	} catch (e) {
+	    logWarn "${device.displayName} 'getHomeRooms' asynchttpGet() error: $e"
+	}
+}
+
+void asyncHttpCallback(resp, data) {
+    logDebug "${device.displayName} executing 'asyncHttpCallback()' status: ${resp.status} method: ${data?.method}"
+    
+    if (resp.status == 200) {
+        resp.headers.each { logTrace "${it.key} : ${it.value}" }
+        logTrace "response data: ${resp.data}"
+        Map respJson = new JsonSlurper().parseText(resp.data)
+        respJson.timestamp = now() // not used for anything yet.
+        switch(data?.method) { 
+            case "getHomeDetail":               
+                storeJsonState( data?.store, datetimestring(), respJson )
+                g_mGetHomeDetail[device.getIdAsLong()]?.clear()
+                g_mGetHomeDetail[device.getIdAsLong()] = null
+                getHomeData()
+                break
+            case "getHomeData":
+                storeJsonState( data?.store, datetimestring(), respJson )
+                g_mGetHomeData[device.getIdAsLong()]?.clear()
+                g_mGetHomeData[device.getIdAsLong()] = null
+                getHomeDataCallback()
+                break
+            case "getHomeRooms":
+                storeJsonState( data?.store, datetimestring(), respJson )
+                break
+            default:
+                logWarn "${device.displayName} asyncHttpGetCallback() ${data?.method} not supported"
+                if (resp?.data) { logInfo resp.data }
+        }
+    }
+    else {
+        logWarn("${device.displayName} asyncHttpGetCallback() ${data?.method} status:${resp.status}")
+    }
+}
+
+void storeJsonState(String name, String visible, Map hidden) {
+    String encoded64 = JsonOutput.toJson(hidden).getBytes("UTF-8").encodeBase64().toString()
+    state[name] = """<root><span class="visible-data">${visible} [${encoded64.size()}]</span><span class="hidden-data" style="display:none;" data-hidden="${encoded64}">${name} placeholder</span></root>"""
+}
+
+Map fetchJsonState(String name) {
+    if(state?."$name"==null) return [:]
+    def slurper = new XmlSlurper().parseText((state[name]))
+    //String visibleText = slurper.span.find { it.@class == 'visible-data' }?.text()
+    String encodedData = slurper?.span?.find { it.@class == 'hidden-data' }?.@'data-hidden'
+    return parseJsonFromBase64( encodedData )
+}
+
+// Function to find the 'next' device given a 'duid'
+String findNextDevice(String duid=null) {
+    List sortedDevices = getHomeDataResult()?.devices.sort{ a, b -> a.duid <=> b.duid }
+    Integer currentIndex = -1    
+    // Check if duid is not null
+    if(duid != null) {
+        // Attempt to find the index of the device with the given duid
+        currentIndex = sortedDevices.findIndexOf { it.duid == duid }
+    }    
+    // If duid is null or the device is not found, return the first device
+    if(duid == null || currentIndex == -1) {
+        return sortedDevices[0]?.duid
+    }    
+    // Calculate the index of the next device, wrapping around if necessary
+    Integer nextIndex = (currentIndex + 1) % sortedDevices.size()    
+    // Retrieve and return the next device
+    return sortedDevices[nextIndex]?.duid
+}
+
+String getDeviceId() {
+    state.duid = state?.duid ?: findNextDevice()
+    return state.duid    
+}
+
+String getLocalKey(String deviceId) {
+   return getHomeDataResult()?.devices?.find { it.duid == deviceId }?.localKey
+}
+
+@Field volatile static Map<Long,Map> g_mGetLoginData = [:]
+Map getLoginData() {
+    if(g_mGetLoginData[device.getIdAsLong()] == null) {
+        logInfo "${device.displayName} executing 'getLoginData()' cache"
+        g_mGetLoginData[device.getIdAsLong()] = fetchJsonState("login")
+    } 
+    return g_mGetLoginData[device.getIdAsLong()]?.data ?: [:]
+}
+
+@Field volatile static Map<Long,Map> g_mGetHomeDetail = [:]
+Map getHomeDetailData() {
+    if(g_mGetHomeDetail[device.getIdAsLong()] == null) {
+        logInfo "${device.displayName} executing 'getHomeDetailData()' cache"
+        g_mGetHomeDetail[device.getIdAsLong()] = fetchJsonState("homeDetail")
+    }
+    return g_mGetHomeDetail[device.getIdAsLong()]?.data ?: [:]
+}
+
+@Field volatile static Map<Long,Map> g_mGetHomeData = [:]
+Map getHomeDataResult() {
+    if(g_mGetHomeData[device.getIdAsLong()] == null) {
+        logInfo "${device.displayName} executing 'getHomeDataResult()' cache"
+        g_mGetHomeData[device.getIdAsLong()] = fetchJsonState("homeData")
+    } 
+    return g_mGetHomeData[device.getIdAsLong()]?.result ?: [:]
+}
+
+// needed a queue to manage publish messages, otherwise the broker will toss them. 
+@Field volatile static Map<Long,Map> qQueue = [:]
+private List qGet() {
+    if(!qQueue[device.getIdAsLong()]) qQueue[device.getIdAsLong()] = []
+    return qQueue[device.getIdAsLong()]
+}
+    
+void qPush(Map map) {
+    qGet().removeIf { now() > it?.ts + 5000 } //remove anything older than 5 seconds
+    map.ts = now() // Add timestamp
+    qGet() << map  // Append map to the end of the list
+}
+
+void qClear() {
+    qGet().clear()
+}
+
+Map qPop() {
+    if(qGet().size() > 0) {
+        return qGet().remove(0)  // Remove and return the first element
+    }
+    return null
+}
+
+Map qPeek() {
+    return qGet().isEmpty() ? null : qGet()[0]
+}
+
+Boolean qIsEmpty() {
+    return qGet().isEmpty()
+}
+
+Integer qSize() {
+    return qGet().size()
+}
+
+//https://github.com/copystring/ioBroker.roborock/blob/621351f58c6ef6c2d6cd2b9d7525cb8ca763ede8/lib/deviceFeatures.js
+@Field static final Map errorCodes = [
+	0: "No error",
+	1: "Laser sensor fault",
+	2: "Collision sensor fault",
+	3: "Wheel floating",
+	4: "Cliff sensor fault",
+	5: "Main brush blocked",
+	6: "Side brush blocked",
+	7: "Wheel blocked",
+	8: "Device stuck",
+	9: "Dust bin missing",
+	10: "Filter blocked",
+	11: "Magnetic field detected",
+	12: "Low battery",
+	13: "Charging problem",
+	14: "Battery failure",
+	15: "Wall sensor fault",
+	16: "Uneven surface",
+	17: "Side brush failure",
+	18: "Suction fan failure",
+	19: "Unpowered charging station",
+	20: "Unknown Error",
+	21: "Laser pressure sensor problem",
+	22: "Charge sensor problem",
+	23: "Dock problem",
+	24: "No-go zone or invisible wall detected",
+	254: "Bin full",
+	255: "Internal error",
+]
+           
+@Field static final Map stateCodes  = [
+	0: "Unknown",
+	1: "Initiating",
+	2: "Sleeping",
+	3: "Idle",
+	4: "Remote Control",
+	5: "Cleaning",
+	6: "Returning Dock",
+	7: "Manual Mode",
+	8: "Charging",
+	9: "Charging Error",
+	10: "Paused",
+	11: "Spot Cleaning",
+	12: "In Error",
+	13: "Shutting Down",
+	14: "Updating",
+	15: "Docking",
+	16: "Go To",
+	17: "Zone Clean",
+	18: "Room Clean",
+	22: "Empying dust container",
+	23: "Washing the mop",
+	26: "Going to wash the mop",
+	28: "In call",
+	29: "Mapping",
+	100: "Charged",
+]
+
+@Field static final Map fanPowerCodes  = [
+	101: "Quiet",
+	102: "Balanced",
+	103: "Turbo",
+	104: "Max",
+    105: "Off",
+]
+
+@Field static final Map mopModeCodes  = [
+	300: "Standard",
+	301: "Deep",
+	303: "Deep+",
+]
+
+private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
+private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
+private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
+private logWarn(msg)  { log.warn   "${msg}" }
+private logError(msg) { log.error  "${msg}" }
