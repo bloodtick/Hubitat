@@ -1,0 +1,23 @@
+{
+    "packageName": "Roborock Robot Vacuum",
+    "author": "Bloodtick Jones",
+    "minimumHEVersion": "2.3.8",
+    "category": "Integrations",
+    "tags": [
+        "Automations & Groups",
+        "Cloud",
+        "Tools & Utilities"
+    ],
+    "dateReleased": "2024-04-18",
+    "releaseNotes": "Intial Beta release.\n",
+    "version": "0.9.0",
+    "drivers": [
+        {
+            "id": "f33dcb2f-3c85-4f92-9f1f-5edce5a3ffa1",
+            "name": "Roborock Robot Vacuum Beta",
+            "namespace": "bloodtick",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/roborockRobotVacuum/roborockRobotVacuum.groovy",
+            "required": true
+        }
+    ]
+}
