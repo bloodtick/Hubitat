@@ -13,6 +13,18 @@
                 "Tools & Utilities"
             ],
             "id": "4611a36f-d271-4e2b-ab89-55a41a5ab133"
+        },
+        {
+            "name": "Roborock Robot Vacuum",
+            "category": "Integrations",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubitat-packages/manifests/manifestRoborockRobotVacuum.json",
+            "description": "Hubitat Driver to integrate with Roborock Robot Vacuums. Requires user account and password from mobile application to enable.",
+            "tags": [
+                "Automations & Groups",
+                "Cloud",
+                "Tools & Utilities"
+            ],
+            "id": "af491546-4b6f-41e4-9f19-cd10cef142ca"
         }
     ]
 }
