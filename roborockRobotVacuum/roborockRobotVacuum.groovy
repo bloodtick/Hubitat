@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "0.9.0"}
+public static String version() {return "0.9.1"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -49,23 +49,15 @@ metadata {
         // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
         // Use Hubitat 'Button Controller' built in app to set commands to run.
         capability "PushableButton"
-        //https://developer.smartthings.com/docs/devices/capabilities/capabilities-reference#robotCleanerCleaningMode
-        
-        command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
-        
+
         command "appClean"
         command "appDock"
         command "appPause"
-        command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Comma delmited room ids"]]
+        command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Clean order comma delmited room ids"]]
         command "appRoomResume"
         command "appSelectDevice"
+        command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
         
-        //command "connect"
-        //command "disconnect"
-        //command "subscribe"
-        //command "test"
-    
-        //attribute "additional_props", "number"
         attribute "name", "string"
         attribute "rooms", "JSON_OBJECT"
         attribute "state", "string"    
@@ -137,25 +129,8 @@ def initialize() {
     }
 }
 
-def test() {
-}
-
-void getHomeDataCallback() {
-    logDebug "${device.displayName} executing 'getHomeDataCallback()'"
-    logInfo "${device.displayName} device id is ${getDeviceId()}"    
-    if( !interfaces.mqtt.isConnected() ) {
-        runIn(3, "connect")
-    } else {
-       updateHomeData()
-    }
-}
-
-void updateHomeData() {
-    logDebug "${device.displayName} executing 'updateHomeData()'"
-    execute("get_consumable")
-    execute("get_room_mapping")
-    String name = getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.name ?: "unknown"
-    sendEvent(name: "name", value: name, descriptionText: "${device.displayName} name set to $name")
+def push(buttonNumber) {
+    sendEvent(name: "pushed", value: buttonNumber, isStateChange: true)
 }
 
 def appClean() { execute("app_start") }
@@ -176,18 +151,33 @@ def appSelectDevice() {
 def on() { appClean() }
 def off() { appDock() }
 
-def push(buttonNumber) {
-    sendEvent(name: "pushed", value: buttonNumber, isStateChange: true)
+void getHomeDataCallback() {
+    logDebug "${device.displayName} executing 'getHomeDataCallback()'"
+    logInfo "${device.displayName} device id is ${getDeviceId()}"    
+    if( !interfaces.mqtt.isConnected() ) {
+        runIn(3, "connect")
+    } else {
+       updateHomeData()
+    }
+}
+
+void updateHomeData() {
+    logDebug "${device.displayName} executing 'updateHomeData()'"    
+    execute("get_room_mapping")
+    String name = getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.name ?: "unknown"
+    processEvent("name", name)
 }
 
 def refresh(Map data=[type:1]) {
     logDebug "${device.displayName} executing 'refresh($data)'"
 
-    execute("get_prop", """["get_status"]""")    
+    execute("get_prop", """["get_status"]""")
+    if(device.currentValue("switch")=="on") execute("get_consumable")    
     if(data?.type==1) getHomeData()
 }
 
 def execute(String command, String args=null) {
+    // I have no idea if this conversion works for everything. It works for somethings... ;) 
     def param = args ? convertNumbers((new JsonSlurper().parseText(args))) : []
     logInfo "${device.displayName} executing execute(command:$command, param:$param)"
     
@@ -274,17 +264,25 @@ void unsubscribe() {
     interfaces.mqtt.unsubscribe(topic)
 }
 
+void sendEventX(Map e) {
+    if(device.currentValue(e?.name).toString() != e?.value.toString()) {
+        sendEvent(name: e?.name, value: e?.value, unit: e?.unit, descriptionText: e?.descriptionText, isStateChange: (e?.isStateChange ?: false))
+        if(e?.descriptionText) logInfo (e?.descriptionText)
+    }
+}
+
 void processEvent(String name, def value) {
-    logDebug "${device.displayName} executing 'processEvent($name, $value)'"
+    logTrace "${device.displayName} executing 'processEvent($name, $value)'"
     String descriptionText = null    
     switch(name) {
+    case "name":
+        sendEventX(name: "name", value: value, descriptionText: "${device.displayName} name set to $value")
+        break    
     case "healthStatus":
-        descriptionText = "${device.displayName} healthStatus set to $value"
-        sendEvent(name: "healthStatus", value: value, descriptionText: descriptionText)
+        sendEventX(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
         break
     case "rooms":
-        descriptionText = "${device.displayName} rooms set to $value"
-        sendEvent(name: "rooms", value: value)
+        sendEventX(name: "rooms", value: value, descriptionText: "${device.displayName} rooms set to $value")
         break
     case "rpc_request":
         break
@@ -292,22 +290,18 @@ void processEvent(String name, def value) {
         break
     case "error_code":
         String valueEnum = errorCodes[value?.toInteger()]?.toLowerCase() ?: value
-        descriptionText = "${device.displayName} error is $valueEnum ($value)"
-        sendEvent(name: "error", value: valueEnum, descriptionText: descriptionText)
+        sendEventX(name: "error", value: valueEnum, descriptionText: "${device.displayName} error is $valueEnum ($value)")
         break
     case "state":
         String valueEnum = stateCodes[value?.toInteger()]?.toLowerCase() ?: value
-        descriptionText = "${device.displayName} state is $valueEnum ($value)"
-        sendEvent(name: "state", value: valueEnum, descriptionText: descriptionText)
+        sendEventX(name: "state", value: valueEnum, descriptionText: "${device.displayName} state is $valueEnum ($value)")
         break
     case "battery": 
-        descriptionText = "${device.displayName} battery level is $value%"
-        sendEvent(name: "battery", value: value.toInteger(), unit: "%", descriptionText: descriptionText)
+        sendEventX(name: "battery", value: value.toInteger(), unit: "%", descriptionText: "${device.displayName} battery level is $value%")
         break
     case "fan_power":
         String valueEnum = fanPowerCodes[value?.toInteger()]?.toLowerCase() ?: value
-        descriptionText = "${device.displayName} fan power is $valueEnum ($value)"
-        sendEvent(name: "fanPower", value: valueEnum, descriptionText: descriptionText)
+        sendEventX(name: "fanPower", value: valueEnum, descriptionText: "${device.displayName} fan power is $valueEnum ($value)")
         break
     case "water_box_mode":
         break
@@ -315,25 +309,22 @@ void processEvent(String name, def value) {
         break
     case "main_brush_work_time":
         Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.main*60*60)) * 100).toInteger())
-        descriptionText = "${device.displayName} main brush time remaining is $percentAvail%"
-        sendEvent(name: "remainingMainBrush", value: percentAvail, unit: "%", descriptionText: descriptionText)
+        sendEventX(name: "remainingMainBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} main brush time remaining is $percentAvail%")
         break
     case "side_brush_life":
         break
     case "side_brush_work_time":
         Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.side*60*60)) * 100).toInteger())
-        descriptionText = "${device.displayName} side brush time remaining is $percentAvail%"
-        sendEvent(name: "remainingSideBrush", value: percentAvail, unit: "%", descriptionText: descriptionText)
+        sendEventX(name: "remainingSideBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} side brush time remaining is $percentAvail%")
         break
     case "filter_life":
         break
     case "filter_work_time":
         Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.fltr*60*60)) * 100).toInteger())
-        descriptionText = "${device.displayName} filter time remaining is $percentAvail%"
-        sendEvent(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: descriptionText)
+        sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "${device.displayName} filter time remaining is $percentAvail%")
         break
     case "additional_props":
-        descriptionText = "${device.displayName} additional props is $value"
+        //descriptionText = "${device.displayName} additional props is $value"
         //sendEvent(name: "additional_props", value: value.toInteger(), descriptionText: descriptionText)
         break
     case "task_complete":
@@ -348,8 +339,7 @@ void processEvent(String name, def value) {
         break
     case "sensor_dirty_time":
         Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.sens*60*60)) * 100).toInteger())
-        descriptionText = "${device.displayName} sensor time remaining is $percentAvail%"
-        sendEvent(name: "remainingSensors", value: percentAvail, unit: "%", descriptionText: descriptionText)
+        sendEventX(name: "remainingSensors", value: percentAvail, unit: "%", descriptionText: "${device.displayName} sensor time remaining is $percentAvail%")
         break
     case "filter_element_work_time":
         break
@@ -364,21 +354,18 @@ void processEvent(String name, def value) {
         //String timeString = String.format("%02d:%02d", (totalSeconds / 3600).intValue(), ((totalSeconds % 3600) / 60).intValue())
         //descriptionText = "${device.displayName} clean time is $timeString (hh:mm)"
         Integer totalMinutes = Math.ceil(value.toInteger()/60).toInteger()
-        descriptionText = "${device.displayName} clean time is $totalMinutes min"
-        sendEvent(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: descriptionText)
+        sendEventX(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: "${device.displayName} clean time is $totalMinutes min")
         break
     case "clean_area":
         String unit = (areaUnit==null || areaUnit=="0") ? "ft²" : "m²"
         Integer area = (unit=="ft²") ? value.toInteger() / 92903.04 : value.toInteger() / 1000000
-        descriptionText = "${device.displayName} clean area is $area $unit"
-        sendEvent(name: "cleanArea", value: area, unit: unit, descriptionText: descriptionText)
+        sendEventX(name: "cleanArea", value: area, unit: unit, descriptionText: "${device.displayName} clean area is $area $unit")
         break
     case "map_present":
         break
     case "in_cleaning":
         String switchString = (value==0 ? "off" : "on")
-        descriptionText = "${device.displayName} cleaning value is $switchString ($value)"
-        sendEvent(name: "switch", value: switchString, descriptionText: descriptionText)        
+        sendEventX(name: "switch", value: switchString, descriptionText: "${device.displayName} cleaning value is $switchString ($value)")        
         break
     case "in_returning":
         break
@@ -394,8 +381,7 @@ void processEvent(String name, def value) {
         break
     case "is_locating":
         String locatingString = (value==0 ? "false" : "true")
-        descriptionText = "${device.displayName} locating value is $locatingString ($value)"
-        sendEvent(name: "locating", value: locatingString, descriptionText: descriptionText)        
+        sendEventX(name: "locating", value: locatingString, descriptionText: "${device.displayName} locating value is $locatingString ($value)")        
         break
     case "lock_status":
         break
@@ -421,8 +407,7 @@ void processEvent(String name, def value) {
         break
     case "mop_mode": 
         String valueEnum = mopModeCodes[value?.toInteger()]?.toLowerCase() ?: value
-        descriptionText = "${device.displayName} mop mode is $valueEnum ($value)"
-        sendEvent(name: "mopMode", value: valueEnum, descriptionText: descriptionText)
+        sendEventX(name: "mopMode", value: valueEnum, descriptionText: "${device.displayName} mop mode is $valueEnum ($value)")
         break
     case "debug_mode":
         break
@@ -437,8 +422,7 @@ void processEvent(String name, def value) {
     case "unsave_map_flag":
         break
     case "clean_percent":
-        descriptionText = "${device.displayName} percent completed is $value%"
-        sendEvent(name: "cleanPercent", value: value.toInteger(), unit: "%", descriptionText: descriptionText)        
+        sendEventX(name: "cleanPercent", value: value.toInteger(), unit: "%", descriptionText: "${device.displayName} percent completed is $value%")        
         break
     case "rss":
         break
@@ -603,7 +587,7 @@ Integer publish(String deviceId, method, params, Integer id) {
     String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
     
     String topic = "rr/m/i/${rriot.u}/${mqttUser}/${deviceId}"
-    logInfo "${device.displayName} publishing topic:'$topic'"
+    logDebug "${device.displayName} publishing topic:'$topic'"
     interfaces.mqtt.publish(topic, message.encodeHex().toString())
     
     return requestId
@@ -867,7 +851,7 @@ void asyncHttpCallback(resp, data) {
 
 void storeJsonState(String name, String visible, Map hidden) {
     String encoded64 = JsonOutput.toJson(hidden).getBytes("UTF-8").encodeBase64().toString()
-    state[name] = """<root><span class="visible-data">${visible} [${encoded64.size()}]</span><span class="hidden-data" style="display:none;" data-hidden="${encoded64}">${name} placeholder</span></root>"""
+    state[name] = """<root><span class="visible-data">[ date: ${visible}, size: ${encoded64.size()} ]</span><span class="hidden-data" style="display:none;" data-hidden="${encoded64}">${name} placeholder</span></root>"""
 }
 
 Map fetchJsonState(String name) {
@@ -909,7 +893,7 @@ String getLocalKey(String deviceId) {
 @Field volatile static Map<Long,Map> g_mGetLoginData = [:]
 Map getLoginData() {
     if(g_mGetLoginData[device.getIdAsLong()] == null) {
-        logInfo "${device.displayName} executing 'getLoginData()' cache"
+        logDebug "${device.displayName} executing 'getLoginData()' cache"
         g_mGetLoginData[device.getIdAsLong()] = fetchJsonState("login")
     } 
     return g_mGetLoginData[device.getIdAsLong()]?.data ?: [:]
@@ -918,7 +902,7 @@ Map getLoginData() {
 @Field volatile static Map<Long,Map> g_mGetHomeDetail = [:]
 Map getHomeDetailData() {
     if(g_mGetHomeDetail[device.getIdAsLong()] == null) {
-        logInfo "${device.displayName} executing 'getHomeDetailData()' cache"
+        logDebug "${device.displayName} executing 'getHomeDetailData()' cache"
         g_mGetHomeDetail[device.getIdAsLong()] = fetchJsonState("homeDetail")
     }
     return g_mGetHomeDetail[device.getIdAsLong()]?.data ?: [:]
@@ -927,7 +911,7 @@ Map getHomeDetailData() {
 @Field volatile static Map<Long,Map> g_mGetHomeData = [:]
 Map getHomeDataResult() {
     if(g_mGetHomeData[device.getIdAsLong()] == null) {
-        logInfo "${device.displayName} executing 'getHomeDataResult()' cache"
+        logDebug "${device.displayName} executing 'getHomeDataResult()' cache"
         g_mGetHomeData[device.getIdAsLong()] = fetchJsonState("homeData")
     } 
     return g_mGetHomeData[device.getIdAsLong()]?.result ?: [:]
