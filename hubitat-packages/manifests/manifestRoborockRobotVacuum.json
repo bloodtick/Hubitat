@@ -9,7 +9,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2024-04-18",
-    "releaseNotes": "0.9.0 Intial Beta release.\n0.9.1 Log clean up and optimizations.",
+    "releaseNotes": "0.9.1 Log clean up and optimizations.\n0.9.0 Intial Beta release.\n",
     "version": "0.9.1",
     "drivers": [
         {
