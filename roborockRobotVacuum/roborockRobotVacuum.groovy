@@ -164,6 +164,8 @@ void getHomeDataCallback() {
 void updateHomeData() {
     logDebug "${device.displayName} executing 'updateHomeData()'"    
     execute("get_room_mapping")
+	if(device.currentValue("switch")!="on") execute("get_consumable") 	
+	
     String name = getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.name ?: "unknown"
     processEvent("name", name)
 }
