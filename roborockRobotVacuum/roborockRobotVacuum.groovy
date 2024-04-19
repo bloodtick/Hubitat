@@ -40,7 +40,7 @@ import java.text.SimpleDateFormat
 
 metadata {
 	definition (name: "Roborock Robot Vacuum Beta", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/roborockRobotVacuum/roborockRobotVacuum.groovy")
-    {
+	{
 		capability "Actuator"
         capability "Battery"
         capability "Initialize"
@@ -264,10 +264,10 @@ void unsubscribe() {
     interfaces.mqtt.unsubscribe(topic)
 }
 
-void sendEventX(Map e) {
-    if(device.currentValue(e?.name).toString() != e?.value.toString()) {
-        sendEvent(name: e?.name, value: e?.value, unit: e?.unit, descriptionText: e?.descriptionText, isStateChange: (e?.isStateChange ?: false))
-        if(e?.descriptionText) logInfo (e?.descriptionText)
+void sendEventX(Map x) {
+    if(device.currentValue(x?.name).toString() != x?.value.toString()) {
+        sendEvent(name: x?.name, value: x?.value, unit: x?.unit, descriptionText: x?.descriptionText, isStateChange: (x?.isStateChange ?: false))
+        if(x?.descriptionText) logInfo (x?.descriptionText)
     }
 }
 
