@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "0.9.1"}
+public static String version() {return "0.9.2"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -42,37 +42,37 @@ metadata {
 	definition (name: "Roborock Robot Vacuum Beta", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/roborockRobotVacuum/roborockRobotVacuum.groovy")
 	{
 		capability "Actuator"
-        capability "Battery"
-        capability "Initialize"
-        capability "Refresh"
-        capability "Switch"
-        // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
-        // Use Hubitat 'Button Controller' built in app to set commands to run.
-        capability "PushableButton"
-
-        command "appClean"
-        command "appDock"
-        command "appPause"
-        command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Clean order comma delmited room ids"]]
-        command "appRoomResume"
-        command "appSelectDevice"
-        command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
-        
-        attribute "name", "string"
-        attribute "rooms", "JSON_OBJECT"
-        attribute "state", "string"    
-        attribute "error", "string"        
-        attribute "fanPower", "string"
-        attribute "cleanTime", "number"
-        attribute "cleanArea", "number"
-        attribute "cleanPercent", "number"
-        attribute "remainingFilter", "number"
-        attribute "remainingMainBrush", "number"
-        attribute "remainingSensors", "number"
-        attribute "remainingSideBrush", "number"
-        attribute "locating", "enum", ["true","false"]
-        attribute "mopMode", "string"
-        attribute "healthStatus", "enum", ["offline", "online"]
+		capability "Battery"
+		capability "Initialize"
+		capability "Refresh"
+		capability "Switch"
+		// Special capablity to allow for Hubitat dashboarding to set commands via the Button template
+		// Use Hubitat 'Button Controller' built in app to set commands to run.
+		capability "PushableButton"
+		
+		command "appClean"
+		command "appDock"
+		command "appPause"
+		command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Comma delmited room ids"]]
+		command "appRoomResume"
+		command "appSelectDevice"
+		command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
+		
+		attribute "name", "string"
+		attribute "rooms", "JSON_OBJECT"
+		attribute "state", "string"    
+		attribute "error", "string"        
+		attribute "fanPower", "string"
+		attribute "cleanTime", "number"
+		attribute "cleanArea", "number"
+		attribute "cleanPercent", "number"
+		attribute "remainingFilter", "number"
+		attribute "remainingMainBrush", "number"
+		attribute "remainingSensors", "number"
+		attribute "remainingSideBrush", "number"
+		attribute "locating", "enum", ["true","false"]
+		attribute "mopMode", "string"
+		attribute "healthStatus", "enum", ["offline", "online"]
 	}
 }
 
@@ -148,12 +148,12 @@ def appSelectDevice() {
     }
 }
 
-def on() { appClean() }
-def off() { appDock() }
+def on() { appClean(); processEvent("switch",1) }
+def off() { appDock(); processEvent("switch",0) }
 
 void getHomeDataCallback() {
     logDebug "${device.displayName} executing 'getHomeDataCallback()'"
-    logInfo "${device.displayName} device id is ${getDeviceId()}"    
+    logDebug "${device.displayName} device id is ${getDeviceId()}"    
     if( !interfaces.mqtt.isConnected() ) {
         runIn(3, "connect")
     } else {
@@ -191,7 +191,7 @@ def execute(String command, String args=null) {
 void executeQueue() {
     if(!qIsEmpty()) {
         Map cmd = qPeek()
-        runIn(30, "watchdog") // unscheduled in processMsg()
+        runIn(15, "watchdog") // unscheduled in processMsg()
         publish(cmd.duid, cmd.command, cmd.param, cmd.id)
     } else {
         unschedule('watchdog')
@@ -221,7 +221,7 @@ void connect() {
     String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
     String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
     
-    logInfo "${device.displayName} connecting mqttUser:$mqttUser mqttPassword:$mqttPassword to $rriot.r.m"
+    logInfo "${device.displayName} connecting mqttUser:$mqttUser to $rriot.r.m"
     interfaces.mqtt.connect(rriot.r.m, "${device.deviceNetworkId}", mqttUser, mqttPassword, byteInterface:true)
 }
 
@@ -251,6 +251,7 @@ void subscribe() {
     runEvery30Minutes(refresh)
     scheduleRefresh()
     updateHomeData()
+    executeQueue()
 }
 
 void unsubscribe() {
@@ -268,8 +269,8 @@ void unsubscribe() {
 
 void sendEventX(Map x) {
     if(device.currentValue(x?.name).toString() != x?.value.toString()) {
-        sendEvent(name: x?.name, value: x?.value, unit: x?.unit, descriptionText: x?.descriptionText, isStateChange: (x?.isStateChange ?: false))
         if(x?.descriptionText) logInfo (x?.descriptionText)
+        sendEvent(name: x?.name, value: x?.value, unit: x?.unit, descriptionText: x?.descriptionText, isStateChange: (x?.isStateChange ?: false))
     }
 }
 
@@ -277,6 +278,10 @@ void processEvent(String name, def value) {
     logTrace "${device.displayName} executing 'processEvent($name, $value)'"
     String descriptionText = null    
     switch(name) {
+    case "switch":    
+        String switchString = (value==0 ? "off" : "on")
+        sendEventX(name: "switch", value: switchString, descriptionText: "${device.displayName} switch is $switchString")        
+        break
     case "name":
         sendEventX(name: "name", value: value, descriptionText: "${device.displayName} name set to $value")
         break    
@@ -310,19 +315,19 @@ void processEvent(String name, def value) {
     case "main_brush_life": 
         break
     case "main_brush_work_time":
-        Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.main*60*60)) * 100).toInteger())
+        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.main * 60 * 60)) * 100).toInteger()))
         sendEventX(name: "remainingMainBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} main brush time remaining is $percentAvail%")
         break
     case "side_brush_life":
         break
     case "side_brush_work_time":
-        Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.side*60*60)) * 100).toInteger())
+        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.side * 60 * 60)) * 100).toInteger()))
         sendEventX(name: "remainingSideBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} side brush time remaining is $percentAvail%")
         break
     case "filter_life":
         break
     case "filter_work_time":
-        Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.fltr*60*60)) * 100).toInteger())
+        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.fltr * 60 * 60)) * 100).toInteger()))
         sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "${device.displayName} filter time remaining is $percentAvail%")
         break
     case "additional_props":
@@ -340,7 +345,7 @@ void processEvent(String name, def value) {
     case "drying_status":
         break
     case "sensor_dirty_time":
-        Integer percentAvail = (100 - Math.floor((value.toInteger() / (life.sens*60*60)) * 100).toInteger())
+        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.sens * 60 * 60)) * 100).toInteger()))
         sendEventX(name: "remainingSensors", value: percentAvail, unit: "%", descriptionText: "${device.displayName} sensor time remaining is $percentAvail%")
         break
     case "filter_element_work_time":
@@ -356,7 +361,7 @@ void processEvent(String name, def value) {
         //String timeString = String.format("%02d:%02d", (totalSeconds / 3600).intValue(), ((totalSeconds % 3600) / 60).intValue())
         //descriptionText = "${device.displayName} clean time is $timeString (hh:mm)"
         Integer totalMinutes = Math.ceil(value.toInteger()/60).toInteger()
-        sendEventX(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: "${device.displayName} clean time is $totalMinutes min")
+        sendEventX(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: "${device.displayName} clean time is $totalMinutes ${totalMinutes==1?"minute":"minutes"}")
         break
     case "clean_area":
         String unit = (areaUnit==null || areaUnit=="0") ? "ft²" : "m²"
@@ -366,8 +371,6 @@ void processEvent(String name, def value) {
     case "map_present":
         break
     case "in_cleaning":
-        String switchString = (value==0 ? "off" : "on")
-        sendEventX(name: "switch", value: switchString, descriptionText: "${device.displayName} cleaning value is $switchString ($value)")        
         break
     case "in_returning":
         break
@@ -435,7 +438,7 @@ void processEvent(String name, def value) {
     case "switch_status":
         break
     default:
-        logWarn "${device.displayName} did not process code:$code with value:$value"     
+        logWarn "${device.displayName} did not process name:$name with value:$value"     
     }
     if(descriptionText) logInfo descriptionText
 }
@@ -453,9 +456,6 @@ void processMsg(Map message) {
         String code = home?.products?.find{ it.id == productId }?.schema?.find { it.id == key }?.code
         
         if(code=="rpc_response") {
-            // lets get our command that should of sent this request
-            Map cmd = qPop()
-            executeQueue()
             
             def jsonValue = null
             try {
@@ -464,23 +464,32 @@ void processMsg(Map message) {
                 logWarn "${device.displayName} message not json: message:$message value:$value"
             }
             
-            if(cmd?.id?.toInteger() != jsonValue?.id?.toInteger()) {
+            if(qPeek()?.id?.toInteger() != jsonValue?.id?.toInteger()) {
                 logDebug "${device.displayName} message unknown: command:$cmd result:$jsonValue"
-                //scheduleRefresh() // this wasn't our command, so lets schedule a refresh since we are tossing the command.
                 return
-            }
+            }           
+            // lets get our command that sent this request and we can start the queue up again.
+            Map cmd = qPop()
+            executeQueue()
        
             if((cmd?.command=="get_prop" && cmd?.param==["get_status"]) || cmd?.command=="get_consumable") {
+                logInfo "${device.displayName} command '$cmd.command' was accepted"
                 jsonValue?.result?.each{ result ->
-                    if(result?.battery?.toInteger()==100 && result?.state?.toInteger()==8) result.state=100
+                    if(cmd?.param==["get_status"]) {
+                        result.switch=(result?.in_cleaning?.toInteger()!=0 || result?.is_locating?.toInteger()!=0 || result?.is_exploring?.toInteger()!=0) ? 1 : 0
+                        if(result?.battery?.toInteger()==100 && result?.state?.toInteger()==8) result.state=100
+                        if(result?.clean_percent?.toInteger()==0 && result?.clean_area?.toInteger()>1) result.clean_percent=100
+                    }
+                    logDebug "${device.displayName} processing $result"
                     result?.each{ c,v -> processEvent(c,v) }
-                }
+                }                
             }
             else if(cmd?.command=="get_room_mapping") {
                 setRoomsValue(jsonValue)
             }
             else if(jsonValue?.result==["ok"] || jsonValue?.result==["OK"]) {
-                logInfo "${device.displayName} command $cmd.command was accepted"
+                logInfo "${device.displayName} command '$cmd.command' was accepted"
+                scheduleRefresh()
             }                
             else {
                 logWarn "${device.displayName} message not handled: command:$cmd result:$jsonValue"
@@ -927,7 +936,7 @@ private List qGet() {
 }
     
 void qPush(Map map) {
-    qGet().removeIf { now() > it?.ts + 5000 } //remove anything older than 5 seconds
+    qGet().removeIf { now() > it?.ts + 30000 } //remove anything older than 30 seconds
     map.ts = now() // Add timestamp
     qGet() << map  // Append map to the end of the list
 }
@@ -1019,13 +1028,15 @@ Integer qSize() {
 	102: "Balanced",
 	103: "Turbo",
 	104: "Max",
-    105: "Off",
+	105: "Off",
 ]
 
 @Field static final Map mopModeCodes  = [
 	300: "Standard",
 	301: "Deep",
+	302: "Custom",
 	303: "Deep+",
+	304: "Fast",
 ]
 
 private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
