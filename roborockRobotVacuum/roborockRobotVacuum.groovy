@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "0.9.2"}
+public static String version() {return "1.0.0"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -36,43 +36,46 @@ import java.text.SimpleDateFormat
 
 // This value is stored hardcoded in librrcodec.so, encrypted by the value of "com.roborock.iotsdk.appsecret" from AndroidManifest.xml.
 @Field static final String salt = "TXdfu\$jyZ#TZHsg4"
-@Field static final Map life = [ main:300, side:200, fltr:150, sens:30]
+// Hours of possible useage for each consumable. This are probably different per model.
+@Field static final Map life = [ main:300, side:200, filter:150, sensor:30]
 
 metadata {
-	definition (name: "Roborock Robot Vacuum Beta", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/roborockRobotVacuum/roborockRobotVacuum.groovy")
+	definition (name: "Roborock Robot Vacuum", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/roborockRobotVacuum/roborockRobotVacuum.groovy")
 	{
 		capability "Actuator"
-		capability "Battery"
-		capability "Initialize"
-		capability "Refresh"
-		capability "Switch"
-		// Special capablity to allow for Hubitat dashboarding to set commands via the Button template
-		// Use Hubitat 'Button Controller' built in app to set commands to run.
-		capability "PushableButton"
-		
-		command "appClean"
-		command "appDock"
-		command "appPause"
-		command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Comma delmited room ids"]]
-		command "appRoomResume"
-		command "appSelectDevice"
-		command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
-		
-		attribute "name", "string"
-		attribute "rooms", "JSON_OBJECT"
-		attribute "state", "string"    
-		attribute "error", "string"        
-		attribute "fanPower", "string"
-		attribute "cleanTime", "number"
-		attribute "cleanArea", "number"
-		attribute "cleanPercent", "number"
-		attribute "remainingFilter", "number"
-		attribute "remainingMainBrush", "number"
-		attribute "remainingSensors", "number"
-		attribute "remainingSideBrush", "number"
-		attribute "locating", "enum", ["true","false"]
-		attribute "mopMode", "string"
-		attribute "healthStatus", "enum", ["offline", "online"]
+        capability "Battery"
+        capability "Initialize"
+        capability "Refresh"
+        capability "Switch"
+        // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
+        // Use Hubitat 'Button Controller' built in app to set commands to run.
+        capability "PushableButton"
+
+        command "appClean"
+        command "appDock"
+        command "appPause"
+        command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Comma delmited room ids"]]
+        command "appRoomResume"
+        command "appSelectDevice"
+        command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
+   
+        attribute "dustCollection", "enum", ["off","on"]
+        attribute "dockError", "string"
+        attribute "name", "string"
+        attribute "rooms", "JSON_OBJECT"
+        attribute "state", "string"    
+        attribute "error", "string"        
+        attribute "fanPower", "string"
+        attribute "cleanTime", "number"
+        attribute "cleanArea", "number"
+        attribute "cleanPercent", "number"
+        attribute "remainingFilter", "number"
+        attribute "remainingMainBrush", "number"
+        attribute "remainingSensors", "number"
+        attribute "remainingSideBrush", "number"
+        attribute "locating", "enum", ["true","false"]
+        attribute "mopMode", "string"
+        attribute "healthStatus", "enum", ["offline", "online"]
 	}
 }
 
@@ -119,7 +122,7 @@ def initialize() {
             runIn(1, "getHomeDetail") //runs getHomeData()->getHomeDataCallback() async serial
             //runIn(3, "connect")
         } else {
-            logWarn "${device.displayName} login failed"
+            logWarn "${device.displayName} login with username:'$username' password:'$password' failed"
         }
     } 
     else if(state?.login) {
@@ -148,8 +151,8 @@ def appSelectDevice() {
     }
 }
 
-def on() { appClean(); processEvent("switch",1) }
-def off() { appDock(); processEvent("switch",0) }
+def on() { appClean(); processEvent("switch","on") }
+def off() { appDock(); processEvent("switch","off") }
 
 void getHomeDataCallback() {
     logDebug "${device.displayName} executing 'getHomeDataCallback()'"
@@ -279,8 +282,7 @@ void processEvent(String name, def value) {
     String descriptionText = null    
     switch(name) {
     case "switch":    
-        String switchString = (value==0 ? "off" : "on")
-        sendEventX(name: "switch", value: switchString, descriptionText: "${device.displayName} switch is $switchString")        
+        sendEventX(name: "switch", value: value, descriptionText: "${device.displayName} switch is $value")        
         break
     case "name":
         sendEventX(name: "name", value: value, descriptionText: "${device.displayName} name set to $value")
@@ -327,7 +329,7 @@ void processEvent(String name, def value) {
     case "filter_life":
         break
     case "filter_work_time":
-        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.fltr * 60 * 60)) * 100).toInteger()))
+        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.filter * 60 * 60)) * 100).toInteger()))
         sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "${device.displayName} filter time remaining is $percentAvail%")
         break
     case "additional_props":
@@ -345,7 +347,7 @@ void processEvent(String name, def value) {
     case "drying_status":
         break
     case "sensor_dirty_time":
-        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.sens * 60 * 60)) * 100).toInteger()))
+        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.sensor * 60 * 60)) * 100).toInteger()))
         sendEventX(name: "remainingSensors", value: percentAvail, unit: "%", descriptionText: "${device.displayName} sensor time remaining is $percentAvail%")
         break
     case "filter_element_work_time":
@@ -404,7 +406,9 @@ void processEvent(String name, def value) {
         break
     case "dock_type":
         break
-    case "dust_collection_status":
+    case "dust_collection_status": 
+        String dustCollectionString = (value==0 ? "off" : "on")
+        sendEventX(name: "dustCollection", value: dustCollectionString, descriptionText: "${device.displayName} dust collection is $dustCollectionString ($value)") 
         break
     case "auto_dust_collection":
         break
@@ -420,7 +424,9 @@ void processEvent(String name, def value) {
         break
     case "switch_map_mode":
         break
-    case "dock_error_status":
+    case "dock_error_status": 
+        String valueEnum = dockErrorCodes[value?.toInteger()]?.toLowerCase() ?: value
+        sendEventX(name: "dockError", value: valueEnum, descriptionText: "${device.displayName} dock error is $valueEnum ($value)")
         break
     case "unsave_map_reason":
         break
@@ -473,10 +479,10 @@ void processMsg(Map message) {
             executeQueue()
        
             if((cmd?.command=="get_prop" && cmd?.param==["get_status"]) || cmd?.command=="get_consumable") {
-                logInfo "${device.displayName} command '$cmd.command' was accepted"
+                logDebug "${device.displayName} command '$cmd.command' was accepted"
                 jsonValue?.result?.each{ result ->
                     if(cmd?.param==["get_status"]) {
-                        result.switch=(result?.in_cleaning?.toInteger()!=0 || result?.is_locating?.toInteger()!=0 || result?.is_exploring?.toInteger()!=0) ? 1 : 0
+                        result.switch=(result?.in_cleaning?.toInteger()!=0 || result?.is_locating?.toInteger()!=0 || result?.is_exploring?.toInteger()!=0) ? "on" : "off"
                         if(result?.battery?.toInteger()==100 && result?.state?.toInteger()==8) result.state=100
                         if(result?.clean_percent?.toInteger()==0 && result?.clean_area?.toInteger()>1) result.clean_percent=100
                     }
@@ -485,6 +491,7 @@ void processMsg(Map message) {
                 }                
             }
             else if(cmd?.command=="get_room_mapping") {
+                logDebug "${device.displayName} command '$cmd.command' was accepted"
                 setRoomsValue(jsonValue)
             }
             else if(jsonValue?.result==["ok"] || jsonValue?.result==["OK"]) {
@@ -1015,7 +1022,7 @@ Integer qSize() {
 	16: "Go To",
 	17: "Zone Clean",
 	18: "Room Clean",
-	22: "Empying dust container",
+	22: "Empying Dust Bin",
 	23: "Washing the mop",
 	26: "Going to wash the mop",
 	28: "In call",
@@ -1028,15 +1035,28 @@ Integer qSize() {
 	102: "Balanced",
 	103: "Turbo",
 	104: "Max",
-	105: "Off",
+    105: "Off",
+    106: "Auto",
+    108: "Max+",
 ]
 
 @Field static final Map mopModeCodes  = [
 	300: "Standard",
 	301: "Deep",
-	302: "Custom",
+    302: "Custom",
 	303: "Deep+",
-	304: "Fast",
+    304: "Fast",
+]
+
+//https://github.com/humbertogontijo/python-roborock/blob/main/roborock/code_mappings.py
+@Field static final Map dockErrorCodes  = [
+    0: "No error",
+    34: "Duct Blockage",
+    38: "Water Empty",
+    39: "Waste Water Tank Full",
+    44: "Dirty Tank Latch Open",
+    46: "No Dust Bin",
+    53: "Cleaning Tank Full Blocked",
 ]
 
 private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
