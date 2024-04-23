@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.0.0"}
+public static String version() {return "1.0.1"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -75,6 +75,7 @@ metadata {
         attribute "remainingSideBrush", "number"
         attribute "locating", "enum", ["true","false"]
         attribute "mopMode", "string"
+        attribute "wifi", "enum", ["offline", "online"]
         attribute "healthStatus", "enum", ["offline", "online"]
 	}
 }
@@ -114,13 +115,11 @@ def initialize() {
         // blow away all state information
         state?.keySet()?.collect()?.each{ if(it!="sequence") state.remove(it) }
         state.sequence = (new Random().nextInt(2000) + 1)
-        // blow away all attribute information. not sure if this 'is the way' but it worked.
-        device.currentStates?.collect{ ((new groovy.json.JsonSlurper().parseText( groovy.json.JsonOutput.toJson(it) ))?.name) }?.each{ device.deleteCurrentState(it) }        
+        clearAttributes()        
         if(login()?.msg=="success") {
             device.updateSetting("allowLogin",[value:'false',type:"bool"])
             disconnect()
             runIn(1, "getHomeDetail") //runs getHomeData()->getHomeDataCallback() async serial
-            //runIn(3, "connect")
         } else {
             logWarn "${device.displayName} login with username:'$username' password:'$password' failed"
         }
@@ -128,7 +127,6 @@ def initialize() {
     else if(state?.login) {
         disconnect()
         runIn(1, "getHomeData") //runs getHomeDataCallback() async serial
-        //runIn(3, "connect")
     }
 }
 
@@ -145,6 +143,7 @@ def appSelectDevice() {
     String deviceId = findNextDevice( state?.duid )
     if(state?.duid != deviceId) {
         state?.duid = deviceId
+        clearAttributes()
         initialize()
     } else {
         logInfo "${device.displayName} device id is ${getDeviceId()}"
@@ -154,14 +153,29 @@ def appSelectDevice() {
 def on() { appClean(); processEvent("switch","on") }
 def off() { appDock(); processEvent("switch","off") }
 
+void clearAttributes() {
+    // blow away all attribute information. not sure if this 'is the way' but it works.
+    device.currentStates?.collect{ ((new groovy.json.JsonSlurper().parseText( groovy.json.JsonOutput.toJson(it) ))?.name) }?.each{ device.deleteCurrentState(it) }
+}
+
 void getHomeDataCallback() {
     logDebug "${device.displayName} executing 'getHomeDataCallback()'"
-    logDebug "${device.displayName} device id is ${getDeviceId()}"    
+    logDebug "${device.displayName} device id is ${getDeviceId()}"
+    
+    Boolean deviceOnline = !!(getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.online)
+    processEvent("wifi", (deviceOnline ? "online" : "offline"))
+    if(!deviceOnline) {
+        logWarn "${device.displayName} wifi is offline"
+        qClear()
+        unschedule()
+        runEvery15Minutes(getHomeData)
+        return
+    }
+    
     if( !interfaces.mqtt.isConnected() ) {
         runIn(3, "connect")
-    } else {
-       updateHomeData()
     }
+    updateHomeData()
 }
 
 void updateHomeData() {
@@ -204,7 +218,7 @@ void executeQueue() {
 void watchdog() {
     logWarn "${device.displayName} executing 'watchdog()'"    
     disconnect()
-    runIn(3, "connect")
+    runIn(1, "getHomeData")
 }
 
 void scheduleRefresh() {
@@ -290,6 +304,9 @@ void processEvent(String name, def value) {
     case "healthStatus":
         sendEventX(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
         break
+    case "wifi":
+        sendEventX(name: "wifi", value: value, descriptionText: "${device.displayName} wifi set to $value")
+        break    
     case "rooms":
         sendEventX(name: "rooms", value: value, descriptionText: "${device.displayName} rooms set to $value")
         break
@@ -442,6 +459,10 @@ void processEvent(String name, def value) {
     case "events":
         break
     case "switch_status":
+        break
+    case "distance_off":
+    case "home_sec_status":
+    case "home_sec_enable_password":
         break
     default:
         logWarn "${device.displayName} did not process name:$name with value:$value"     
@@ -802,6 +823,10 @@ void getHomeDetail() {
 }
 
 void getHomeData() {
+    //state.remove("homeData")
+    //g_mGetHomeData[device.getIdAsLong()]?.clear()
+    //g_mGetHomeData[device.getIdAsLong()] = null
+    
     Map rriot = getLoginData()?.rriot
     String rrHomeId = getHomeDetailData()?.rrHomeId
     String path = "/v2/user/homes/$rrHomeId" // or "/user/homes/$rrHomeId",
@@ -845,13 +870,13 @@ void asyncHttpCallback(resp, data) {
             case "getHomeDetail":               
                 storeJsonState( data?.store, datetimestring(), respJson )
                 g_mGetHomeDetail[device.getIdAsLong()]?.clear()
-                g_mGetHomeDetail[device.getIdAsLong()] = null
+                g_mGetHomeDetail[device.getIdAsLong()] = respJson
                 getHomeData()
                 break
             case "getHomeData":
                 storeJsonState( data?.store, datetimestring(), respJson )
                 g_mGetHomeData[device.getIdAsLong()]?.clear()
-                g_mGetHomeData[device.getIdAsLong()] = null
+                g_mGetHomeData[device.getIdAsLong()] = respJson
                 getHomeDataCallback()
                 break
             case "getHomeRooms":
@@ -882,7 +907,8 @@ Map fetchJsonState(String name) {
 
 // Function to find the 'next' device given a 'duid'
 String findNextDevice(String duid=null) {
-    List sortedDevices = getHomeDataResult()?.devices.sort{ a, b -> a.duid <=> b.duid }
+    List sortedDevices = getHomeDataResult()?.devices?.sort{ a, b -> a.duid <=> b.duid }
+    sortedDevices?.result?.products.sort { it.id }?.result?.devices.sort { it.duid }
     Integer currentIndex = -1    
     // Check if duid is not null
     if(duid != null) {
