@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.0.2"}
+public static String version() {return "1.0.3"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -125,6 +125,7 @@ def initialize() {
         }
     } 
     else if(state?.login) {
+        state.remove("autoRefresh")
         disconnect()
         runIn(1, "getHomeData") //runs getHomeDataCallback() async serial
     }
@@ -187,12 +188,17 @@ void updateHomeData() {
     processEvent("name", name)
 }
 
+@Field volatile static Map<Long,Long> g_mLastRefreshTime = [:]
 def refresh(Map data=[type:1]) {
     logDebug "${device.displayName} executing 'refresh($data)'"
 
     execute("get_prop", """["get_status"]""")
     if(device.currentValue("switch")=="on") execute("get_consumable")    
-    if(data?.type==1) getHomeData()
+    if(g_mLastRefreshTime[device.getIdAsLong()] == null) g_mLastRefreshTime[device.getIdAsLong()] = now()
+    if(data?.type==1 && g_mLastRefreshTime[device.getIdAsLong()] > now() + 120000) { 
+        getHomeData()
+        g_mLastRefreshTime[device.getIdAsLong()] = now()
+    }
 }
 
 def execute(String command, String args=null) {
@@ -221,8 +227,8 @@ void watchdog() {
     runIn(1, "getHomeData")
 }
 
-void scheduleRefresh() {
-    runIn(5, "refresh", [data: [type:2]])    
+void scheduleRefresh(Integer delay=5) {
+    runIn(delay, "refresh", [data: [type:2]])    
 }
 
 void disconnect() {
@@ -506,6 +512,7 @@ void processMsg(Map message) {
                         result.switch=(result?.in_cleaning?.toInteger()!=0 || result?.is_locating?.toInteger()!=0 || result?.is_exploring?.toInteger()!=0) ? "on" : "off"
                         if(result?.battery?.toInteger()==100 && result?.state?.toInteger()==8) result.state=100
                         if(result?.clean_percent?.toInteger()==0 && result?.clean_area?.toInteger()>1) result.clean_percent=100
+                        if(!state?.autoRefresh && !stateDoNotRefreshCodes.contains(result.state)) { scheduleRefresh(60) } // some units don't send real time dps events
                     }
                     logDebug "${device.displayName} processing $result"
                     result?.each{ c,v -> processEvent(c,v) }
@@ -525,6 +532,7 @@ void processMsg(Map message) {
         }
         else {            
             processEvent(code,value)
+            if(code=="battery") state.autoRefresh=true // see above on real time dps events
             scheduleRefresh()
         }         
     } 
@@ -827,10 +835,6 @@ void getHomeDetail() {
 }
 
 void getHomeData() {
-    //state.remove("homeData")
-    //g_mGetHomeData[device.getIdAsLong()]?.clear()
-    //g_mGetHomeData[device.getIdAsLong()] = null
-    
     Map rriot = getLoginData()?.rriot
     String rrHomeId = getHomeDetailData()?.rrHomeId
     String path = "/v2/user/homes/$rrHomeId" // or "/user/homes/$rrHomeId",
@@ -878,9 +882,11 @@ void asyncHttpCallback(resp, data) {
                 getHomeData()
                 break
             case "getHomeData":
-                storeJsonState( data?.store, datetimestring(), respJson )
-                g_mGetHomeData[device.getIdAsLong()]?.clear()
-                g_mGetHomeData[device.getIdAsLong()] = respJson
+                synchronized (this) {
+                    storeJsonState( data?.store, datetimestring(), respJson )
+                    g_mGetHomeData[device.getIdAsLong()]?.clear()
+                    g_mGetHomeData[device.getIdAsLong()] = respJson
+                }
                 getHomeDataCallback()
                 break
             case "getHomeRooms":
@@ -959,8 +965,10 @@ Map getHomeDetailData() {
 @Field volatile static Map<Long,Map> g_mGetHomeData = [:]
 Map getHomeDataResult() {
     if(g_mGetHomeData[device.getIdAsLong()] == null) {
-        logDebug "${device.displayName} executing 'getHomeDataResult()' cache"
-        g_mGetHomeData[device.getIdAsLong()] = fetchJsonState("homeData")
+        synchronized (this) {
+            logDebug "${device.displayName} executing 'getHomeDataResult()' cache"
+            g_mGetHomeData[device.getIdAsLong()] = fetchJsonState("homeData")
+        }
     } 
     return g_mGetHomeData[device.getIdAsLong()]?.result ?: [:]
 }
@@ -1031,7 +1039,8 @@ Integer qSize() {
 	254: "Bin full",
 	255: "Internal error",
 ]
-           
+
+@Field static final List stateDoNotRefreshCodes = [ 0,1,2,3,9,10,12,14,100 ]
 @Field static final Map stateCodes  = [
 	0: "Unknown",
 	1: "Initiating",
@@ -1052,7 +1061,7 @@ Integer qSize() {
 	16: "Go To",
 	17: "Zone Clean",
 	18: "Room Clean",
-	22: "Empying Dust Bin",
+	22: "Emptying Dust Bin",
 	23: "Washing the mop",
 	26: "Going to wash the mop",
 	28: "In call",
