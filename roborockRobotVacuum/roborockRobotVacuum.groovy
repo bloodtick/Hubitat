@@ -194,8 +194,8 @@ def refresh(Map data=[type:1]) {
 
     execute("get_prop", """["get_status"]""")
     if(device.currentValue("switch")=="on") execute("get_consumable")    
-    if(g_mLastRefreshTime[device.getIdAsLong()] == null) g_mLastRefreshTime[device.getIdAsLong()] = now()
-    if(data?.type==1 && g_mLastRefreshTime[device.getIdAsLong()] > now() + 120000) { 
+    if(g_mLastRefreshTime[device.getIdAsLong()] == null) g_mLastRefreshTime[device.getIdAsLong()] = now()-120000
+    if(data?.type==1 && (now() - g_mLastRefreshTime[device.getIdAsLong()]) > 120000) { 
         getHomeData()
         g_mLastRefreshTime[device.getIdAsLong()] = now()
     }
