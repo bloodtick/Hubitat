@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.0.1"}
+public static String version() {return "1.0.2"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -557,6 +557,10 @@ def parse(String message) {
 
 def parse(String topic, byte[] message) {
     String deviceId = topic.split('/')[-1]
+    if(deviceId!=state.duid) {
+        logDebug "${device.displayName} parse message rejected: I am ${state.duid} and this was for $deviceId"
+        return
+    }
     String localKey = getLocalKey(deviceId)
     logDebug "${device.displayName} parse deviceId:$deviceId, localKey:$localKey, topic:$topic"
     //  .endianess('big')
