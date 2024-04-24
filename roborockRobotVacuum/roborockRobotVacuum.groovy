@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.0.3"}
+public static String version() {return "1.0.4"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -84,7 +84,7 @@ preferences {
     input(name:"username", type:"string", title: "<b>Account Username:</b>", required: true, width:4)
     input(name:"password", type:"password", title: "<b>Account Password:</b>", required: true, width:4)
     input(name:"regionUri", type:"enum", title: "<b>Account Region:</b>", options:["https://usiot.roborock.com":"US", "https://euiot.roborock.com":"EU"], defaultValue: "https://usiot.roborock.com", width:4)
-    input(name:"allowLogin", type:"bool", title: "<b>Authorize Account User Login:</b>", defaultValue: true, width:4, description: "<i>Enable to attempt login with username and password.</i>")
+    input(name:"allowLogin", type:"bool", title: "<b>Authorize Account User Login:</b>", defaultValue: true, width:4, description: "<i>Enable to re/attempt intial login with username and password.</i>")
     input(name:"areaUnit", type:"enum", title: "<b>Device Area Unit:</b>", options:["0":"Square Foot (ft²)", "1":"Square Meter (m²)"], defaultValue: "0", width:4)
     input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false, width:4)
     input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false, width:4)
@@ -125,7 +125,8 @@ def initialize() {
         }
     } 
     else if(state?.login) {
-        state.remove("autoRefresh")
+        state.remove("autoRefresh") // removed in 1.0.4
+        g_mAutoRefresh[device.getIdAsLong()] = false
         disconnect()
         runIn(1, "getHomeData") //runs getHomeDataCallback() async serial
     }
@@ -476,6 +477,7 @@ void processEvent(String name, def value) {
     if(descriptionText) logInfo descriptionText
 }
 
+@Field volatile static Map<Long,Boolean> g_mAutoRefresh = [:]
 void processMsg(Map message) {
     logDebug "${device.displayName} executing 'processMsg($message)'"
     // we have good connection to device since we got a message back from it.
@@ -512,7 +514,7 @@ void processMsg(Map message) {
                         result.switch=(result?.in_cleaning?.toInteger()!=0 || result?.is_locating?.toInteger()!=0 || result?.is_exploring?.toInteger()!=0) ? "on" : "off"
                         if(result?.battery?.toInteger()==100 && result?.state?.toInteger()==8) result.state=100
                         if(result?.clean_percent?.toInteger()==0 && result?.clean_area?.toInteger()>1) result.clean_percent=100
-                        if(!state?.autoRefresh && !stateDoNotRefreshCodes.contains(result.state)) { scheduleRefresh(60) } // some units don't send real time dps events
+                        if(!g_mAutoRefresh[device.getIdAsLong()] && !stateDoNotRefreshCodes.contains(result.state)) { scheduleRefresh(60) } // some units don't send real time dps events
                     }
                     logDebug "${device.displayName} processing $result"
                     result?.each{ c,v -> processEvent(c,v) }
@@ -532,7 +534,7 @@ void processMsg(Map message) {
         }
         else {            
             processEvent(code,value)
-            if(code=="battery") state.autoRefresh=true // see above on real time dps events
+            if(code=="battery") g_mAutoRefresh[device.getIdAsLong()]=true // see above on real time dps events
             scheduleRefresh()
         }         
     } 
