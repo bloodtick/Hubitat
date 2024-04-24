@@ -168,6 +168,7 @@ void getHomeDataCallback() {
     processEvent("wifi", (deviceOnline ? "online" : "offline"))
     if(!deviceOnline) {
         logWarn "${device.displayName} wifi is offline"
+		setHealthStatusEvent(false)
         qClear()
         unschedule()
         runEvery15Minutes(getHomeData)
