@@ -36,7 +36,7 @@ import java.text.SimpleDateFormat
 
 // This value is stored hardcoded in librrcodec.so, encrypted by the value of "com.roborock.iotsdk.appsecret" from AndroidManifest.xml.
 @Field static final String salt = "TXdfu\$jyZ#TZHsg4"
-// Hours of possible useage for each consumable. This are probably different per model.
+// Hours of possible useage for each consumable. These are probably different per model.
 @Field static final Map life = [ main:300, side:200, filter:150, sensor:30]
 
 metadata {
@@ -137,6 +137,8 @@ def push(buttonNumber) {
     sendEvent(name: "pushed", value: buttonNumber, isStateChange: true)
 }
 
+def on() { appClean(); processEvent("switch","on") }
+def off() { appDock(); processEvent("switch","off") }
 def appClean() { execute("app_start") }
 def appDock()  { execute("app_charge") }
 def appPause() { execute("app_pause") }
@@ -159,9 +161,6 @@ def selectDevice() {
         logInfo "${device.displayName} device id is ${getDeviceId()}"
     }
 }
-
-def on() { appClean(); processEvent("switch","on") }
-def off() { appDock(); processEvent("switch","off") }
 
 void clearAttributes() {
     // blow away all attribute information. not sure if this 'is the way' but it works.
