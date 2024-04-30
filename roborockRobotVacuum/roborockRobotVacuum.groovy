@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.0.4"}
+public static String version() {return "1.0.5"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -54,11 +54,12 @@ metadata {
         command "appClean"
         command "appDock"
         command "appPause"
-        command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Comma delmited room ids"]]
+        command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Comma delmited room ids"],
+                                 [name: "MopWater", type: "ENUM", description: "Set the room water mopping params. Default is no change of current setting. Not required.", constraints: mopWaterModeCodes.values().collect{ it.toUpperCase() }]]
         command "appRoomResume"
-        command "appSelectDevice"
         command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
-   
+        command "selectDevice"
+        
         attribute "dustCollection", "enum", ["off","on"]
         attribute "dockError", "string"
         attribute "name", "string"
@@ -75,6 +76,7 @@ metadata {
         attribute "remainingSideBrush", "number"
         attribute "locating", "enum", ["true","false"]
         attribute "mopMode", "string"
+        attribute "mopWaterMode", "string" 
         attribute "wifi", "enum", ["offline", "online"]
         attribute "healthStatus", "enum", ["offline", "online"]
 	}
@@ -126,7 +128,6 @@ def initialize() {
     } 
     else if(state?.login) {
         state.remove("autoRefresh") // removed in 1.0.4
-        g_mAutoRefresh[device.getIdAsLong()] = false
         disconnect()
         runIn(1, "getHomeData") //runs getHomeDataCallback() async serial
     }
@@ -139,9 +140,16 @@ def push(buttonNumber) {
 def appClean() { execute("app_start") }
 def appDock()  { execute("app_charge") }
 def appPause() { execute("app_pause") }
-def appRoomClean(String rooms) { execute("app_segment_clean","[$rooms]") }
 def appRoomResume()  { execute("resume_segment_clean") }
-def appSelectDevice() { 
+def appRoomClean(String rooms, String mopWater=mopWaterModeCodes[0]) {    
+    if(mopWater?.toUpperCase()!=mopWaterModeCodes[0].toUpperCase()) {
+        Integer mopWaterCode = ( mopWaterModeCodes.find { it.value.toUpperCase() == mopWater?.toUpperCase() }?.key )        
+        execute("set_water_box_custom_mode","[$mopWaterCode]")
+        execute("get_water_box_custom_mode")
+    }
+    execute("app_segment_clean","[$rooms]")
+}
+def selectDevice() { 
     String deviceId = findNextDevice( state?.duid )
     if(state?.duid != deviceId) {
         state?.duid = deviceId
@@ -168,7 +176,7 @@ void getHomeDataCallback() {
     processEvent("wifi", (deviceOnline ? "online" : "offline"))
     if(!deviceOnline) {
         logWarn "${device.displayName} wifi is offline"
-		setHealthStatusEvent(false)
+        setHealthStatusEvent(false)
         qClear()
         unschedule()
         runIn(15*60,"getHomeData")
@@ -303,6 +311,10 @@ void processEvent(String name, def value) {
     logTrace "${device.displayName} executing 'processEvent($name, $value)'"
     String descriptionText = null    
     switch(name) {
+    case "get_water_box_custom_mode":
+        String valueEnum = mopWaterModeCodes[value?.toInteger()]?.toLowerCase() ?: value
+        sendEventX(name: "mopWaterMode", value: valueEnum, descriptionText: "${device.displayName} mop water mode is $valueEnum ($value)")        
+        break
     case "switch":    
         sendEventX(name: "switch", value: value, descriptionText: "${device.displayName} switch is $value")        
         break
@@ -471,14 +483,25 @@ void processEvent(String name, def value) {
     case "distance_off":
     case "home_sec_status":
     case "home_sec_enable_password":
+    case "strainer_work_times":  // start reported by Q Revo
+    case "wash_status":
+    case "wash_ready":
+    case "wash_phase":
+    case "rdt":
+    case "last_clean_t":
+    case "kct":
+    case "in_warmup":
+    case "dry_status":
+    case "corner_clean_mode":
+    case "common_status":
+    case "back_type":  // end reported by Q Revo
         break
     default:
-        logWarn "${device.displayName} did not process name:$name with value:$value"     
+        logDebug "${device.displayName} did not process name:$name with value:$value"     
     }
     if(descriptionText) logInfo descriptionText
 }
 
-@Field volatile static Map<Long,Boolean> g_mAutoRefresh = [:]
 void processMsg(Map message) {
     logDebug "${device.displayName} executing 'processMsg($message)'"
     // we have good connection to device since we got a message back from it.
@@ -515,7 +538,7 @@ void processMsg(Map message) {
                         result.switch=(result?.in_cleaning?.toInteger()!=0 || result?.is_locating?.toInteger()!=0 || result?.is_exploring?.toInteger()!=0) ? "on" : "off"
                         if(result?.battery?.toInteger()==100 && result?.state?.toInteger()==8) result.state=100
                         if(result?.clean_percent?.toInteger()==0 && result?.clean_area?.toInteger()>1) result.clean_percent=100
-                        if(!g_mAutoRefresh[device.getIdAsLong()] && !stateDoNotRefreshCodes.contains(result.state)) { scheduleRefresh(60) } // some units don't send real time dps events
+                        if(!stateDoNotRefreshCodes.contains(result.state)) { scheduleRefresh(60) } // some units don't send real time dps events
                     }
                     logDebug "${device.displayName} processing $result"
                     result?.each{ c,v -> processEvent(c,v) }
@@ -524,6 +547,10 @@ void processMsg(Map message) {
             else if(cmd?.command=="get_room_mapping") {
                 logDebug "${device.displayName} command '$cmd.command' was accepted"
                 setRoomsValue(jsonValue)
+            }
+            else if(cmd?.command=="get_water_box_custom_mode" && (jsonValue?.result?.water_box_mode)) {
+                logDebug "${device.displayName} command '$cmd.command' was accepted"
+                processEvent(cmd?.command, jsonValue.result.water_box_mode)
             }
             else if(jsonValue?.result==["ok"] || jsonValue?.result==["OK"]) {
                 logInfo "${device.displayName} command '$cmd.command' was accepted"
@@ -535,7 +562,6 @@ void processMsg(Map message) {
         }
         else {            
             processEvent(code,value)
-            if(code=="battery") g_mAutoRefresh[device.getIdAsLong()]=true // see above on real time dps events
             scheduleRefresh()
         }         
     } 
@@ -1088,6 +1114,17 @@ Integer qSize() {
     302: "Custom",
 	303: "Deep+",
     304: "Fast",
+]
+
+// https://github.com/marcelrv/XiaomiRobotVacuumProtocol/blob/master/water_box_custom_mode.md
+@Field static final Map mopWaterModeCodes  = [
+    0: "Default",
+	200: "Off",
+	201: "Low",
+    202: "Medium",
+	203: "High",
+    204: "Auto",
+    207: "Custom",
 ]
 
 //https://github.com/humbertogontijo/python-roborock/blob/main/roborock/code_mappings.py
