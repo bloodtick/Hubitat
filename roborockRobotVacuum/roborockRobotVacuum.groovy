@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.0.5"}
+public static String version() {return "1.0.6"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -59,7 +59,7 @@ metadata {
         command "appRoomResume"
         command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
         command "selectDevice"
-        
+
         attribute "dustCollection", "enum", ["off","on"]
         attribute "dockError", "string"
         attribute "name", "string"
@@ -85,7 +85,7 @@ metadata {
 preferences {
     input(name:"username", type:"string", title: "<b>Account Username:</b>", required: true, width:4)
     input(name:"password", type:"password", title: "<b>Account Password:</b>", required: true, width:4)
-    input(name:"regionUri", type:"enum", title: "<b>Account Region:</b>", options:["https://usiot.roborock.com":"US", "https://euiot.roborock.com":"EU"], defaultValue: "https://usiot.roborock.com", required: true, width:4)
+    input(name:"regionUri", type:"enum", title: "<b>Account Region:</b>", options:["https://usiot.roborock.com":"US", "https://euiot.roborock.com":"EU", "https://cniot.roborock.com":"CN", "https://ruiot.roborock.com":"RU"], defaultValue: "https://usiot.roborock.com", required: true, width:4)
     input(name:"allowLogin", type:"bool", title: "<b>Authorize Account User Login:</b>", defaultValue: true, width:4, description: "<i>Enable to re/attempt intial login with username and password.</i>")
     input(name:"areaUnit", type:"enum", title: "<b>Device Area Unit:</b>", options:["0":"Square Foot (ft²)", "1":"Square Meter (m²)"], defaultValue: "0", required: true, width:4)
     input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false, width:4)
@@ -827,8 +827,28 @@ String generateHash(String username) {
     return saltedHash.encodeBase64().toString()
 }
 
+String getBaseURL() {
+    String uri = settings.regionUri
+    String path = "/api/v1/getUrlByEmail"
+    String queryString = "email=${URLEncoder.encode(settings.username, 'UTF-8')}"
+
+    String response = null
+    httpPostJson(uri:uri, path:path, queryString:queryString) { resp ->
+        if(resp.status == 200) {
+            response = resp.data?.data?.url
+            if(response && response!=settings.regionUri) {
+                logWarn "${device.displayName} found username:'${settings.username}' base url:'$response'"
+                state.base = response
+            }                
+        } else {
+            logWarn "${device.displayName} 'getBaseURL()' failure. Status code:${response.getStatus()}"
+        }
+    }
+    return response
+}
+
 Map login() {   
-    String uri = settings.regionUri //"https://usiot.roborock.com" or "https://euiot.roborock.com"
+    String uri = getBaseURL() ?: settings.regionUri
     String path = "/api/v1/login"
     String queryString = "username=${URLEncoder.encode(settings.username, 'UTF-8')}&" + "password=${URLEncoder.encode(settings.password, 'UTF-8')}&" + "needtwostepauth=${URLEncoder.encode('false', 'UTF-8')}"
     // Hash the username with MD5 and encode it to Base64 for the client ID header
@@ -851,14 +871,14 @@ Map login() {
 
 void getHomeDetail() {
     Map params = [
-        uri:  settings.regionUri,
+        uri:  state?.base ?: settings.regionUri,
         path: "/api/v1/getHomeDetail",
         headers: ['header_clientid':(md5hex(settings.username).bytes.encodeBase64().toString()), 'Authorization': (getLoginData()?.token) ]
     ]
     try {
 	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeDetail", store: "homeDetail"])
 	} catch (e) {
-	    logWarn "${device.displayName} 'getHomeDetail' asynchttpGet() error: $e"
+	    logWarn "${device.displayName} 'getHomeDetail()' asynchttpGet() error: $e"
 	}
 }
 
@@ -874,7 +894,7 @@ void getHomeData() {
     try {
 	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeData", store: "homeData"])
 	} catch (e) {
-	    logWarn "${device.displayName} 'getHomeData' asynchttpGet() error: $e"
+	    logWarn "${device.displayName} 'getHomeData()' asynchttpGet() error: $e"
 	}
 }
 
@@ -890,7 +910,7 @@ void getHomeRooms() {
     try {
 	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeRooms", store: "homeRooms"])
 	} catch (e) {
-	    logWarn "${device.displayName} 'getHomeRooms' asynchttpGet() error: $e"
+	    logWarn "${device.displayName} 'getHomeRooms()' asynchttpGet() error: $e"
 	}
 }
 
