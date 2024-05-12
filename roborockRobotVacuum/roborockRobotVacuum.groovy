@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.0.6"}
+public static String version() {return "1.1.0"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -54,9 +54,10 @@ metadata {
         command "appClean"
         command "appDock"
         command "appPause"
-        command "appRoomClean", [[name: "Rooms*", type: "STRING", description: "Comma delmited room ids"],
+        command "appRoomClean", [[name: "Room IDs*", type: "STRING", description: "Accepts comma delmited Room IDs"],
                                  [name: "MopWater", type: "ENUM", description: "Set the room water mopping params. Default is no change of current setting. Not required.", constraints: mopWaterModeCodes.values().collect{ it.toUpperCase() }]]
         command "appRoomResume"
+        command "appScene", [[name: "Scene ID*", type: "STRING", description: "Accepts single Scene ID"]]
         command "execute", [[name: "command*", type: "STRING", description: "The command to send device via mqtt"],[name: "params", type: "JSON_OBJECT", description: "Command parameters in JSON object"]]
         command "selectDevice"
 
@@ -64,6 +65,7 @@ metadata {
         attribute "dockError", "string"
         attribute "name", "string"
         attribute "rooms", "JSON_OBJECT"
+        attribute "scenes", "JSON_OBJECT"
         attribute "state", "string"    
         attribute "error", "string"        
         attribute "fanPower", "string"
@@ -151,6 +153,7 @@ def appRoomClean(String rooms, String mopWater=mopWaterModeCodes[0]) {
     }
     execute("app_segment_clean","[$rooms]")
 }
+def appScene(String sceneId) { setHomeScene(sceneId) }
 def selectDevice() { 
     String deviceId = findNextDevice( state?.duid )
     if(state?.duid != deviceId) {
@@ -327,7 +330,10 @@ void processEvent(String name, def value) {
         sendEventX(name: "wifi", value: value, descriptionText: "${device.displayName} wifi set to $value")
         break    
     case "rooms":
-        sendEventX(name: "rooms", value: value, descriptionText: "${device.displayName} rooms set to $value")
+        sendEventX(name: "rooms", value: JsonOutput.toJson(value), descriptionText: "${device.displayName} rooms set to $value")
+        break
+    case "scenes":
+        sendEventX(name: "scenes", value: JsonOutput.toJson(value), descriptionText: "${device.displayName} scenes set to $value")
         break
     case "rpc_request":
         break
@@ -570,12 +576,12 @@ void setRoomsValue(Map get_room_mapping) {
     logDebug "${device.displayName} executing 'setRoomsValue()'"
     Map roomsMap = getHomeDataResult()?.rooms?.collectEntries { [(it.id.toString()): it.name] }
     if(roomsMap && get_room_mapping) {
-        List rooms = get_room_mapping?.result.collect { mapping ->
+        Map rooms = get_room_mapping?.result.collectEntries { mapping ->
             String roomId = mapping[1].toString()
             String roomName = roomsMap[roomId]
-            return [mapping[0], roomName]
+            return [(mapping[0].toString()):roomName]
         }
-        processEvent("rooms", rooms?.sort{ a, b -> a[0] <=> b[0] })
+        processEvent("rooms", rooms?.sort())
     }
 }
 
@@ -914,6 +920,39 @@ void getHomeRooms() {
 	}
 }
 
+void getHomeScenes() {
+    Map rriot = getLoginData()?.rriot
+    String rrHomeId = getHomeDetailData()?.rrHomeId
+    String path   = "/user/scene/home/$rrHomeId"
+    Map params = [
+        uri: rriot?.r?.a,
+        path: path,
+        headers: [ 'Authorization': getHawkAuthentication(rriot?.u, rriot?.s, rriot?.h, path) ]
+    ]
+    try {
+	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeScenes"])
+	} catch (e) {
+	    logWarn "${device.displayName} 'getHomeScenes()' asynchttpGet() error: $e"
+	}
+}
+
+void setHomeScene(String sceneId) {
+    Map rriot = getLoginData()?.rriot
+    String path   = "/user/scene/$sceneId/execute"
+    Map params = [
+        uri: rriot?.r?.a,
+        path: path,
+        headers: [ 'Authorization': getHawkAuthentication(rriot?.u, rriot?.s, rriot?.h, path) ],
+        contentType: "application/json",
+        body: [ sceneId: sceneId ]
+    ]
+    try {
+	    asynchttpPost("asyncHttpCallback", params, [method: "setHomeScene", sceneId: sceneId])
+	} catch (e) {
+	    logWarn "${device.displayName} 'setHomeScene()' asynchttpPost() error: $e"
+	}
+}
+
 void asyncHttpCallback(resp, data) {
     logDebug "${device.displayName} executing 'asyncHttpCallback()' status: ${resp.status} method: ${data?.method}"
     
@@ -936,9 +975,18 @@ void asyncHttpCallback(resp, data) {
                     g_mGetHomeData[device.getIdAsLong()] = respJson
                 }
                 getHomeDataCallback()
+                getHomeScenes()
                 break
-            case "getHomeRooms":
-                storeJsonState( data?.store, datetimestring(), respJson )
+            case "getHomeRooms": // not used
+                //storeJsonState( data?.store, datetimestring(), respJson )
+                break
+            case "getHomeScenes":
+                respJson?.result?.each { logTrace it }
+                Map scenes = respJson?.result?.findAll{ it?.param?.contains(state?.duid) }?.collectEntries{ [(it.id.toString()): it.name] }
+                processEvent("scenes", scenes?.sort())
+                break
+            case "setHomeScene":
+                logInfo "${device.displayName} ${respJson?.status=="ok"?"accepted":"rejected"} sceneId:$data.sceneId"
                 break
             default:
                 logWarn "${device.displayName} asyncHttpGetCallback() ${data?.method} not supported"
