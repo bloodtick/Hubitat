@@ -10,8 +10,8 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2024-04-18",
-    "releaseNotes": "1.0.6 Added RU & CH regions, check for account location.\n1.0.5 Reduced log output, added MapWater parameter to appRoomClean.\n1.0.4 & 1.0.3 Critical limit to refresh of homeData, auto refresh for older devices.\n1.0.2 Critical patch for multi-devices per user account.\n1.0.1 Added wifi attribute and device sleeping waiting for wifi enable.\n1.0.0 Formal release, added dustCollection & dockError states.\n",
-    "version": "1.0.6",
+    "releaseNotes": "1.1.0 Intital support for scenes (aks routines), proper rooms json fix.\n1.0.6 Added RU & CH regions, check for account location.\n1.0.5 Reduced log output, added MapWater parameter to appRoomClean.\n1.0.4 & 1.0.3 Critical limit to refresh of homeData, auto refresh for older devices.",
+    "version": "1.1.0",
     "drivers": [
         {
             "id": "f33dcb2f-3c85-4f92-9f1f-5edce5a3ffa1",
