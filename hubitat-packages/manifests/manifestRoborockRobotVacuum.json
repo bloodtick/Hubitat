@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2024-04-18",
-    "releaseNotes": "1.1.0 Intital support for scenes (aks routines), proper rooms json fix.\n1.0.6 Added RU & CH regions, check for account location.\n1.0.5 Reduced log output, added MapWater parameter to appRoomClean.\n1.0.4 & 1.0.3 Critical limit to refresh of homeData, auto refresh for older devices.",
+    "releaseNotes": "1.1.0 Intital support for scenes (aka routines), proper rooms json fix.\n1.0.6 Added RU & CH regions, check for account location.\n1.0.5 Reduced log output, added MapWater parameter to appRoomClean.\n1.0.4 & 1.0.3 Critical limit to refresh of homeData, auto refresh for older devices.",
     "version": "1.1.0",
     "drivers": [
         {
