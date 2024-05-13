@@ -136,6 +136,7 @@ def initialize() {
 }
 
 def push(buttonNumber) {
+    if( (device.currentValue("numberOfButtons")?.toInteger()?:0)<buttonNumber?.toInteger() ) sendEvent(name:"numberOfButtons", value: buttonNumber)
     sendEvent(name: "pushed", value: buttonNumber, isStateChange: true)
 }
 
@@ -153,7 +154,7 @@ def appRoomClean(String rooms, String mopWater=mopWaterModeCodes[0]) {
     }
     execute("app_segment_clean","[$rooms]")
 }
-def appScene(String sceneId) { setHomeScene(sceneId) }
+def appScene(String sceneId) { setDeviceScene(sceneId) }
 def selectDevice() { 
     String deviceId = findNextDevice( state?.duid )
     if(state?.duid != deviceId) {
@@ -920,25 +921,24 @@ void getHomeRooms() {
 	}
 }
 
-void getHomeScenes() {
+void getDeviceScenes() {
     Map rriot = getLoginData()?.rriot
-    String rrHomeId = getHomeDetailData()?.rrHomeId
-    String path   = "/user/scene/home/$rrHomeId"
+    String path =  "/user/scene/device/${getDeviceId()}"
     Map params = [
         uri: rriot?.r?.a,
         path: path,
         headers: [ 'Authorization': getHawkAuthentication(rriot?.u, rriot?.s, rriot?.h, path) ]
     ]
     try {
-	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeScenes"])
+	    asynchttpGet("asyncHttpCallback", params, [method: "getDeviceScenes"])
 	} catch (e) {
-	    logWarn "${device.displayName} 'getHomeScenes()' asynchttpGet() error: $e"
+	    logWarn "${device.displayName} 'getDeviceScenes()' asynchttpGet() error: $e"
 	}
 }
 
-void setHomeScene(String sceneId) {
+void setDeviceScene(String sceneId) {
     Map rriot = getLoginData()?.rriot
-    String path   = "/user/scene/$sceneId/execute"
+    String path = "/user/scene/$sceneId/execute"
     Map params = [
         uri: rriot?.r?.a,
         path: path,
@@ -947,9 +947,9 @@ void setHomeScene(String sceneId) {
         body: [ sceneId: sceneId ]
     ]
     try {
-	    asynchttpPost("asyncHttpCallback", params, [method: "setHomeScene", sceneId: sceneId])
+	    asynchttpPost("asyncHttpCallback", params, [method: "setDeviceScene", sceneId: sceneId])
 	} catch (e) {
-	    logWarn "${device.displayName} 'setHomeScene()' asynchttpPost() error: $e"
+	    logWarn "${device.displayName} 'setDeviceScene()' asynchttpPost() error: $e"
 	}
 }
 
@@ -975,17 +975,17 @@ void asyncHttpCallback(resp, data) {
                     g_mGetHomeData[device.getIdAsLong()] = respJson
                 }
                 getHomeDataCallback()
-                getHomeScenes()
+                getDeviceScenes()
                 break
             case "getHomeRooms": // not used
                 //storeJsonState( data?.store, datetimestring(), respJson )
                 break
-            case "getHomeScenes":
+            case "getDeviceScenes":
                 respJson?.result?.each { logTrace it }
-                Map scenes = respJson?.result?.findAll{ it?.param?.contains(state?.duid) }?.collectEntries{ [(it.id.toString()): it.name] }
+                Map scenes = respJson?.result?.collectEntries{ [(it.id.toString()): it.name] }
                 processEvent("scenes", scenes?.sort())
                 break
-            case "setHomeScene":
+            case "setDeviceScene":
                 logInfo "${device.displayName} ${respJson?.status=="ok"?"accepted":"rejected"} sceneId:$data.sceneId"
                 break
             default:
