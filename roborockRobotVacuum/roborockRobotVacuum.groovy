@@ -117,7 +117,7 @@ def initialize() {
     if(settings?.allowLogin && settings?.username && settings?.password) {
         logInfo "${device.displayName} executing 'initialize()' allowLogin"
         // blow away all state information
-        state?.keySet()?.collect()?.each{ if(it!="sequence") state.remove(it) }
+        state?.keySet()?.collect()?.each{ state.remove(it) }
         state.sequence = (new Random().nextInt(2000) + 1)
         clearAttributes()        
         if(login()?.msg=="success") {
