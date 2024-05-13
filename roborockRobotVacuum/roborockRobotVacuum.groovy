@@ -62,13 +62,13 @@ metadata {
         command "selectDevice"
 
         attribute "dustCollection", "enum", ["off","on"]
-        attribute "dockError", "string"
+        attribute "dockError", "enum", dockErrorCodes.values().collect()
         attribute "name", "string"
         attribute "rooms", "JSON_OBJECT"
         attribute "scenes", "JSON_OBJECT"
-        attribute "state", "string"    
-        attribute "error", "string"        
-        attribute "fanPower", "string"
+        attribute "state", "string" // , stateCodes.values().collect() -- too long   
+        attribute "error", "string" // , errorCodes.values().collect() -- too long       
+        attribute "fanPower", "enum", fanPowerCodes.values().collect()
         attribute "cleanTime", "number"
         attribute "cleanArea", "number"
         attribute "cleanPercent", "number"
@@ -77,8 +77,8 @@ metadata {
         attribute "remainingSensors", "number"
         attribute "remainingSideBrush", "number"
         attribute "locating", "enum", ["true","false"]
-        attribute "mopMode", "string"
-        attribute "mopWaterMode", "string" 
+        attribute "mopMode", "enum", mopModeCodes.values().collect()
+        attribute "mopWaterMode", "enum", mopWaterModeCodes.values().collect() 
         attribute "wifi", "enum", ["offline", "online"]
         attribute "healthStatus", "enum", ["offline", "online"]
 	}
