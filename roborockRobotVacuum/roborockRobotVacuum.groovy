@@ -866,8 +866,9 @@ Map login() {
     Map response = [:]
     httpPostJson(uri:uri, path:path, queryString:queryString, headers:headers) { resp ->
         if(resp.status == 200) {
+			logDebug "${device.displayName} login results (<b>*** DO NOT SHARE ***</b>): ${resp?.data}"
             storeJsonState( "login", datetimestring(), resp.data )
-            response = resp.data
+            response = resp.data			
         } else {
             logWarn "${device.displayName} 'getToken()' failure. Status code:${response.getStatus()}"
         }
