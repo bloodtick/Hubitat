@@ -10,8 +10,8 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2024-04-18",
-    "releaseNotes": "1.1.0 Intital support for scenes (aka routines), proper rooms json fix.\n1.0.6 Added RU & CH regions, check for account location.\n1.0.5 Reduced log output, added MapWater parameter to appRoomClean.\n1.0.4 & 1.0.3 Critical limit to refresh of homeData, auto refresh for older devices.",
-    "version": "1.1.0",
+    "releaseNotes": "1.1.1 Updated hash algo to match HA solution. Debug added for login.\n1.1.0 Intital support for scenes (aka routines), proper rooms json fix.\n1.0.6 Added RU & CH regions, check for account location.\n1.0.5 Reduced log output, added MapWater parameter to appRoomClean.",
+    "version": "1.1.1",
     "drivers": [
         {
             "id": "f33dcb2f-3c85-4f92-9f1f-5edce5a3ffa1",
