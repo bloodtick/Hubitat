@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.0"}
+public static String version() {return "1.3.1"}
 
 metadata 
 {
@@ -35,6 +35,8 @@ metadata
         command "capture", [[name: "startTime*", type: "STRING", description: "Time, in ISO 8601 format, when the video capture should start"],[name: "captureTime*", type: "STRING", description: "Video capture time, in ISO 8601 format"],
                            [name: "endTime*", type: "STRING", description: "Time, in ISO 8601 format, when the video capture should end"],[name: "correlationId", type: "STRING", description: "Optional"],[name: "reason", type: "STRING", description: "Optional"]]
 
+        command "captureNow", [[name: "duration", type: "STRING", description: "Capture length in seconds. Default 10"],[name: "correlationId", type: "STRING", description: "Optional"],[name: "reason", type: "STRING", description: "Optional"]]
+        
         attribute "healthStatus", "enum", ["offline", "online"]
     }
     preferences {
@@ -162,11 +164,35 @@ def disableSoundDetection() {
     sendCommand("disableSoundDetection")
 }
 
-def take(correlationId=null, reason=null) {
+def take(String correlationId=null, String reason=null) {
     sendCommand("take", correlationId, null, [reason:reason] )
 }
 
-def capture(startTime, captureTime, endTime, correlationId=null, reason=null) {
+def captureNow(String duration="10", String correlationId=now().toString(), String reason="Capture now pressed") {
+    String startTime = getCurrentIso8601()
+    String captureTime = startTime
+    String endTime = getCurrentIso8601(duration?.toInteger()?:10)
+    capture(startTime, captureTime, endTime, correlationId, reason)
+}
+
+String getCurrentIso8601(Integer seconds=0) {
+    def date = new Date()
+    date = new Date(date.time + (seconds * 1000))
+    def formattedDate = date.format("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", TimeZone.getTimeZone("UTC"))
+    return formattedDate
+}
+
+def isValidIso8601(String dateTime) {
+    def pattern = /^(?:[1-9]\d{3}-?(?:(?:0[1-9]|1[0-2])-?(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-?(?:29|30)|(?:0[13578]|1[02])-?31)|(?:[1-9]\d(?:0[48]|[2468][048]|[13579][26])|(?:[2468][048]|[13579][26])00)-?02-?29)T(?:[01]\d|2[0-3]):?[0-5]\d:?[0-5]\d(?:\.\d{3})?(?:Z|[+-][01]\d(?::?[0-5]\d)?)$/
+    return dateTime.matches(pattern)
+}
+
+def capture(String startTime, String captureTime, String endTime, String correlationId=null, String reason=null) {
+    logInfo "${device.displayName} executing capture ${reason?"reason:'$reason'":""}"
+    if(!isValidIso8601(startTime)) { logWarn "${device.displayName} capture startTime:'$startTime' not valid. Example:'${getCurrentIso8601()}'"}
+    if(!isValidIso8601(captureTime)) { logWarn "${device.displayName} capture captureTime:'$captureTime' not valid. Example:'${getCurrentIso8601()}'"}
+    if(!isValidIso8601(endTime)) { logWarn "${device.displayName} capture endTime:'$endTime' not valid. Example:'${getCurrentIso8601()}'"}
+    
     sendCommand("capture", startTime, null, [captureTime:captureTime, endTime:endTime, correlationId:correlationId, reason:reason] )    
 }
 
