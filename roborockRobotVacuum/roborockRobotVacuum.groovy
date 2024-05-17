@@ -829,9 +829,10 @@ String getHawkAuthentication(String id, String secret, String key, String path) 
 
 String generateHash(String username) {
     MessageDigest md = MessageDigest.getInstance("MD5")
-    byte[] initialHash = md.digest(username.bytes)
-    byte[] saltedHash = md.digest((new String(initialHash) + "${device.deviceNetworkId}").bytes) //adding device.deviceNetworkId to ensure we are unique
-    return saltedHash.encodeBase64().toString()
+    md.update(username.bytes)
+    md.update(device.deviceNetworkId.bytes)
+    byte[] finalHash = md.digest()
+    return finalHash.encodeBase64().toString()
 }
 
 String getBaseURL() {
