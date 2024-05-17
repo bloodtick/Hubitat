@@ -870,7 +870,7 @@ Map login() {
             storeJsonState( "login", datetimestring(), resp.data )
             response = resp.data			
         } else {
-            logWarn "${device.displayName} 'getToken()' failure. Status code:${response.getStatus()}"
+            logWarn "${device.displayName} 'login()' failure. Status code:${response.getStatus()}"
         }
     }
     g_mGetLoginData[device.getIdAsLong()]?.clear()
