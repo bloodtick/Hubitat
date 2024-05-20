@@ -1135,7 +1135,7 @@ Integer qSize() {
 	24: "No-go zone or invisible wall detected",
 	254: "Bin full",
 	255: "Internal error",
-    256: "Offline"  // added 1.1.2 and deprecated wifi attribute
+    256: "Wifi Offline"  // added 1.1.2 and deprecated wifi attribute
 ]
 
 @Field static final List stateDoNotRefreshCodes = [ 0,1,2,3,9,10,12,14,100 ]
