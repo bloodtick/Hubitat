@@ -471,7 +471,7 @@ void processEvent(String name, def value) {
         break
     case "dock_error_status": 
         String valueEnum = dockErrorCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "dockError", value: valueEnum, descriptionText: "${device.displayName} dock error is $valueEnum ($value)")
+        sendEventX(name: "dockError", value: valueEnum, descriptionText: "${device.displayName} dock error is $valueEnum ($value)", logLevel:(value==0?"info":"warn")
         break
     case "unsave_map_reason":
         break
