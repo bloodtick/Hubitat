@@ -335,7 +335,7 @@ void processEvent(String name, def value) {
         sendEventX(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value", logLevel:(value=="online"?"info":"warn"))
         break
     case "wifi":
-        sendEventX(name: "wifi", value: value, descriptionText: "${device.displayName} wifi set to $value")
+        //sendEventX(name: "wifi", value: value, descriptionText: "${device.displayName} wifi set to $value")
         break    
     case "rooms":
         sendEventX(name: "rooms", value: JsonOutput.toJson(value), descriptionText: "${device.displayName} rooms set to $value")
@@ -471,7 +471,7 @@ void processEvent(String name, def value) {
         break
     case "dock_error_status": 
         String valueEnum = dockErrorCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "dockError", value: valueEnum, descriptionText: "${device.displayName} dock error is $valueEnum ($value)", logLevel:(value==0?"info":"warn")
+        sendEventX(name: "dockError", value: valueEnum, descriptionText: "${device.displayName} dock error is $valueEnum ($value)", logLevel:(value==0?"info":"warn"))
         break
     case "unsave_map_reason":
         break
