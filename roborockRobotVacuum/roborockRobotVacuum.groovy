@@ -20,6 +20,7 @@
  *  Date: 2024-04-18
  */
 public static String version() {return "1.1.1"}
+@Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -42,7 +43,7 @@ import java.text.SimpleDateFormat
 metadata {
 	definition (name: "Roborock Robot Vacuum", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/roborockRobotVacuum/roborockRobotVacuum.groovy")
 	{
-		capability "Actuator"
+        capability "Actuator"
         capability "Battery"
         capability "Initialize"
         capability "Refresh"
@@ -66,8 +67,13 @@ metadata {
         attribute "name", "string"
         attribute "rooms", "JSON_OBJECT"
         attribute "scenes", "JSON_OBJECT"
-        attribute "state", "string" // , stateCodes.values().collect() -- too long   
-        attribute "error", "string" // , errorCodes.values().collect() -- too long       
+        if(hubitatVersion239) {
+            attribute "state", "enum", stateCodes.values().collect()   
+            attribute "error", "enum", errorCodes.values().collect()
+        } else {
+            attribute "state", "string" // , stateCodes.values().collect() -- too long 2.3.9+ change to 1024  
+            attribute "error", "string" // , errorCodes.values().collect() -- too long
+        }        
         attribute "fanPower", "enum", fanPowerCodes.values().collect()
         attribute "cleanTime", "number"
         attribute "cleanArea", "number"
@@ -376,8 +382,6 @@ void processEvent(String name, def value) {
         sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "${device.displayName} filter time remaining is $percentAvail%")
         break
     case "additional_props":
-        //descriptionText = "${device.displayName} additional props is $value"
-        //sendEvent(name: "additional_props", value: value.toInteger(), descriptionText: descriptionText)
         break
     case "task_complete":
         break
@@ -402,9 +406,6 @@ void processEvent(String name, def value) {
     case "msg_seq":
         break
     case "clean_time":
-        //Integer totalSeconds = value.toInteger()
-        //String timeString = String.format("%02d:%02d", (totalSeconds / 3600).intValue(), ((totalSeconds % 3600) / 60).intValue())
-        //descriptionText = "${device.displayName} clean time is $timeString (hh:mm)"
         Integer totalMinutes = Math.ceil(value.toInteger()/60).toInteger()
         sendEventX(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: "${device.displayName} clean time is $totalMinutes ${totalMinutes==1?"minute":"minutes"}")
         break
@@ -479,13 +480,9 @@ void processEvent(String name, def value) {
         sendEventX(name: "cleanPercent", value: value.toInteger(), unit: "%", descriptionText: "${device.displayName} percent completed is $value%")        
         break
     case "rss":
-        break
     case "dss":
-        break
     case "events":
-        break
     case "switch_status":
-        break
     case "distance_off":
     case "home_sec_status":
     case "home_sec_enable_password":
