@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.1"}
+public static String version() {return "1.1.2"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
@@ -85,7 +85,7 @@ metadata {
         attribute "locating", "enum", ["true","false"]
         attribute "mopMode", "enum", mopModeCodes.values().collect()
         attribute "mopWaterMode", "enum", mopWaterModeCodes.values().collect() 
-        attribute "wifi", "enum", ["offline", "online"]
+        //attribute "wifi", "enum", ["offline", "online"]
         attribute "healthStatus", "enum", ["offline", "online"]
 	}
 }
@@ -182,9 +182,10 @@ void getHomeDataCallback() {
     logDebug "${device.displayName} device id is ${getDeviceId()}"
     
     Boolean deviceOnline = !!(getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.online)
-    processEvent("wifi", (deviceOnline ? "online" : "offline"))
+    //processEvent("wifi", (deviceOnline ? "online" : "offline"))
     if(!deviceOnline) {
-        logWarn "${device.displayName} wifi is offline"
+        //logWarn "${device.displayName} wifi is offline"
+        processEvent("error_code", 256)
         setHealthStatusEvent(false)
         qClear()
         unschedule()
@@ -311,7 +312,7 @@ void unsubscribe() {
 
 void sendEventX(Map x) {
     if(device.currentValue(x?.name).toString() != x?.value.toString()) {
-        if(x?.descriptionText) logInfo (x?.descriptionText)
+        if(x?.descriptionText) { if(x?.logLevel=="warn") logWarn (x?.descriptionText); else logInfo (x?.descriptionText); }
         sendEvent(name: x?.name, value: x?.value, unit: x?.unit, descriptionText: x?.descriptionText, isStateChange: (x?.isStateChange ?: false))
     }
 }
@@ -331,7 +332,7 @@ void processEvent(String name, def value) {
         sendEventX(name: "name", value: value, descriptionText: "${device.displayName} name set to $value")
         break    
     case "healthStatus":
-        sendEventX(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value")
+        sendEventX(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value", logLevel:(value=="online"?"info":"warn"))
         break
     case "wifi":
         sendEventX(name: "wifi", value: value, descriptionText: "${device.displayName} wifi set to $value")
@@ -348,7 +349,7 @@ void processEvent(String name, def value) {
         break
     case "error_code":
         String valueEnum = errorCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "error", value: valueEnum, descriptionText: "${device.displayName} error is $valueEnum ($value)")
+        sendEventX(name: "error", value: valueEnum, descriptionText: "${device.displayName} error is $valueEnum ($value)", logLevel:(value==0?"info":"warn"))
         break
     case "state":
         String valueEnum = stateCodes[value?.toInteger()]?.toLowerCase() ?: value
@@ -1134,6 +1135,7 @@ Integer qSize() {
 	24: "No-go zone or invisible wall detected",
 	254: "Bin full",
 	255: "Internal error",
+    256: "Offline"  // added 1.1.2 and deprecated wifi attribute
 ]
 
 @Field static final List stateDoNotRefreshCodes = [ 0,1,2,3,9,10,12,14,100 ]
