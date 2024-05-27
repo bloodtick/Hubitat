@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.1"}
+public static String version() {return "1.3.2"}
 
 metadata 
 {
@@ -22,9 +22,8 @@ metadata
         capability "Refresh"
         capability "Switch"
         // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
-        // Use Hubitat 'Button Controller' built in app to set commands to run. Defaults to 10 commands increased or decreased by setNumberOfButtons.
+        // Use Hubitat 'Button Controller' built in app to set commands to run.
         capability "PushableButton"
-        command "setNumberOfButtons", [[name: "numberOfButtons*", type: "NUMBER", description: "Set the numberOfButtons this device support"]]
         
         //capability "samsungce.hoodFanSpeed"
         attribute "settableMaxFanSpeed", "number"
@@ -42,6 +41,7 @@ metadata
        
     }
     preferences {
+        input(name:"numberOfButtons", type: "number", title: "Set Number of Buttons:", range: "1...", defaultValue: 1, required: true)
         input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
     }
 }
@@ -50,13 +50,8 @@ def push(buttonNumber) {
     sendEvent(name: "pushed", value: buttonNumber, isStateChange: true)
 }
 
-def setNumberOfButtons(buttonNumber) {
-    sendEvent(name: "numberOfButtons", value: buttonNumber)
-}
-
 def installed() {
 	initialize()
-    setNumberOfButtons(10)
 }
 
 def updated() {
@@ -66,6 +61,7 @@ def updated() {
 def initialize() {
     updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers()))
     updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands()))
+    sendEvent(name:"numberOfButtons", value: (settings?.numberOfButtons)?:1)
 }
 
 def configure() {
