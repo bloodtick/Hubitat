@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.1"}
+public static String version() {return "1.3.2"}
 
 import groovy.transform.CompileStatic
 import groovy.transform.Field
@@ -29,9 +29,8 @@ metadata
         capability "AudioVolume"
         capability "TV"
         // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
-        // Use Hubitat 'Button Controller' built in app to set commands to run. Buttons below 50 are reserved. Increased or decreased by setNumberOfButtons.
+        // Use Hubitat 'Button Controller' built in app to set commands to run. Buttons below 50 are reserved.
         capability "PushableButton"
-        command "setNumberOfButtons", [[name: "numberOfButtons*", type: "NUMBER", description: "Set the numberOfButtons this device support"]]        
      
         attribute "mediaInputSourceName", "string"
         attribute "supportedInputSources", "JSON_OBJECT"
@@ -65,6 +64,7 @@ metadata
         attribute "healthStatus", "enum", ["offline", "online"]
     }
     preferences {
+        input(name:"numberOfButtons", type: "number", title: "Set Number of Buttons:", range: "1...", defaultValue: 50, required: true)
         input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
         input(name:"deviceDebugEnable", type: "bool", title: "Enable Debug logging:", defaultValue: false)
         input(name:"deviceDefaultReset", type: "bool", title: "Reset Device to Default State (use with &#9888; caution):", defaultValue: false)
@@ -80,10 +80,6 @@ Boolean autoLogsOff() { if ((Boolean)settings.deviceDebugEnable || (Boolean)sett
 
 def push(buttonNumber) {
     remoteControl(buttonNumber.toString())
-}
-
-def setNumberOfButtons(buttonNumber) {
-    sendEvent(name: "numberOfButtons", value: buttonNumber)
 }
 
 def installed() {
@@ -109,6 +105,7 @@ def initialize() {
         runIn(1, configure)
    } else runIn(1, refresh)
     autoLogsOff()
+    sendEvent(name:"numberOfButtons", value: (settings?.numberOfButtons)?:50)
 }
 
 def configure() {
