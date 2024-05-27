@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.3.15 2024-03-23 Update to OAuth to give easier callback identification. Updates to Replica Button with better support with more event types\n",
+    "releaseNotes": "Various driver updates for pushbutton use with ez-dashboard. Added Aeotec Camera\n1.3.15 2024-03-23 Update to OAuth to give easier callback identification. Updates to Replica Button with better support with more event types\n",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
@@ -143,7 +143,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaSamsungOcfAirCon.groovy",
             "required": false,
-            "version": "1.3.2"
+            "version": "1.3.3"
         },
         {
             "id": "0497eda9-13a0-43bc-b84d-2806d3381733",
@@ -191,13 +191,29 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaSamsungOcfMicrowaveHood.groovy",
             "required": false,
-            "version": "1.3.1"
+            "version": "1.3.2"
         },
         {
             "id": "f5c5b7b6-eea5-4dac-b4d0-c3c2eaff9b10",
             "name": "Replica Samsung OCF TV",
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaSamsungOcfTv.groovy",
+            "required": false,
+            "version": "1.3.2"
+        },
+        {
+            "id": "6f015ac5-a8c2-406e-b553-a559f49dc529",
+            "name": "Replica Samsung OCF Washer",
+            "namespace": "replica",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaSamsungOcfWasher.groovy",
+            "required": false,
+            "version": "1.3.1"
+        },
+        {
+            "id": "d95a6818-6fc1-49e9-9d60-d0b83f9618f7",
+            "name": "Replica Aeotec Camera",
+            "namespace": "replica",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaAeotecCamera.groovy",
             "required": false,
             "version": "1.3.1"
         },
