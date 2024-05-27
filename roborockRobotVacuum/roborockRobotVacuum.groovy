@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.2"}
+public static String version() {return "1.1.3"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
@@ -96,6 +96,7 @@ preferences {
     input(name:"regionUri", type:"enum", title: "<b>Account Region:</b>", options:["https://usiot.roborock.com":"US", "https://euiot.roborock.com":"EU", "https://cniot.roborock.com":"CN", "https://ruiot.roborock.com":"RU"], defaultValue: "https://usiot.roborock.com", required: true, width:4)
     input(name:"allowLogin", type:"bool", title: "<b>Authorize Account User Login:</b>", defaultValue: true, width:4, description: "<i>Enable to re/attempt intial login with username and password.</i>")
     input(name:"areaUnit", type:"enum", title: "<b>Device Area Unit:</b>", options:["0":"Square Foot (ft²)", "1":"Square Meter (m²)"], defaultValue: "0", required: true, width:4)
+    input(name:"numberOfButtons", type: "number", title: "<b>Set Number of Buttons:</b>", range: "1...", defaultValue: 1, required: true, width:4)
     input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false, width:4)
     input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false, width:4)
     //input(name:"deviceTraceEnable", type:"bool", title: "Enable Trace logging:", defaultValue: false, width:4)
@@ -139,10 +140,10 @@ def initialize() {
         disconnect()
         runIn(1, "getHomeData") //runs getHomeDataCallback() async serial
     }
+    sendEvent(name:"numberOfButtons", value: (settings?.numberOfButtons)?:1)
 }
 
 def push(buttonNumber) {
-    if( (device.currentValue("numberOfButtons")?.toInteger()?:0)<buttonNumber?.toInteger() ) sendEvent(name:"numberOfButtons", value: buttonNumber)
     sendEvent(name: "pushed", value: buttonNumber, isStateChange: true)
 }
 
