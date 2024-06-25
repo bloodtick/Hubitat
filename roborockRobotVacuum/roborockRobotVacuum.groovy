@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.3"}
+public static String version() {return "1.1.4"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
@@ -38,7 +38,7 @@ import java.text.SimpleDateFormat
 // This value is stored hardcoded in librrcodec.so, encrypted by the value of "com.roborock.iotsdk.appsecret" from AndroidManifest.xml.
 @Field static final String salt = "TXdfu\$jyZ#TZHsg4"
 // Hours of possible useage for each consumable. These are probably different per model.
-@Field static final Map life = [ main:300, side:200, filter:150, sensor:30]
+@Field static final Map life = [ main:300, side:200, filter:150, sensor:30, highSpeed:300]
 
 metadata {
 	definition (name: "Roborock Robot Vacuum", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/roborockRobotVacuum/roborockRobotVacuum.groovy")
@@ -55,7 +55,7 @@ metadata {
         command "appClean"
         command "appDock"
         command "appPause"
-        command "appRoomClean", [[name: "Room IDs*", type: "STRING", description: "Accepts comma delmited Room IDs"],
+        command "appRoomClean", [[name: "Room IDs*", type: "STRING", description: "Accepts comma or space delmited Room IDs"],
                                  [name: "MopWater", type: "ENUM", description: "Set the room water mopping params. Default is no change of current setting. Not required.", constraints: mopWaterModeCodes.values().collect{ it.toUpperCase() }]]
         command "appRoomResume"
         command "appScene", [[name: "Scene ID*", type: "STRING", description: "Accepts single Scene ID"]]
@@ -82,6 +82,7 @@ metadata {
         attribute "remainingMainBrush", "number"
         attribute "remainingSensors", "number"
         attribute "remainingSideBrush", "number"
+        attribute "remainingHighSpeedMaintBrush", "number"
         attribute "locating", "enum", ["true","false"]
         attribute "mopMode", "enum", mopModeCodes.values().collect()
         attribute "mopWaterMode", "enum", mopWaterModeCodes.values().collect() 
@@ -153,7 +154,8 @@ def appClean() { execute("app_start") }
 def appDock()  { execute("app_charge") }
 def appPause() { execute("app_pause") }
 def appRoomResume()  { execute("resume_segment_clean") }
-def appRoomClean(String rooms, String mopWater=mopWaterModeCodes[0]) {    
+def appRoomClean(String rooms, String mopWater=mopWaterModeCodes[0]) {  
+    rooms = rooms.replaceAll(" +", ',')
     if(mopWater?.toUpperCase()!=mopWaterModeCodes[0].toUpperCase()) {
         Integer mopWaterCode = ( mopWaterModeCodes.find { it.value.toUpperCase() == mopWater?.toUpperCase() }?.key )        
         execute("set_water_box_custom_mode","[$mopWaterCode]")
@@ -377,11 +379,13 @@ void processEvent(String name, def value) {
         Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.side * 60 * 60)) * 100).toInteger()))
         sendEventX(name: "remainingSideBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} side brush time remaining is $percentAvail%")
         break
+    case "cleaning_brush_work_times":
+        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / life.highSpeed) * 100).toInteger()))
+        sendEventX(name: "remainingHighSpeedMaintBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} high-speed maintenance brush remaining life is $percentAvail%")
+        break
     case "filter_life":
         break
     case "filter_work_time":
-        Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.filter * 60 * 60)) * 100).toInteger()))
-        sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "${device.displayName} filter time remaining is $percentAvail%")
         break
     case "additional_props":
         break
@@ -488,7 +492,11 @@ void processEvent(String name, def value) {
     case "distance_off":
     case "home_sec_status":
     case "home_sec_enable_password":
+        break
     case "strainer_work_times":  // start reported by Q Revo
+		Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / life.filter) * 100 ).toInteger()))
+        sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "${device.displayName} filter life remaining is $percentAvail%")
+        break
     case "wash_status":
     case "wash_ready":
     case "wash_phase":
