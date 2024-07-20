@@ -380,11 +380,13 @@ Boolean isHassInstalled() {
 }
 
 void runInIsHassInstalled() {
-    runIn(15, checkIsHassInstalled)
+    if(!state?.checkIsHassInstalled) runIn(15, checkIsHassInstalled)
+    state.checkIsHassInstalled = true
 }    
 
 void checkIsHassInstalled() {
     state.isHassInstalled = !!(getDriverList()?.items?.find{ it?.namespace==sHassNamespace && it?.name==sApiTypeName })
+    state.remove("checkIsHassInstalled")
 }
 
 Map getHassCustomDevice(String deviceId) {
