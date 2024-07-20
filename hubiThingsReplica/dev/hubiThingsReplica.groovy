@@ -1169,7 +1169,6 @@ String getSmartDeviceStats(String smartDeviceId, String smartDeviceComponentId) 
                 }
             }
         }
-        logInfo smartDevice?.entity_ids
         smartStats += "Device Type: ${smartDevice?.deviceTypeName ?: (smartDevice?.name ?: "UNKNOWN")}\n"
         smartStats += smartDevice?.device ? "Device: ${smartDevice.device}\n" : ""
         smartStats += smartDevice?.entity_ids ? "Entity Ids: ${smartDevice?.entity_ids?.values()?.flatten()?.sort()?.join(', ')}\n" : "Component: ${smartDeviceComponentId}\n"
