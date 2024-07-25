@@ -2,7 +2,7 @@
     "packageName": "HubiThings Replica",
     "author": "Bloodtick Jones",
     "communityLink": "https://community.hubitat.com/t/release-hubithings-replica/107976",
-    "minimumHEVersion": "2.3.2",
+    "minimumHEVersion": "2.3.7",
     "category": "Integrations",
     "tags": [
         "Automations & Groups",
@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "Various driver updates for pushbutton use with ez-dashboard. Added Aeotec Camera\n1.3.15 2024-03-23 Update to OAuth to give easier callback identification. Updates to Replica Button with better support with more event types\n",
+    "releaseNotes": "1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending). Optional driver for Replica Temp-Humidity-Pressure Sensor by @bthrock\nVarious driver updates for pushbutton use with ez-dashboard. Added Aeotec Camera\n",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
@@ -20,7 +20,7 @@
             "required": true,
             "oauth": false,
             "primary": true,
-            "version": "1.3.15"
+            "version": "1.4.00"
         },
         {
             "id": "9bb9eacb-c243-43d6-9dc4-520f0e476016",
@@ -29,7 +29,7 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
             "required": true,
             "oauth": true,
-            "version": "1.3.15"
+            "version": "1.4.00"
         }
     ],
     "drivers": [
@@ -240,6 +240,14 @@
             "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaSonos.groovy",
             "required": false,
             "version": "1.3.1"
+        },
+        {
+            "id": "abd9e162-e5cb-4cc5-80a3-41a42bd4326a",
+            "name": "Replica Temp-Humidity-Pressure Sensor @bthrock",
+            "namespace": "replica",
+            "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaTempHumidityPressureSensor.groovy",
+            "required": false,
+            "version": "1.3.5"
         }
     ]
 }
