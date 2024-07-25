@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.3.06 2023-02-26 Natural order sorting.
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices.
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
@@ -26,10 +25,11 @@
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests. (no OAuth changes)
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger() (no OAuth changes) 
-*  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. 
+*  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name.
+*  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  LINE 30 MAX */  
 
-public static String version() { return "1.3.15" }
+public static String version() { return "1.4.00" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -43,6 +43,7 @@ import groovy.transform.CompileStatic
 import groovy.transform.Field
 
 @Field static final String  sDefaultAppName="HubiThings OAuth"
+@Field static final String  sSTNamespace="replica"
 @Field static final Integer iSmartAppDeviceLimit=30
 @Field static final Integer iHttpSuccess=200
 @Field static final Integer iHttpError=400
@@ -59,7 +60,7 @@ import groovy.transform.Field
 definition(
     parent: 'replica:HubiThings Replica',
     name: sDefaultAppName,
-    namespace: "replica",
+    namespace: sSTNamespace,
     author: "bloodtick",
     description: "Hubitat Child Application to manage SmartThings OAuth",
     category: "Convenience",
@@ -130,10 +131,10 @@ public Map getSmartSubscribedDevices() {
     List deviceIds = getSmartSubscriptions()?.items?.findAll{ it.sourceType=="DEVICE" }?.device?.deviceId
     List devices = deviceIds?.findResults{ deviceId -> getSmartDevices()?.items?.find{ it.deviceId==deviceId }?.clone() }
     devices?.each{      
-        it.oauthId=getOauthId()
+        it.apiId=getApiId()
         it.appId=app.getId()
         it.roomName = getSmartRoomName(it?.roomId)
-        it.locationName = getSmartLocationName(it?.locationId)
+        it.namespace = sSTNamespace // added 1.4.00
         return it
     }    
     return [items:(devices?:[])]
@@ -262,8 +263,16 @@ String getOauthState() {
     return "${getHubUID()}/apps/${app.id}/oauth/callback?access_token=${state.accessToken}"
 }
 
-String getOauthId() {
+public String getApiId() {
     return "${getHubUID().reverse().take(3).reverse()}-${app.getId().toString().padLeft(4,"0")}" // I just made this up
+}
+
+public String getUri() {    
+    return "http://${location.hub.getDataValue("localIP")}/installedapp/configure/$app.id"
+}
+
+public String getLocationName() {
+    return getSmartLocationName(state.locationId)
 }
 
 String getOauthAuthorizeUri() {
@@ -654,9 +663,9 @@ void setSmartDeviceSubscriptions() {
         logDebug "${getDefaultLabel()} unsubscribe to $deviceId"
         deleteSmartSubscriptions("DEVICE", deviceId)
     }
-    if(update?.ready) {
-        runIn(1, subscriptionDeviceListChanged, [data: [createIds:update?.select, deleteIds:update?.delete, reason:"subscriptionListChanged"]])
+    if(update?.ready) {        
         runIn(2, getSmartSubscriptionList)
+        runIn(3, subscriptionDeviceListChanged, [data: [createIds:update?.select, deleteIds:update?.delete, reason:"subscriptionListChanged"]])
     }
 }
 
@@ -943,7 +952,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList
                     setSmartDeviceSubscriptions()
                 }
-                logInfo "${getDefaultLabel()} ${getOauthId()} ${changed?"updated":"checked"} subscription list"
+                logInfo "${getDefaultLabel()} ${getApiId()} ${changed?"updated":"checked"} subscription list"
                 break
             case "getSmartDeviceList":            
                 Map deviceList = new JsonSlurper().parseText(resp.data)
@@ -955,7 +964,7 @@ void asyncHttpGetCallback(resp, data) {
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
                 clearSmartLocationQueryLock()
-                logInfo "${getDefaultLabel()} ${getOauthId()} ${changed?"updated":"checked"} device list"
+                logInfo "${getDefaultLabel()} ${getApiId()} ${changed?"updated":"checked"} device list"
                 break
             case "getSmartRoomList":            
                 Map roomList = new JsonSlurper().parseText(resp.data)
@@ -965,7 +974,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.rooms = g_mSmartRoomList[app.getId()] = roomList
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
-                logInfo "${getDefaultLabel()} ${getOauthId()} ${changed?"updated":"checked"} room list"
+                logInfo "${getDefaultLabel()} ${getApiId()} ${changed?"updated":"checked"} room list"
                 getSmartDeviceList()                
                 break
             case "getSmartLocationList":            
@@ -977,7 +986,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
-                logInfo "${getDefaultLabel()} ${getOauthId()} ${changed?"updated":"checked"} location list"
+                logInfo "${getDefaultLabel()} ${getApiId()} ${changed?"updated":"checked"} location list"
                 getSmartRoomList()
                 break
             default:
@@ -1080,16 +1089,16 @@ Map oauthRefresh() {
 
 void appStatus() {
     if(getAuthStatus()=="AUTHORIZED") {
-        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorized")}" ) // this will send updated() command
+        app.updateLabel( "$pageMainPageAppLabel ${getApiId()} : ${getFormat("text","Authorized")}" ) // this will send updated() command
     }
     else if (getAuthStatus()=="WARNING") {
-        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorization Warning",null,sColorYellow)}" ) // this will send updated() command
+        app.updateLabel( "$pageMainPageAppLabel ${getApiId()} : ${getFormat("text","Authorization Warning",null,sColorYellow)}" ) // this will send updated() command
     }
     else if (getAuthStatus()=="FAILURE") {
-        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()} : ${getFormat("text","Authorization Failure",null,sColorDarkRed)}" ) // this will send updated() command
+        app.updateLabel( "$pageMainPageAppLabel ${getApiId()} : ${getFormat("text","Authorization Failure",null,sColorDarkRed)}" ) // this will send updated() command
     }
     else {
-        app.updateLabel( "$pageMainPageAppLabel ${getOauthId()}" ) // this will send updated() command
+        app.updateLabel( "$pageMainPageAppLabel ${getApiId()}" ) // this will send updated() command
     }    
     getParent()?.childHealthChanged( app )
 }
@@ -1140,7 +1149,7 @@ def createApp() {
     logInfo "${getDefaultLabel()} creating SmartThings API"
     def response = [statusCode:iHttpError]
     
-    String displayName = "$sDefaultAppName ${getOauthId()}"
+    String displayName = "$sDefaultAppName ${getApiId()}"
     def app = [
         appName: "${sDefaultAppName.replaceAll("\\s","").toLowerCase()}-${UUID.randomUUID().toString()}",
         displayName: displayName,
@@ -1327,5 +1336,5 @@ private logWarn(msg)  { log.warn  "${msg}" }
 private logError(msg) { log.error "${msg}" }
 
 void pageMainTestButton() {  
-    return
+    logWarn getAuthToken(true)
 }
