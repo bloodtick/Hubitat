@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.06 2023-02-26 Natural order sorting. [patched 2023-02-28 for event sorting]
 *  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
@@ -26,10 +25,11 @@
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests.
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger()
-*  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. (no Replica changes) 
+*  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. (no Replica changes)
+*  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.3.15" }
+public static String version() { return "1.4.00" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -43,6 +43,9 @@ import groovy.transform.CompileStatic
 import groovy.transform.Field
 
 @Field static final String  sDefaultAppName="HubiThings Replica"
+@Field static final String  sSTNamespace="replica"
+@Field static final String  sHassNamespace="replica.hass"
+@Field static final String  sApiTypeName="Replica Hass API"
 @Field static final Integer iUseJqueryDataTables=25
 @Field static final Integer iHttpSuccess=200
 @Field static final Integer iHttpError=400
@@ -56,32 +59,44 @@ import groovy.transform.Field
 @Field static final String  sNoRules="&ZeroWidthSpace;No Rules"
 @Field static final String  sOffline="&ZeroWidthSpace;Offline"
 
+
 // IN-MEMORY VARIABLES (Cleared on HUB REBOOT or CODE UPDATES)
 @Field volatile static Map<Long,Map>   g_mSmartDeviceStatusMap = [:]
-@Field volatile static Map<Long,Map>   g_mSmartDeviceListCache = [:]
+@Field volatile static Map<Long,List>  g_mSmartDeviceListCache = [:]
 @Field volatile static Map<Long,Map>   g_mVirtualDeviceListCache = [:] 
 @Field volatile static Map<Long,Map>   g_mSmartLocationListCache = [:]
 @Field volatile static Map<Long,Map>   g_mSmartRoomListCache = [:]
 @Field volatile static Map<Long,Map>   g_mSmartSceneListCache = [:]
 @Field volatile static Map<Long,Map>   g_mReplicaDeviceCache = [:]
 @Field volatile static Map<String,Map> g_mAppDeviceSettings = [:] // don't clear
+@Field volatile static Map<Long,List>  g_mHassDeviceListCache = [:]
 
 void clearAllVolatileCache() {
+    logDebug "${app.getLabel()} executing 'clearAllVolatileCache()'"
     Long appId = app.getId()
+    g_mSmartDeviceStatusMap[appId]?.clear()
     g_mSmartDeviceStatusMap[appId]=null
+    g_mSmartDeviceListCache[appId]?.clear()
     g_mSmartDeviceListCache[appId]=null
+    g_mVirtualDeviceListCache[appId]?.clear()
     g_mVirtualDeviceListCache[appId]=null
+    g_mSmartLocationListCache[appId]?.clear()
     g_mSmartLocationListCache[appId]=null
+    g_mSmartRoomListCache[appId]?.clear()
     g_mSmartRoomListCache[appId]=null
+    g_mSmartSceneListCache[appId]?.clear()
     g_mSmartSceneListCache[appId]=null
+    g_mReplicaDeviceCache[appId]?.clear()
     g_mReplicaDeviceCache[appId]=null
+    g_mHassDeviceListCache[appId]?.clear()
+    g_mHassDeviceListCache[appId]=null
 }
 
 definition(
     name: sDefaultAppName,
-    namespace: "replica",
+    namespace: sSTNamespace,
     author: "bloodtick",
-    description: "Hubitat Application to manage SmartThings Devices",
+    description: "Hubitat Application to manage 'SmartThings' and 'Home Assistant' Devices",
     category: "Convenience",
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsReplica.groovy",
     iconUrl: "",
@@ -92,6 +107,8 @@ definition(
 preferences {
     page name:"pageMain"
     page name:"pageAuthDevice"
+    page name:"pageHubiThingDeviceSmart"
+    page name:"pageHubiThingDeviceHass"
     page name:"pageHubiThingDevice"
     page name:"pageMirrorDevice"
     page name:"pageConfigureDevice"
@@ -113,6 +130,7 @@ def initialize() {
     logInfo "${app.getLabel()} executing 'initialize()'"
     if(pageMainPageAppLabel && pageMainPageAppLabel!=app.getLabel()) { app.updateLabel( pageMainPageAppLabel ) }
     subscribe(location, "mode", locationModeHandler)
+    subscribe(location, "systemStart", hubRebootHandler)
 }
 
 def uninstalled() {
@@ -123,34 +141,44 @@ def uninstalled() {
     getChildApps().each { deleteChildApp(it.id) }
 }
 
+def hubRebootHandler(evt=null) {
+    logInfo "${app.getLabel()} hub rebooted scheduling 'allSmartDeviceRefresh'"
+    scheduleAllSmartDeviceRefresh(5,true)
+}
+
 /************************************** CHILD METHODS START *******************************************************/
 
-public void childInitialize( childApp ) {
+public void childInitialize(def childApp) {
     logDebug "${app.getLabel()} executing 'childInitialize($childApp.id)'"
 }
 
-public void childUpdated( childApp ) {
+public void childUpdated(def childApp) {
     logDebug "${app.getLabel()} executing 'childUpdated($childApp.id)'"
 }
 
-public void childUninstalled( childApp ) {
+public void childUninstalled(def childApp) {
     logDebug "${app.getLabel()} executing 'childUninstalled($childApp.id)'"
     runIn(2, allSmartDeviceRefresh)
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
-public void childSubscriptionDeviceListChanged( childApp, data=null ) {
+public void childSubscriptionDeviceListChanged(def childApp, def data=null) {
     logDebug "${app.getLabel()} executing 'childSubscriptionDeviceListChanged($childApp.id, $data)'"
     try {
-        getSmartDevicesMap()?.items?.removeAll{ it.appId == childApp.getId() }
-        getSmartDevicesMap()?.items?.addAll( childApp.getSmartSubscribedDevices()?.items )
+        if(getSmartDeviceList() instanceof List) {
+            synchronized(this) {
+                g_mSmartDeviceListCache[app.getId()]?.removeAll{ it.appId == childApp.getId() }
+                g_mSmartDeviceListCache[app.getId()]?.addAll( childApp.getSmartSubscribedDevices()?.items ?: [] )
+            }
+        }    
     } catch(e) {
         logInfo "${app.getLabel()} 'childSubscriptionDeviceListChanged($childApp.id)' did not complete successfully"
+        runIn(10,'allSmartDeviceRefresh')
     }
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
-public List childGetOtherSubscribedDeviceIds( childApp ) {
+public List childGetOtherSubscribedDeviceIds(def childApp) {
     logDebug "${app.getLabel()} executing 'childGetOtherSubscribedDeviceIds($childApp.id)'"
     List devices = []
     getChildApps()?.each{ oauthApp -> 
@@ -161,11 +189,11 @@ public List childGetOtherSubscribedDeviceIds( childApp ) {
     return devices?.unique()
 }
 
-public void childSubscriptionEvent( childApp, event ) {
+public void childSubscriptionEvent(def childApp, def event) {
     oauthEventHandler( event?.eventData, now() )
 }
 
-public void childHealthChanged( childApp ) {
+public void childHealthChanged(def childApp) {
     logDebug "${app.getLabel()} executing 'childHealthChanged($childApp.id)'"
     String locationId = childApp?.getLocationId()
     String oauthStatus = "UNKNOWN"    
@@ -182,7 +210,7 @@ public void childHealthChanged( childApp ) {
                 oauthStatus = "AUTHORIZED"            
         }    
     }   
-    getAllReplicaDevices()?.each { replicaDevice ->
+    getAllSTReplicaDevices()?.each { replicaDevice ->
         if(hasCommand(replicaDevice, 'setOauthStatusValue')) {
             Map description = getReplicaDataJsonValue(replicaDevice, "description")
             if(description?.locationId == locationId) {
@@ -205,10 +233,10 @@ public void updateLocationSubscriptionSettings() {
     List primaryApps = getChildApps()?.clone()?.sort{ it?.getId() }?.unique{ a, b -> a.getLocationId() <=> b.getLocationId() }  
     getChildApps()?.each{ ouathApp ->
         if( primaryApps?.find{ it?.getId()==ouathApp.getId() } ) {
-            logDebug "${app.getLabel()} Leader**: location:${ouathApp?.getLocationId()} OAuthId:${ouathApp?.getOauthId()}"
+            logDebug "${app.getLabel()} Leader**: location:${ouathApp?.getLocationId()} OAuthId:${ouathApp?.getApiId()}"
             ouathApp.updateLocationSubscriptionSettings(true)
         } else {
-            logDebug "${app.getLabel()} Follower: location:${ouathApp?.getLocationId()} OAuthId:${ouathApp?.getOauthId()}"
+            logDebug "${app.getLabel()} Follower: location:${ouathApp?.getLocationId()} OAuthId:${ouathApp?.getApiId()}"
             ouathApp.updateLocationSubscriptionSettings(false)
         }
         ouathApp.setSmartDeviceSubscriptions()
@@ -216,6 +244,243 @@ public void updateLocationSubscriptionSettings() {
 }
 
 /************************************** CHILD METHODS STOP ********************************************************/
+/************************************** HASS METHODS START ********************************************************/
+
+public Map getHassConfig() {
+    return [
+        hassIp: userHassIp,
+        hassPort: userHassPort,
+        security: userHassSecurity,
+        token: userHassLLAT,
+        id: generateRandomValue() 
+    ]
+}
+
+String generateRandomValue() {
+    String uuid = UUID.randomUUID().toString().replaceAll("-", "")
+    return "${uuid[0..2]}-${uuid[3..6]}" as String
+}
+
+public List getSubscriptionList(String apiId) {
+    List subscriptions = []    
+    getAllHassReplicaDevices()?.each{ replicaDevice ->
+        String deviceId = getReplicaDeviceId ( replicaDevice )
+        Map smartDevice = getSmartDevice( deviceId )
+        if(apiId==smartDevice?.apiId as String && smartDevice?.entity_ids[apiId]) {
+            subscriptions.addAll( smartDevice?.entity_ids[apiId] )
+        }
+    }
+    if(subscriptions?.isEmpty() && !getHassDeviceList()?.clone()?.find{ it?.apiId == apiId })
+        return null // we don't have any devices from this API, so don't update
+    
+    return subscriptions.unique()
+}
+
+//@Field static final Object lock = new Object()
+public void parseMessage(Map message) {
+    logDebug "${app.getLabel()} executing 'parseMessage()' : ${JsonOutput.toJson(message)}"
+    
+    if(g_mHassDeviceListCache[app.getId()]==null) {
+        if(scheduleAllSmartDeviceRefresh()) logWarn "${app.getLabel()} rejecting Home Assistant events until 'allSmartDeviceRefresh' completes"
+        return
+    }    
+    
+    if(message?.type=="event" || message?.type=="status" || message?.type=="health") {
+        String entity_id = message[message.type]?.entity_id        
+        // this is more complicated since a 'device' deviceId is not an entity_id. So we much search them all to determine if
+        // we match the incoming entity_id message. A little messy.
+        Boolean deviceFound = false
+        getAllHassReplicaDevices()?.each { replicaDevice ->
+            String deviceId = getReplicaDeviceId ( replicaDevice )
+            Map smartDevice = getSmartDevice( deviceId )
+            
+            if(smartDevice?.entity_ids?.get(message.apiId)?.find{ it == entity_id }) {
+                if(!deviceFound) {
+                    getReplicaDeviceEventsCache(replicaDevice)?.eventCount += 1                    
+                    deviceFound = true
+                }
+                updateSmartDeviceEventsStatus(replicaDevice)
+                if(appLogEventEnable && message && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
+                    log.info "${message?.type?.capitalize()}: ${JsonOutput.toJson(message)}"
+                }
+                try {                  
+                    def response = replicaDevice.parseMessage( message ) ?: "none"
+                    logInfo "${app.getLabel()} processed '$replicaDevice' $message.type ● $message.apiId.$entity_id ➢ response:$response"
+                } catch(e) {
+                    logWarn "${app.getLabel()} received '$replicaDevice' $message.type ● $message.apiId.$entity_id ➢ parse:failed"
+                }
+            }
+        }
+        if(!deviceFound) {
+            logWarn "${app.getLabel()} failed message:'$message.type' to '$message.apiId.$entity_id'"
+            runIn(2, refreshHassAPIs)
+        }
+    }
+} 
+
+public void sendMessage(def device, String service, Map data = [:], Map callback = null) {
+    logDebug "${app.getLabel()} executing 'parseMessage($device, $service, $data)'"
+    String deviceId = getReplicaDeviceId ( getDevice( device.deviceNetworkId ) )
+    Map smartDevice = getSmartDevice( deviceId )
+    logDebug "${app.getLabel()} sendMessage($device, $deviceId, $smartDevice)"
+    getSmartDeviceEventsCache(deviceId).messageCount += 1
+
+    smartDevice?.entity_ids?.each{ apiId, entity_ids -> 
+        Boolean exit=false // not sure why it didn't like break in the each loop. this works the same.
+        entity_ids?.each{ entity_id ->
+            if(exit) return
+            
+            if(service=="refresh") { // special call to shift from websocket to rest api for status                
+                getHassAPI( apiId )?.getStatus( entity_id )
+                runIn(2, refreshHassAPIs)
+                return
+            }
+            
+            domain = (entity_id?.tokenize(".")[0])
+            if(entity_ids.size()>1 && !service.contains(".")) {
+                // throw warning about you need to have domain identified with service if more than one entity_id is attached. try them all
+                logWarn "${app.getLabel()} error '${getDevice( device.deviceNetworkId )}' attempting send '$service' without identifying domain in multi-entity $entity_ids driver"
+            }
+            if(service.contains(".")) {
+                domain = (service?.tokenize(".")[0])
+                service = (service?.tokenize(".")[1])
+                entity_ids?.each {
+                    if( (it?.tokenize(".")[0])==domain ) entity_id = it
+                }
+                exit=true
+            }                
+            Map message = [type: "call_service", domain:domain, service:service, service_data:[ entity_id:entity_id ] + data]
+            if(appLogEventEnable && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
+                log.info "Device:${getReplicaDevices(deviceId)?.each{ it?.label }} commands:<b>${JsonOutput.toJson(message)}</b>"
+            }
+            logInfo "${app.getLabel()} sending '${getDevice( device.deviceNetworkId )}' ● $apiId.$entity_id ➢ service:$service$data"
+            if(callback) callback.deviceNetworkId = device.deviceNetworkId
+            getHassAPI( apiId )?.sendMessage( message, true, callback )
+        }
+    }
+}
+
+public void sendMessageCallback(Map message = [:]) {   
+    if(message?.deviceNetworkId && message?.callback && getDevice( message.deviceNetworkId )) { 
+        getDevice( message.deviceNetworkId )?."$message.callback"(message)
+    }
+}
+
+void refreshHassAPIs(String apiId = null) {
+    logDebug "${app.getLabel()} executing 'refreshHassAPIs($apiId)'"
+    getHassAPIs()?.each{
+        if(apiId==null || it?.getApiId()==apiId) it.refresh()
+    }
+}    
+
+def getHassAPIs() {
+    return getChildDevices()?.findAll{ it.typeName==sApiTypeName }
+}
+
+def getHassAPI(String apiId) {
+    return getHassAPIs()?.find{ it.getApiId() as String == apiId }
+}
+
+def pageMainCreateChildDeviceHassAPI() {
+    createChildDevice([namespace:sHassNamespace, name:sApiTypeName], sApiTypeName, sApiTypeName, sApiTypeName, sApiTypeName, sHassNamespace)
+    scheduleAllSmartDeviceRefresh(3)
+}
+
+@Field volatile static Map<Long,Long>  g_mHassDeviceListCacheLock = [:]
+List getHassDeviceList() {
+    synchronized(this) {
+        if(g_mHassDeviceListCache[app.getId()]==null && ((g_mHassDeviceListCacheLock[app.getId()]?:0L) + (getHassAPIs().size() * 2000) as Long) < now()) {
+            g_mHassDeviceListCacheLock[app.getId()] = now()
+            runIn(0,'setHassDeviceList')        
+            Integer count=5*10  // wait a max of 5 seconds
+            while(--count && g_mHassDeviceListCache[app.getId()]==null ) { pauseExecution(100) }
+            if(!count && getHassAPIs().size()) logInfo "${app.getLabel()} caching Home Assistant device list wait timed out"
+        }
+    }
+    return g_mHassDeviceListCache[app.getId()] ?: []
+}
+
+private void setHassDeviceList() {
+    List smartDevices = []
+    getHassAPIs()?.each{
+        smartDevices.addAll( it?.getSmartDevices() ?: [] )
+    }
+    g_mHassDeviceListCache[app.getId()] = smartDevices?.clone()
+    if(getHassAPIs().size()) logInfo "${app.getLabel()} cached Home Assistant device list of ${g_mHassDeviceListCache[app.getId()]?.size()?:0} in ${now() - g_mHassDeviceListCacheLock[app.getId()]?:0L} ms"
+    g_mHassDeviceListCacheLock[app.getId()] = null
+}
+
+Boolean isHassInstalled() {
+    if(!state?.isHassInstalled) runInIsHassInstalled()
+    return !!state?.isHassInstalled
+}
+
+void runInIsHassInstalled() {
+    if(!state?.checkIsHassInstalled) runIn(15, checkIsHassInstalled)
+    state.checkIsHassInstalled = true
+}    
+
+void checkIsHassInstalled() {
+    state.isHassInstalled = !!(getDriverList()?.items?.find{ it?.namespace==sHassNamespace && it?.name==sApiTypeName })
+    state.remove("checkIsHassInstalled")
+}
+
+void hassHealthHandler(def event) {    
+    Map data = parseJson(event.getData() ?: [:])
+    logDebug "${app.getLabel()} executing 'hassHealthHandler(value:$event.value, data:$data)'"
+    if(data?.reason=="initialize") {
+        logInfo "${app.getLabel()} received '$data.reason' from $sApiTypeName $data.apiId"
+    } else if(event.name=="healthStatus" && data?.apiId) {
+        try {
+            if(getHassDeviceList() instanceof List) {
+                synchronized(this) {
+                    g_mHassDeviceListCache[app.getId()]?.removeAll{ it.apiId == data?.apiId }
+                    g_mHassDeviceListCache[app.getId()]?.addAll( getHassAPI(data?.apiId)?.getSmartDevices() ?: [])
+                }
+            }  
+        } catch(e) {
+            logInfo "${app.getLabel()} 'hassHealthHandler(value:$event.value, data:$data)' did not complete successfully"
+            scheduleAllSmartDeviceRefresh(10)
+        }     
+    }
+}
+
+Map getHassCustomDevice(String deviceId, List hassDeviceList) {
+    logDebug "${app.getLabel()} executing 'getHassCustomDevice($deviceId)'"
+    // this is under synchronized(this) from 'Map getSmartDevice(String deviceId)'
+    // this was curious todo. build a fake device based upon its deviceIds set. It should work similar to a 'device'
+    Map smartDevice = [:]
+    getReplicaDevices(deviceId)?.each { replicaDevice ->
+        Map replica = getReplicaDataJsonValue(replicaDevice, "replica")
+        if(replica?.namespace==sHassNamespace && replica?.containsKey("deviceIds")) {
+            smartDevice.deviceId = smartDevice.entity_id = deviceId
+            smartDevice.name = smartDevice.label = "Custom Device (${replica?.deviceIds?.size()?.toString()} Entities)"
+            smartDevice.deviceTypeName = "custom"
+            smartDevice.components = [[ id:sHassNamespace, label:sHassNamespace, capabilities:[] ]]
+            smartDevice.entity_ids = [:]
+            smartDevice.namespace = sHassNamespace                
+            
+            replica?.deviceIds?.each { nestDeviceId ->
+                Map nestSmartDevice = hassDeviceList?.find{ it.deviceId==nestDeviceId }
+                if(nestSmartDevice) {
+                    smartDevice.apiId = nestSmartDevice?.apiId
+                    smartDevice.components[0].capabilities?.addAll(nestSmartDevice?.components[0]?.capabilities ?: [])                
+                    nestSmartDevice?.entity_ids?.each{ k, v ->
+                        if(smartDevice.entity_ids.containsKey(k.toString())) {
+                            smartDevice.entity_ids[k.toString()] = (smartDevice.entity_ids[k] + v).unique()
+                        } else {
+                            smartDevice.entity_ids[k.toString()] = v
+                        }
+                    }
+                } 
+            }
+        }
+    }
+    if(smartDevice?.apiId) g_mHassDeviceListCache[app.getId()] << smartDevice    
+    return smartDevice
+}
+
+/************************************** HASS METHODS STOP *********************************************************/
 
 Map getSmartLocations() {
     return g_mSmartLocationListCache[app.getId()] ?: (g_mSmartLocationListCache[app.getId()]=getSmartLocationList()?.data) ?: [:] //blocking http
@@ -239,83 +504,164 @@ String getSmartLocationName(String locationId) {
     getSmartLocations()?.items?.find{ it.locationId==locationId }?.name
 }
 
-Map getSmartDevicesMap() {
-    Long appId = app.getId()
-    if(g_mSmartDeviceListCache[appId]==null) {
-        g_mSmartDeviceListCache[appId]=[:]
-        allSmartDeviceRefresh()
-        Integer count=0
-        while(count<40 && (g_mSmartDeviceListCache[appId])?.items==null ) { pauseExecution(250); count++ } // wait a max of 10 seconds
+Map getSmartDevice(String deviceId) {
+    Map smartDevice = null    
+    if(!smartDevice && g_mSmartDeviceListCache[app.getId()] instanceof List) {
+        synchronized(this) {
+            smartDevice = getSmartDeviceList()?.find{ it.deviceId==deviceId }?.clone()
+        }
     }
-    return g_mSmartDeviceListCache[appId]?:[:]
+    if(!smartDevice && g_mHassDeviceListCache[app.getId()] instanceof List) {
+        synchronized(this) {
+            smartDevice = (getHassDeviceList()?.find{ it.deviceId==deviceId } ?: getHassCustomDevice(deviceId, getHassDeviceList()))?.clone()
+        }
+    }    
+    if((g_mSmartDeviceListCache[app.getId()]==null && g_mSmartDeviceListCacheLock[app.getId()]==null) || (g_mHassDeviceListCache[app.getId()]==null &&  g_mHassDeviceListCacheLock[app.getId()]==null)) {        
+        scheduleAllSmartDeviceRefresh()
+    }
+    return smartDevice    
 }
 
-void setSmartDevicesMap(Map deviceList) {
-    g_mSmartDeviceListCache[app.getId()] = deviceList
-    clearReplicaDataCache() // lets clear the cache of any stale devices
-    logInfo "${app.getLabel()} caching SmartThings device list"
+def getSmartDeviceApi(Map smartDevice) {
+    if(smartDevice && !smartDevice.isEmpty() && smartDevice?.namespace == sHassNamespace) 
+        return getHassAPI(smartDevice?.apiId)
+    else if(smartDevice && !smartDevice.isEmpty() && smartDevice?.namespace != sHassNamespace )
+        return getChildApps()?.find{ it.getApiId()==smartDevice?.apiId }
+    else
+        return null
+}
+
+@Field volatile static Map<Long,Long>  g_mSmartDeviceListCacheLock = [:]
+List getSmartDeviceList() { 
+    synchronized(this) {
+        if(g_mSmartDeviceListCache[app.getId()]==null && ((g_mSmartDeviceListCacheLock[app.getId()]?:0L) + (getChildApps().size() * 3000) as Long) < now()) {
+            g_mSmartDeviceListCacheLock[app.getId()] = now()
+            runIn(0,'setSmartDevicesList')        
+            Integer count=5*10  // wait a max of 5 seconds
+            while(--count && g_mSmartDeviceListCache[app.getId()]==null ) { pauseExecution(100) }
+            if(!count && getChildApps()?.size()) logInfo "${app.getLabel()} caching SmartThings device list wait timed out"
+        }
+    }
+    return g_mSmartDeviceListCache[app.getId()] ?: []
+}
+
+private void setSmartDevicesList() {
+    List smartDevices = []
+    getChildApps()?.each{ 
+        smartDevices.addAll( it.getSmartSubscribedDevices()?.items ?: [] )
+        it.smartLocationQuery()
+    }
+    g_mSmartDeviceListCache[app.getId()] = smartDevices?.clone()
+    if(getChildApps()?.size()) logInfo "${app.getLabel()} cached SmartThings device list of ${g_mSmartDeviceListCache[app.getId()]?.size()?:0} in ${now() - g_mSmartDeviceListCacheLock[app.getId()]?:0} ms"
+    g_mSmartDeviceListCacheLock[app.getId()] = null    
 }
 
 def pageMain(){
     if(!state?.isInstalled) {        
         return dynamicPage(name: "pageMain", install: true, refreshInterval: 0) {
             displayHeader()
-            section(menuHeader("Complete Install $sHubitatIconStatic $sSamsungIconStatic")) {
+            section(menuHeader("Complete Install $sHubitatIconStatic")) {
                 paragraph("Please complete the install <b>(click done)</b> and then return to $sHubitatIcon SmartApp to continue configuration")
                 input(name: "pageMainPageAppLabel", type: "text", title: getFormat("text","$sHubitatIcon Change ${app.getLabel()} SmartApp Name:"), width: 6, defaultValue:app.getLabel(), submitOnChange: true, newLineAfter:true)
             }
         }
-    }    
+    }
+    subscribe(location, "systemStart", hubRebootHandler)
     
-    Map smartDevices = getSmartDevicesMap()?.clone()
+    List replicaDevices = getAllReplicaDevices()
+    List smartDevices = getSmartDeviceList()?.clone()
+    Integer deviceCount = replicaDevices?.size()?:0 + smartDevices?.size()?:0 // could be fake count. fix later    
     Integer deviceAuthCount = getAuthorizedDevices()?.size() ?: 0
-    
+   
     return dynamicPage(name: "pageMain", install: true, refreshInterval:iPageMainRefreshInterval) {
         displayHeader()
         state.pageMainLastRefresh = now()
         
-        section(menuHeader("Replica Configuration $sHubitatIconStatic $sSamsungIconStatic")) {
+        section(menuHeader("Replica Configuration $sHubitatIconStatic $sSamsungIconStatic $sHassIconStatic")) {
             
             input(name: "pageMainShowConfig", type: "bool", title: "$sHubitatIcon Show Configuration", defaultValue: true, submitOnChange: true)
-            paragraph( getFormat("line") )            
             if(pageMainShowConfig) {
-                String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all Authorized Scopes permissions to enable functionality</b>. "
-                       comments+= "A PAT is valid for 50 years from creation date. Click the ${sSamsungIcon} SmartThings Personal Access Token link to be directed to the SmartThings website."
-                paragraphComment(comments)
-                
-                input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","&ensp;$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)
-                paragraph("") 
-                
-                if(userSmartThingsPAT) {
-                    comments = "HubiThings OAuth Applications are required to enable SmartThings devices for replication. Each OAuth Application can subscribe up to 30 devices and is hub and location independent. "
-                    comments+= "HubiThings Replica allows for multiple OAuth Applications to be created for solution requirements beyond 30 devices. <b>Click the '${sSamsungIcon} Authorize SmartThings Devices : Create OAuth Applications' link to create one or more OAuth Applications</b>."
+                paragraph( getFormat("line") )
+                Boolean isHassInstalled = isHassInstalled()
+                if(isHassInstalled) {
+                    input(name: "userShowSmartThings", type: "bool", title: "$sSamsungIcon Show SmartThings Configuration", defaultValue: false, submitOnChange: true)
+                }                
+                if(userShowSmartThings || !isHassInstalled) {                           
+                    String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all Authorized Scopes permissions to enable functionality</b>. "
+                           comments+= "A PAT is valid for 50 years from creation date. Click the ${sSamsungIcon} SmartThings Personal Access Token link to be directed to the SmartThings website."
                     paragraphComment(comments)
+                
+                    input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","&ensp;$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)                
+                    paragraph("") 
+                
+                    if(userSmartThingsPAT) {
+                        comments = "HubiThings OAuth Applications are required to enable SmartThings devices for replication. Each OAuth Application can subscribe up to 30 devices and is hub and location independent. "
+                        comments+= "HubiThings Replica allows for multiple OAuth Applications to be created for solution requirements beyond 30 devices. <b>Click the '${sSamsungIcon} Authorize SmartThings Devices : Create OAuth Applications' link to create one or more OAuth Applications</b>."
+                        paragraphComment(comments)
                     
-                    app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: "replica", title: "${getFormat("text","$sSamsungIcon Authorize SmartThings Devices")} : Create OAuth Applications", multiple: true)                
-                    paragraph( getFormat("line") )
-  
-                    input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: "$sHubitatIcon Advanced Configuration", defaultValue: false, submitOnChange: true)                
-                    if(pageMainShowAdvanceConfiguration) {             
-                        pageAuthDeviceUserInputCtl()
-                        paragraph("")
-   
-                        input(name: "pageMainPageAppLabel", type: "text", title: "&ensp;$sHubitatIcon Hubitat SmartApp Name:", width: 6, submitOnChange: true, newLineAfter:true)
-                        input(name: "dynamic::pageMainChangeAppNameButton", type: "button", title: "Change Name", width: 3, style:"width:50%;", newLineAfter:true)                
+                        app(name: "oauthChildApps", appName: "HubiThings OAuth", namespace: sSTNamespace, title: "${getFormat("text","$sSamsungIcon Authorize SmartThings Devices")} : Create OAuth Applications", multiple: true)                
                     }
                 }
+                if(isHassInstalled) {
+                    paragraph( getFormat("line") )                
+                    input(name: "userShowHass", type: "bool", title: "$sHassIcon Show Home Assistance Configuration", defaultValue: false, submitOnChange: true)
+                }                             
+                if(userShowHass && isHassInstalled) {                    
+                    input(name: "userHassIp", type: "text", title: "$sHassIcon Home Assistant IP Address:", width: 6, defaultValue: "127.0.0.1", submitOnChange: true)
+                    input(name: "userHassPort", type: "number", title: "$sHassIcon Home Assistant IP Port (Default:8123):", width: 6, , range: "1..65535", defaultValue: "8123", submitOnChange: true, newLineAfter:true)
+                    comments = "This application utilizes the Home Assistant Local API to create, delete and query devices. <b>You must supply a Home Assistant Long-lived access token (LLAT) to enable functionality</b>. "
+                    comments+= "A LLAT is valid for 10 years from creation date. Click the ${sHassIcon} Home Assistant Personal Access Token link to be directed to your Home Assistant website."
+                    paragraphComment(comments)
+                
+                    input(name: "userHassLLAT", type: "password", title: getFormat("hyperlink","$sHassIcon Home Assistant Long-lived Access Token:","http://$userHassIp:$userHassPort/profile/security"), description: "Home Assistant Token", width: 6, submitOnChange: true, newLineAfter:false)
+                    input(name: "userHassSecurity", type: "bool", title: "$sHassIcon Home Assistant Secure Connection", defaultValue: false,  width: 6, submitOnChange: true, newLineAfter:true)
+                    paragraph("") 
+                
+                    if(userHassLLAT&&userHassIp&&userHassPort) {
+                        comments = "$sApiTypeName Devices are required to enable Home Assistant devices for replication. Each $sApiTypeName can subscribe to all devices and are location independent. "
+                        paragraphComment(comments)                        
+                    
+                        Boolean isDupHassApi = !!getHassAPIs()?.find{ Map hassAPI=it?.getConfig(); return(userHassIp==hassAPI?.hassIp && userHassPort as Integer==hassAPI?.hassPort as Integer) }
+                        Map apiButtonConfig = isDupHassApi ? [title: "$sHassIcon Duplicate Hass API", style:"width:50%;color:$sColorDarkGrey;", disabled:false] : [title: "$sHassIcon Create Hass API", style:"width:50%;color:$sColorDarkBlue;font-weight:bold;", disabled:false] 
+                        input([name: "dynamic::pageMainCreateChildDeviceHassAPI", type: "button", width: 3, newLineAfter:true] + apiButtonConfig)
+                        getHassAPIs()?.each { hassAPI ->
+                            Map config = hassAPI.getConfig()                            
+                            String connection = "<span style='color:$sColorDarkBlue;font-weight:bold;text-transform:capitalize;' class='device-current-state-${hassAPI.getId()}-connection'>${hassAPI?.currentValue("connection",true) ?: "unknown"}</span>"
+                            String locationName = "<span class='device-current-state-${hassAPI.getId()}-locationName'>${hassAPI?.currentValue("locationName",true) ?: config?.uri}</span>"
+                            String devUri = "http://${location.hub.getDataValue("localIP")}/device/edit/${hassAPI.getId()}"
+                            href(title: "$sHubitatIcon ${hassAPI.getDisplayName()} : (id:${config.apiId})", url: devUri, width: 6, description:"")
+                            href(title: "$sHassIcon $locationName : $connection", url: config.uri, width: 6, description:"", newLineAfter:true)
+                            unsubscribe(hassAPI); subscribe(hassAPI, "healthStatus", hassHealthHandler)
+                        }
+                    }
+                }
+              
+                paragraph( getFormat("line") )
+                input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: "$sHubitatIcon Advanced Configuration", defaultValue: false, submitOnChange: true)                    
+                if(pageMainShowAdvanceConfiguration) {             
+                    if(getChildApps().size()) {
+                        pageAuthDeviceUserInputCtl()
+                        paragraph("")
+                    }   
+                    input(name: "pageMainPageAppLabel", type: "text", title: "&ensp;$sHubitatIcon Hubitat SmartApp Name:", width: 6, submitOnChange: true, newLineAfter:true)
+                    input(name: "dynamic::pageMainChangeAppNameButton", type: "button", title: "$sHubitatIcon Change Name", width: 3, style:"width:50%;", newLineAfter:true)                
+                }                
             }
         }
             
-        if(pageMainShowConfig && pageMainShowAdvanceConfiguration) {  
+        if(pageMainShowConfig && pageMainShowAdvanceConfiguration) {            
             section(menuHeader("Replica Application Logging")) {
                 input(name: "appLogEventEnable", type: "bool", title: "Enable Event and Status Info logging", required: false, defaultValue: false, submitOnChange: true)
                 if(appLogEventEnable) {
                     List smartDevicesSelect = []
-                    smartDevices?.items?.sort{ it.label }?.each {    
-                        def device = [ "${it.deviceId}" : "${it.label} &ensp; (deviceId: ${it.deviceId})" ]
-                        smartDevicesSelect.add(device)   
+                    replicaDevices?.each{ replicaDevice ->
+                        Map smartDevice = getSmartDevice( getReplicaDeviceId(replicaDevice) )
+                        if(smartDevice) {
+                            Map device = [ "${smartDevice.deviceId}" : "${replicaDevice.getDisplayName()} &ensp; (deviceId: ${smartDevice.deviceId})" ]
+                            smartDevicesSelect.add(device)
+                        }
                     }
-                    input(name: "appLogEventEnableDevice", type: "enum", title: getFormat("text","&ensp;$sSamsungIcon Selective SmartThings Info Logging:"), description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
+                    input(name: "appLogEventEnableDevice", type: "enum", title: getFormat("text","&ensp;$sHubitatIcon Selective Replica Device Info Logging:"), description: "Choose a Replica device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
                     paragraph( getFormat("line") )
                 } else { 
                     app.removeSetting("appLogEventEnableDevice")
@@ -334,75 +680,78 @@ def pageMain(){
             }
         }               
         
-        if(userSmartThingsPAT&&getChildApps()?.size()) {            
+        if(!getHassAPIs()?.isEmpty() || !getChildApps().isEmpty()) {            
 			section(menuHeader("HubiThings Device List")){           
-				if (smartDevices) {
+				if (deviceCount) {
+                    String platformIcon = !getChildApps()?.isEmpty() && !getHassAPIs()?.isEmpty() ? "$sSamsungIcon || $sHassIcon" : getChildApps()?.size() ? sHubitatIcon : sHassIcon
+                    
 					String devicesTable  = "<table id='devicesTable' role='table' class='compact' style='width:100%'><thead>"
-					       devicesTable += "<tr><th>$sSamsungIcon Device</th><th>$sHubitatIcon Device</th><th>$sHubitatIcon OAuth</th><th style='text-align:center;'>$sSamsungIcon Events</th></tr>"
+					       devicesTable += "<tr><th>$platformIcon Device</th><th>$sHubitatIcon Device</th><th>$platformIcon API</th><th style='text-align:center;'>$platformIcon Events</th></tr>"
 					       devicesTable += "</thead><tbody>"
                     
-                    List deviceIds = getAllReplicaDeviceIds()
-                    try {
-					smartDevices?.items?.sort{ it?.label }?.each { smartDevice ->
-                        deviceIds.remove(smartDevice?.deviceId)
-						List hubitatDevices = getReplicaDevices(smartDevice?.deviceId)
-						for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
-							def replicaDevice = hubitatDevices[i]?:null
-							String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
-							String oauthUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
-							devicesTable += "<tr>"
-							devicesTable += smartDevice?.label   ? "<td>${smartDevice?.label}</td>" : "<td>--</td>"                  
-							devicesTable += replicaDevice        ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"
-							devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td>--</td>"
-							devicesTable += replicaDevice        ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;'>0</td>"
-							devicesTable += "</tr>"
-						}
-                    } } catch(e) { } //noop. have a concurrency problem once and a while.
-                    logDebug "${app.getLabel()} deviceIds not found $deviceIds"
- 					deviceIds?.each { deviceId ->
-						List hubitatDevices = getReplicaDevices(deviceId)
-						for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
-							def replicaDevice = hubitatDevices[i]?:null
-							String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                        
-							devicesTable += "<tr>"
-							devicesTable += "<td>--</td>"                  
-							devicesTable += "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>"
-							devicesTable += "<td>--</td>"
-							devicesTable += "<td style='text-align:center;color:$sColorDarkRed;'>$sWarningsIcon $sNotAuthorized</td>"
-							devicesTable += "</tr>"
-						}
-					}                                  
-
+                    replicaDevices?.each{ replicaDevice ->
+                        String deviceId = getReplicaDeviceId(replicaDevice)
+                        Map smartDevice = getSmartDevice( deviceId )
+                        smartDevices?.removeAll{ it?.deviceId==deviceId }                        
+                        String devUri = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
+                        String apiUri = getSmartDeviceApi(smartDevice)?.getUri()
+                        devicesTable += "<tr>"
+                        devicesTable += "<td>${smartDevice?.label?:smartDevice?.name?:"--"}</td>"
+                        devicesTable += "<td><a href='$devUri' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>"
+                        devicesTable += getSmartDeviceApi(smartDevice) ? "<td><a href='$apiUri' target='_blank' rel='noopener noreferrer'>${getSmartDeviceApi(smartDevice)?.getLocationName()?:""} : ${smartDevice?.apiId?:""}</a></td>" : "<td>--</td>"
+                        //devicesTable += getSmartDeviceApi(smartDevice) ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;color:$sColorDarkRed;'>$sWarningsIcon $sNotAuthorized</td>"
+                        devicesTable += "<td style='text-align:center;'><span class='ssr-app-state-${app.getId()}-${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</span></td>"
+  
+                    }
+                    deviceCount = replicaDevices?.size()?:0 + smartDevices?.size()?:0 // fix the count
+                    // these are ST devices that are authorized but not associated to any replica device.
+                    smartDevices?.each { smartDevice ->             
+					    String apiUri = getSmartDeviceApi(smartDevice)?.getUri() ?: ""                        
+                        devicesTable += "<tr>"               
+						devicesTable += "<td>$smartDevice.label</td>"
+                        devicesTable += "<td>--</td>"
+						devicesTable += getSmartDeviceApi(smartDevice) ? "<td><a href='$apiUri' target='_blank' rel='noopener noreferrer'>${getSmartDeviceApi(smartDevice)?.getLocationName()?:""} : ${smartDevice?.apiId?:""}</a></td>" : "<td>--</td>"
+						devicesTable += "<td style='text-align:center;'>0</td>"
+						devicesTable += "</tr>"						
+					}
+                    smartDevices.clear()
+                    
 					devicesTable +="</tbody></table>"
                     devicesTable += """<style>@media screen and (max-width:800px) { table th:nth-of-type(3),td:nth-of-type(3) { display: none; } }</style>"""
                     // Hubitat includes jquery DataTables in web code. https://datatables.net
-                    if(smartDevices?.items?.size()+deviceIds?.size() > iUseJqueryDataTables) {
+                    if(deviceCount > iUseJqueryDataTables) {
                         devicesTable += """<script>$naturalSortFunction \$(document).ready(function () { \$('#devicesTable').DataTable( { destroy: true, stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ], columnDefs:[ { type:'natural-nohtml', targets:'_all' } ]} );});</script>"""                
-					    //devicesTable += """<script>\$(document).ready(function () { \$('#devicesTable').DataTable( { stateSave: true, lengthMenu:[ [25, 50, 100, -1], [25, 50, 100, "All"] ] } );});</script>"""
                         devicesTable += """<style>#devicesTable tbody tr.even:hover { background-color: #F5F5F5 !important; }</style>"""
                     } else {
                         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
                     }                    
 					paragraph( devicesTable )
-
+                    /* old socket method   
 					String socketstatus = """<span style='color:${sColorDarkRed}' id='socketstatus'></span>"""					
 					socketstatus += """<script>if(typeof websocket_start === 'undefined'){ window.websocket_start=true; console.log('websocket_start'); var ws = new WebSocket("ws://${location.hub.localIP}:80/eventsocket"); ws.onmessage=function(evt){ var e=JSON.parse(evt.data); if(e.installedAppId=="${app.getId()}") { smartEvent(e); }}; ws.onclose=function(){ onclose(); delete websocket_start;};}</script>"""
-					if(smartDevices?.items?.size()+deviceIds?.size() > iUseJqueryDataTables)
+					if(deviceCount > iUseJqueryDataTables)
                         socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent'){ \$('#devicesTable').DataTable().cell(`#\${dt.deviceNetworkId}`)?.data(evt.value).draw(false); }}</script>"""
                     else
                         socketstatus += """<script>function smartEvent(evt) { var dt=JSON.parse(evt.descriptionText); if(dt.debug){console.log(evt);} if(evt.name=='smartEvent' && document.getElementById(dt.deviceNetworkId)){ document.getElementById(dt.deviceNetworkId).innerHTML = evt.value; }}</script>"""
                     socketstatus += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
-					paragraph( rawHtml: true, socketstatus )
+					paragraph( rawHtml: true, socketstatus ) */
 				}            
-				input(name: "dynamic::allSmartDeviceRefresh",  type: "button", width: 2, title: "$sSamsungIcon Refresh", style:"width:75%;")
+				input(name: "dynamic::allSmartDeviceRefresh",  type: "button", width: 2, title: "$sHubitatIcon Refresh", style:"width:75%;")
 			}
 
-			section(menuHeader("Replica Device Creation and Control")){             
-				href "pageHubiThingDevice",  title: "$sImgDevh Configure HubiThings Devices ", description: "Click to show"
-                href "pageVirtualDevice",    title: "$sImgDevv Configure Virtual Devices, Modes and Scenes", description: "Click to show"
-				href "pageConfigureDevice",  title: "$sImgRule Configure HubiThings Rules", description: "Click to show"
-                if(deviceAuthCount>0) href "pageMirrorDevice", title: "$sImgMirr Mirror Hubitat Devices (Advanced)", description: "Click to show"
-                href "pageSupportNewDevice", title: "$sImgGitH Support for New Device", description: "Click to show"
+			section(menuHeader("Replica Device Creation and Control")){
+                if(getChildApps().size()) {
+                    if(!getHassAPIs().isEmpty()) paragraph("<b>$sSamsungIcon SmartThings:</b>")
+                    href "pageHubiThingDeviceSmart",  title: "$sImgDevh Configure HubiThings Devices ", description: "Click to show"
+                    href "pageVirtualDevice",    title: "$sImgDevv Configure Virtual Devices, Modes and Scenes", description: "Click to show"
+				    href "pageConfigureDevice",  title: "$sImgRule Configure HubiThings Rules", description: "Click to show"
+                    if(deviceAuthCount>0) href "pageMirrorDevice", title: "$sImgMirr Mirror Hubitat Devices (Advanced)", description: "Click to show"
+                    href "pageSupportNewDevice", title: "$sImgGitH Support for New Device", description: "Click to show"
+                }
+                if(!getHassAPIs().isEmpty()) {
+                    if(getChildApps().size())  paragraph("<b>$sHassIcon Home Assistant:</b>")
+                    href "pageHubiThingDeviceHass",  title: "$sImgDevh Configure HubiThings Devices ", description: "Click to show"
+                }
             }
 
 			if(pageMainShowConfig || appDebugEnable || appTraceEnable) {
@@ -410,10 +759,15 @@ def pageMain(){
 			} else {
 				unschedule('updatePageMain')
 			}            
-        } //if(userSmartThingsPAT&&getChildApps()?.size())
+        } //if(!getHassAPIs()?.isEmpty() || !getChildApps().isEmpty()) {
         
         displayFooter()
     }    
+}
+
+String processServerSideRender(Map event) {
+    logTrace "${app.getLabel()} executing 'processServerSideRender($event)'"
+    return event.value.toString()
 }
 
 void updatePageMain() {
@@ -460,8 +814,9 @@ void pageMainChangeAppNameButton() {
     }
 }
 
-Map getDeviceHandlers() {    
-    Map handlers = [ items: [
+Map getDeviceHandlers(List namespace=[sSTNamespace]) {    
+    Map handlers = namespace.contains(sSTNamespace) ?        
+    [ items: [
         [id:"1", name:"Virtual Switch",             namespace:"hubitat" ],
         [id:"2", name:"Virtual Contact Sensor",     namespace:"hubitat" ],
         [id:"3", name:"Virtual Motion Sensor",      namespace:"hubitat" ],
@@ -470,14 +825,16 @@ Map getDeviceHandlers() {
         [id:"6", name:"Virtual Presence",           namespace:"hubitat" ],
         [id:"7", name:"Virtual Shade",              namespace:"hubitat" ],
         [id:"8", name:"Virtual Thermostat",         namespace:"hubitat" ]
-    ]]
-    getDriverList()?.items?.each{ if(it?.namespace=='replica') handlers.items.add(it) }    
+    ]] :
+    [ items: [] ]
+    
+    getDriverList()?.items?.each{ if(namespace.contains(it?.namespace) && it?.name!=sApiTypeName) handlers.items.add(it) }    
     return handlers
 }
 
-def pageSupportNewDevice() {    
+def pageSupportNewDevice() {
     List replicaDevicesSelect = []
-    getAllReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }.each {    
+    getAllSTReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }.each {    
         Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
         replicaDevicesSelect.add(device)   
     }
@@ -490,8 +847,8 @@ def pageSupportNewDevice() {
             def replicaDevice = getDevice(pageSupportNewDeviceReplicaDevice)
             String deviceTitle = "&ensp;$sSamsungIcon Select HubiThings Device:"
             if(replicaDevice) {
-                String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
-                deviceTitle = "<a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${deviceTitle}</a>"
+                String devUri = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
+                deviceTitle = "<a href='$devUri' target='_blank' rel='noopener noreferrer'>${deviceTitle}</a>"
             }
             input(name: "pageSupportNewDeviceReplicaDevice", type: "enum", title: deviceTitle, description: "Choose a HubiThings device", options: replicaDevicesSelect, multiple: false, submitOnChange: true, width: 8, newLineAfter:true)  
 
@@ -582,50 +939,80 @@ void pageSupportNewDeviceStoreCapabilityButton() {
     }
 }
 
-def pageHubiThingDevice(){
-    Map smartDevices = getSmartDevicesMap()
+def pageHubiThingDeviceSmart() { state.dynamicPageName="pageHubiThingDeviceSmart"; return pageHubiThingDevice() }
+def pageHubiThingDeviceHass()  { state.dynamicPageName="pageHubiThingDeviceHass";  return pageHubiThingDevice() }    
+
+def pageHubiThingDevice() {
+    String dynamicPageName = state.dynamicPageName
+    logDebug "${app.getLabel()} executing 'pageHubiThingDevice($dynamicPageName)'"
+
+    List smartDevices = (dynamicPageName=="pageHubiThingDeviceHass") ? getHassDeviceList()?.clone() : getSmartDeviceList()?.clone() 
+    String platformName = (dynamicPageName=="pageHubiThingDeviceHass") ? "Home Assistant" : "SmartThings"
+    String platformIcon = (dynamicPageName=="pageHubiThingDeviceHass") ? sHassIcon : sSamsungIcon
+    List namespace = (dynamicPageName=="pageHubiThingDeviceHass") ? [sHassNamespace] : [sSTNamespace]
 
     List smartDevicesSelect = []
-    smartDevices?.items?.sort{ a,b -> naturalSort(a.label,b.label) }?.each { smartDevice ->
-        smartDevice?.components?.each { component ->
-            if( !smartDevicesSelect?.find{ smartDevice.deviceId==it.keySet().getAt(0) } && (pageHubiThingDeviceShowAllDevices || !getReplicaDevices(smartDevice.deviceId, component?.id)) )
-                smartDevicesSelect.add([ "$smartDevice.deviceId" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])       
+    smartDevices?.sort{ a,b -> naturalSort(a.label,b.label) }?.each { smartDevice ->           
+        smartDevice?.components?.each { component -> 
+            if( !smartDevicesSelect?.find{ smartDevice.deviceId==it.keySet().getAt(0) } && (pageHubiThingDeviceShowAllDevices || !getReplicaDevices(smartDevice.deviceId, component?.id)) ) {
+                if(dynamicPageName!="pageHubiThingDeviceHass")    
+                    smartDevicesSelect.add([ "$smartDevice.deviceId" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])
+                else if(pageHubiThingDeviceShowAllHassEntities || smartDevice?.deviceTypeName=="device" || (smartDevice?.deviceTypeName=="entity" && smartDevice?.device==null))
+                    smartDevicesSelect.add([ "$smartDevice.deviceId" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])
+            }                    
         }
-    }    
+    }
+    
+    Boolean multiple = (dynamicPageName=="pageHubiThingDeviceHass" && pageHubiThingDeviceShowAllHassEntities)
+    if(multiple && !(pageHubiThingDeviceSmartDevice instanceof List)) app.removeSetting( "pageHubiThingDeviceSmartDevice" )
+       //app.updateSetting( "pageHubiThingDeviceSmartDevice", [type:"enum", value: []] )
+    if(!multiple && (pageHubiThingDeviceSmartDevice instanceof List)) app.removeSetting( "pageHubiThingDeviceSmartDevice" )
+       //app.updateSetting( "pageHubiThingDeviceSmartDevice", [type:"enum", value: null] )
    
-    List smartComponentsSelect = []       
-    smartDevices?.items?.find{it.deviceId == pageHubiThingDeviceSmartDevice}?.components.each { component ->
+    List smartComponentsSelect = []
+    if(dynamicPageName!="pageHubiThingDeviceHass")
+    getSmartDevice(pageHubiThingDeviceSmartDevice)?.components.each { component ->
         if(pageHubiThingDeviceShowAllDevices || !getReplicaDevices(pageHubiThingDeviceSmartDevice, component?.id))
             smartComponentsSelect.add(component.id)
     }
      
     List hubitatDeviceTypes = []
-    getDeviceHandlers()?.items?.sort{ a,b -> b?.namespace <=> a?.namespace ?: a?.name <=> b?.name }?.each {    
+    getDeviceHandlers(namespace)?.items?.sort{ a,b -> b?.namespace <=> a?.namespace ?: a?.name <=> b?.name }?.each {    
         hubitatDeviceTypes.add([ "$it.id" : "$it.name &ensp; (namespace: $it.namespace)" ])   
     }
 
-    if(smartComponentsSelect?.size()==1) { 
-        app.updateSetting( "pageHubiThingDeviceSmartDeviceComponent", [type:"enum", value: smartComponentsSelect?.get(0)] )
+    if(smartComponentsSelect?.size()<=1) { 
+        app.updateSetting( "pageHubiThingDeviceSmartDeviceComponent", [type:"enum", value: smartComponentsSelect.isEmpty() ? sHassNamespace : smartComponentsSelect?.get(0)] )
     }
     
-    String smartStats = getSmartDeviceStats(pageHubiThingDeviceSmartDevice, pageHubiThingDeviceSmartDeviceComponent)
+    String smartStats = ""
+    if(!multiple) {
+        smartStats = getSmartDeviceStats(pageHubiThingDeviceSmartDevice, pageHubiThingDeviceSmartDeviceComponent)
+    } else {
+        pageHubiThingDeviceSmartDevice?.eachWithIndex { smartDeviceId, index ->
+            smartStats += getSmartDeviceStats(smartDeviceId, pageHubiThingDeviceSmartDeviceComponent) + ((index < pageHubiThingDeviceSmartDevice.size() - 1) ? "\n\n" : "")
+        }
+    }
+
     if(pageHubiThingDeviceSmartDevice!=g_mAppDeviceSettings?.pageHubiThingDeviceSmartDevice || pageHubiThingDeviceSmartDeviceComponent!=g_mAppDeviceSettings?.pageHubiThingDeviceSmartDeviceComponent) {
         g_mAppDeviceSettings['pageHubiThingDeviceSmartDevice'] = pageHubiThingDeviceSmartDevice
         g_mAppDeviceSettings['pageHubiThingDeviceSmartDeviceComponent'] = pageHubiThingDeviceSmartDeviceComponent
-        String deviceLabel = smartDevices?.items?.find{it.deviceId == pageHubiThingDeviceSmartDevice}?.label
+        String deviceLabel = pageHubiThingDeviceSmartDevice==[] ? "" : (pageHubiThingDeviceSmartDevice instanceof List) ? getSmartDevice(pageHubiThingDeviceSmartDevice?.get(0))?.label : getSmartDevice(pageHubiThingDeviceSmartDevice)?.label
         app.updateSetting( "pageHubiThingDeviceLabel", deviceLabel ? "$deviceLabel${smartComponentsSelect?.size()>1 ? " - $pageHubiThingDeviceSmartDeviceComponent" : ""}" : "" )
     }
     
     Integer refreshInterval = (g_mAppDeviceSettings?.pageHubiThingDeviceCreateButton || g_mAppDeviceSettings?.pageHubiThingDeviceModifyButton) ? 15 : 0
     return dynamicPage(name: "pageHubiThingDevice", uninstall: false, refreshInterval:refreshInterval) {
         displayHeader()        
-
-        section(menuHeader("Create HubiThings Device $sHubitatIconStatic $sSamsungIconStatic")) { 
-            input(name: "pageHubiThingDeviceSmartDevice", type: "enum", title: "&ensp;$sSamsungIcon Select SmartThings Device:", description: "Choose a SmartThings device", options: smartDevicesSelect, required: false, submitOnChange:true, width: 6)
-            if(pageHubiThingDeviceSmartDevice && smartComponentsSelect?.size()>1)
-                input(name: "pageHubiThingDeviceSmartDeviceComponent", type: "enum", title: "$sSamsungIcon Select SmartThings Device Component:", description: "Choose a Device Component", options: smartComponentsSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
+        
+        section(menuHeader("Create HubiThings Device $sHubitatIconStatic $sSamsungIconStatic $sHassIconStatic")) { 
+            input(name: "pageHubiThingDeviceSmartDevice", type: "enum", title: "&ensp;$platformIcon Select $platformName Device:", description: "Choose a $platformName device", options: smartDevicesSelect, multiple:multiple, required:false, submitOnChange:true, width: 6)
+            if(dynamicPageName!="pageHubiThingDeviceHass" && pageHubiThingDeviceSmartDevice && smartComponentsSelect?.size()>1)
+                input(name: "pageHubiThingDeviceSmartDeviceComponent", type: "enum", title: "$platformIcon Select $platformName Device Component:", description: "Choose a Device Component", options: smartComponentsSelect, required: false, submitOnChange:true, width: 6, newLineAfter:true)
             paragraph( smartStats )
-            input(name: "pageHubiThingDeviceShowAllDevices", type: "bool", title: "Show All Authorized SmartThings Devices", defaultValue: false, submitOnChange: true, newLineAfter:true)
+            input(name: "pageHubiThingDeviceShowAllDevices", type: "bool", title: "Show All Authorized $platformName Devices", defaultValue: false, submitOnChange: true, newLineAfter:true)
+            if(dynamicPageName=="pageHubiThingDeviceHass") 
+                input(name: "pageHubiThingDeviceShowAllHassEntities", type: "bool", title: "Show All $platformName Entities (Allows for advanced Custom Device creation)", defaultValue: false, submitOnChange: true, newLineAfter:true)
             paragraph( getFormat("line") )
             
             input(name: "pageHubiThingDeviceType", type: "enum", title: "&ensp;$sHubitatIcon Select Hubitat Device Type:", description: "Choose a Hubitat device type", options: hubitatDeviceTypes, required: false, submitOnChange:true, width: 6, newLineAfter:true)
@@ -636,23 +1023,28 @@ def pageHubiThingDevice(){
                 paragraph( getFormat("line") )
                 paragraph( g_mAppDeviceSettings.pageHubiThingDeviceCreateButton )
                 g_mAppDeviceSettings.pageHubiThingDeviceCreateButton = null
-                href "pageConfigureDevice", title: "$sImgRule Configure HubiThings Rules", description: "Click to show"                
+                if(dynamicPageName=="pageHubiThingDeviceSmart")
+                    href "pageConfigureDevice", title: "$sImgRule Configure HubiThings Rules", description: "Click to show"                
             }
         }
-        commonReplicaDevicesSection("pageHubiThingDevice")
+        commonReplicaDevicesSection(dynamicPageName)
     }
 }
 
 def commonReplicaDevicesSection(String dynamicPageName) {    
+    String platformName = (dynamicPageName=="pageHubiThingDeviceHass") ? "Home Assistant" : "SmartThings" 
+    String platformIcon = (dynamicPageName=="pageHubiThingDeviceHass") ? sHassIcon : sSamsungIcon
+    List replicaDevices = (dynamicPageName=="pageHubiThingDeviceHass") ? getAllHassReplicaDevices() : getAllSTReplicaDevices()
+
     List hubitatDevicesSelect = []
-    getAllReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }?.findAll{ (dynamicPageName=="pageHubiThingDevice" && getChildDevice( it?.deviceNetworkId )) || (dynamicPageName!="pageHubiThingDevice" && !getChildDevice( it?.deviceNetworkId )) }?.each{
-        Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
+    replicaDevices?.each{ replicaDevice ->
+        Map device = [ "${replicaDevice.deviceNetworkId}" : "${replicaDevice.getDisplayName()} &ensp; (deviceNetworkId: ${replicaDevice.deviceNetworkId})" ]
         hubitatDevicesSelect.add(device)   
     }
     section(menuHeader("Modify HubiThings Device")) {
-        paragraphComment("${(dynamicPageName=="pageHubiThingDevice")?"<b>Replace</b> updates the 'Select SmartThings Device' to replica the 'Select Hubitat Device'. ":""}<b>Remove</b> deletes the 'Select Hubitat Device' child device from Hubitat, but will only decouple a mirror device and will not delete.") 
+        paragraphComment("${(dynamicPageName!="pageMirrorDevice")?"<b>Replace</b> updates the 'Select $platformName Device' to replica the 'Select Hubitat Device'. ":""}<b>Remove</b> deletes the 'Select Hubitat Device' child device from Hubitat, but will only decouple a mirror device and will not delete.") 
         input(name: "pageHubiThingDeviceModify", type: "enum",  title: "&ensp;$sHubitatIcon Select HubiThings Device:", description: "Choose a HubiThings device", multiple: false, options: hubitatDevicesSelect, submitOnChange: true, width: 6, newLineAfter:true)
-        if(dynamicPageName=="pageHubiThingDevice")
+        if(dynamicPageName!="pageMirrorDevice")
             input(name: "dynamic::pageHubiThingDeviceReplaceButton",  type: "button", width: 2, title: "$sHubitatIcon Replace", style:"width:75%;")
         input(name: "dynamic::pageHubiThingDeviceRemoveButton",  type: "button", width: 2, title: "$sHubitatIcon Remove", style:"width:75%;", newLineAfter:true)
         if(g_mAppDeviceSettings?.pageHubiThingDeviceModifyButton) {
@@ -660,19 +1052,17 @@ def commonReplicaDevicesSection(String dynamicPageName) {
             g_mAppDeviceSettings.pageHubiThingDeviceModifyButton = null
         }            
     }    
-    Map smartDevices = getSmartDevicesMap()
     
     String devicesTable  = "<table id='devicesTable' role='table' class='compact' style='width:100%;'>"
-           devicesTable += "<thead><tr><th>$sHubitatIcon&nbsp;Device</th><th>$sHubitatIcon&nbsp;Type</th><th>$sHubitatIcon&nbsp;OAuth</th><th style='text-align:center;'>$sHubitatIcon&nbsp;Class</th></tr></thead><tbody>"
-    List devices = getAllReplicaDevices()?.sort{ it.getDisplayName() }?.findAll{ (dynamicPageName=="pageHubiThingDevice" && getChildDevice( it?.deviceNetworkId )) || (dynamicPageName!="pageHubiThingDevice" && !getChildDevice( it?.deviceNetworkId )) }?.each{  replicaDevice ->
+           devicesTable += "<thead><tr><th>$sHubitatIcon&nbsp;Device</th><th>$sHubitatIcon&nbsp;Type</th><th>$platformIcon API</th><th style='text-align:center;'>$sHubitatIcon&nbsp;Class</th></tr></thead><tbody>"
+    replicaDevices?.each{  replicaDevice ->
         Boolean isChildDevice = (getChildDevice( replicaDevice?.deviceNetworkId ) != null)
-        String deviceId = getReplicaDeviceId(replicaDevice)
-        Map smartDevice = smartDevices?.items?.find{ it?.deviceId == deviceId }
-        String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
-        String oauthUrl = "http://${location.hub.getDataValue("localIP")}/installedapp/configure/${smartDevice?.appId}"
-        devicesTable += "<tr><td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
+        Map smartDevice = getSmartDevice( getReplicaDeviceId(replicaDevice) )
+        String devUri = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice.getId()}"
+        String apiUri = getSmartDeviceApi(smartDevice)?.getUri()
+        devicesTable += "<tr><td><a href='$devUri' target='_blank' rel='noopener noreferrer'>${replicaDevice.getDisplayName()}</a></td>"
         devicesTable += "<td>${replicaDevice.typeName}</td>"
-        devicesTable += smartDevice?.oauthId ? "<td><a href='${oauthUrl}'>${smartDevice?.locationName?:""} : ${smartDevice?.oauthId?:""}</a></td>" : "<td style='color:$sColorDarkRed;'>$sWarningsIcon $sNotAuthorized</td>"
+        devicesTable += getSmartDeviceApi(smartDevice) ? "<td><a href='$apiUri' target='_blank' rel='noopener noreferrer'>${getSmartDeviceApi(smartDevice)?.getLocationName()?:""} : ${smartDevice?.apiId?:""}</a></td>" : "<td style='color:$sColorDarkRed;'>$sWarningsIcon $sNotAuthorized</td>"
         devicesTable += "<td style='text-align:center;'>${isChildDevice?'Child':'Mirror'}</td></tr>"
     }
     devicesTable +="</tbody></table>"
@@ -685,8 +1075,8 @@ def commonReplicaDevicesSection(String dynamicPageName) {
         devicesTable += """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>"""
     }    
     
-    section(menuHeader("HubiThings Device List")) {
-        if (devices?.size()) {        
+    if (replicaDevices?.size()) {
+        section(menuHeader("HubiThings Device List")) {      
             paragraph( devicesTable )
         }
     }
@@ -694,38 +1084,46 @@ def commonReplicaDevicesSection(String dynamicPageName) {
 
 void pageHubiThingDeviceCreateButton() {
     logDebug "${app.getLabel()} executing 'pageHubiThingDeviceCreateButton()' $pageHubiThingDeviceSmartDevice $pageHubiThingDeviceSmartDeviceComponent $pageHubiThingDeviceType $pageHubiThingDeviceLabel"
+    String platformName = (state?.dynamicPageName=="pageHubiThingDeviceHass") ? "Home Assistant" : "SmartThings"
+    String platformNamespace = (state?.dynamicPageName=="pageHubiThingDeviceHass") ? sHassNamespace : sSTNamespace
+    List smartDevices = (state?.dynamicPageName=="pageHubiThingDeviceHass") ? getHassDeviceList()?.clone() : getSmartDeviceList()?.clone()
+    
     if(!pageHubiThingDeviceSmartDevice)
-        g_mAppDeviceSettings['pageHubiThingDeviceCreateButton'] = errorMsg("Error: SmartThings Device selection is invalid")
+        g_mAppDeviceSettings['pageHubiThingDeviceCreateButton'] = errorMsg("Error: $platformName Device selection is invalid")
     else if(!pageHubiThingDeviceSmartDeviceComponent)
-        g_mAppDeviceSettings['pageHubiThingDeviceCreateButton'] = errorMsg("Error: SmartThings Device Component selection is invalid")
+        g_mAppDeviceSettings['pageHubiThingDeviceCreateButton'] = errorMsg("Error: $platformName Device Component selection is invalid")
     else if(!pageHubiThingDeviceType)
         g_mAppDeviceSettings['pageHubiThingDeviceCreateButton'] = errorMsg("Error: Hubitat Device Type is invalid") 
     else if(!pageHubiThingDeviceLabel)
         g_mAppDeviceSettings['pageHubiThingDeviceCreateButton'] = errorMsg("Error: Hubitat Device Label is invalid")
-    else {
-        Map deviceType = getDeviceHandlers()?.items?.find{ it?.id==pageHubiThingDeviceType }
-        String name  = (getSmartDevicesMap()?.items?.find{it?.deviceId == pageHubiThingDeviceSmartDevice}?.name)
+    else { 
+        Map deviceType = getDeviceHandlers([platformNamespace])?.items?.find{ it?.id==pageHubiThingDeviceType }
+        String name  = smartDevices?.find{it?.deviceId == pageHubiThingDeviceSmartDevice}?.name ?: pageHubiThingDeviceLabel
         String label = pageHubiThingDeviceLabel
-        String deviceId = pageHubiThingDeviceSmartDevice
+        String deviceId = (pageHubiThingDeviceSmartDevice instanceof List) ? pageHubiThingDeviceSmartDevice.get(0) : pageHubiThingDeviceSmartDevice
         String componentId = pageHubiThingDeviceSmartDeviceComponent
-        g_mAppDeviceSettings['pageHubiThingDeviceCreateButton'] = createChildDevice(deviceType, name, label, deviceId, componentId)
+        g_mAppDeviceSettings['pageHubiThingDeviceCreateButton'] = createChildDevice(deviceType, name, label, deviceId, componentId, platformNamespace)
     }
 }
 
-String createChildDevice(Map deviceType, String name, String label, String deviceId, String componentId) {
-    logDebug "${app.getLabel()} executing 'createChildDevice()' $deviceType $name $label $deviceId $componentId"
+String createChildDevice(Map deviceType, String name, String label, String deviceId, String componentId, String platformNamespace) {
+    logDebug "${app.getLabel()} executing 'createChildDevice()' $deviceType $name $label $deviceId $componentId $platformNamespace"
     String response = errorMsg("Error: '$label' was not created")       
     String deviceNetworkId = "${UUID.randomUUID().toString()}"    
     try {
         def replicaDevice = addChildDevice(deviceType.namespace, deviceType.name, deviceNetworkId, null, [name: name, label: label, completedSetup: true])
+        logInfo "${app.getLabel()} created device '${replicaDevice.getDisplayName()}' with deviceId: $deviceId"
         // the deviceId makes this a hubiThing
         // Needed for mirror function to prevent two SmartApps talking to same device.
-        Map replica = [ deviceId:deviceId, componentId:componentId, replicaId:(app.getId()), type:'child']
+        Map replica = [ deviceId:deviceId, componentId:componentId, replicaId:(app.getId()), type:'child', namespace:platformNamespace]
+        if((pageHubiThingDeviceSmartDevice instanceof List) && pageHubiThingDeviceSmartDevice?.size()>1) {
+            replica.deviceIds = pageHubiThingDeviceSmartDevice
+            replica.deviceId = deviceNetworkId
+        }            
         setReplicaDataJsonValue(replicaDevice, "replica", replica)
         if(replicaDevice?.hasCommand('configure')) replicaDevice.configure()
         replicaDeviceRefresh(replicaDevice)
-
-        logInfo "${app.getLabel()} created device '${replicaDevice.getDisplayName()}' with deviceId: $deviceId"        
+        
         app.updateSetting( "pageSupportNewDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
         app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
         app.updateSetting( "pageHubiThingDeviceModify", [type:"enum", value: replicaDevice.deviceNetworkId] )       
@@ -785,24 +1183,35 @@ String deleteChildDevice(String deviceNetworkId) {
 
 void pageHubiThingDeviceReplaceButton() {
     logDebug "${app.getLabel()} executing 'pageHubiThingDeviceReplaceButton()' $pageHubiThingDeviceModify $pageHubiThingDeviceSmartDevice $pageHubiThingDeviceSmartDeviceComponent"
+    String platformName = (state?.dynamicPageName=="pageHubiThingDeviceHass") ? "Home Assistant" : "SmartThings"
+    String platformNamespace = (state?.dynamicPageName=="pageHubiThingDeviceHass") ? sHassNamespace : sSTNamespace
+    
     if(!pageHubiThingDeviceSmartDevice)
-        g_mAppDeviceSettings['pageHubiThingDeviceModifyButton'] = errorMsg("Error: SmartThings Device selection is invalid")
+        g_mAppDeviceSettings['pageHubiThingDeviceModifyButton'] = errorMsg("Error: $platformName Device selection is invalid")
     else if(!pageHubiThingDeviceSmartDeviceComponent)
-        g_mAppDeviceSettings['pageHubiThingDeviceModifyButton'] = errorMsg("Error: SmartThings Device Component selection is invalid")
+        g_mAppDeviceSettings['pageHubiThingDeviceModifyButton'] = errorMsg("Error: $platformName Device Component selection is invalid")
     else if(!pageHubiThingDeviceModify)
         g_mAppDeviceSettings['pageHubiThingDeviceModifyButton'] = errorMsg("Error: Hubitat Device selection is invalid") 
     else
-        g_mAppDeviceSettings['pageHubiThingDeviceModifyButton'] = replaceChildDevice(pageHubiThingDeviceModify, pageHubiThingDeviceSmartDevice, pageHubiThingDeviceSmartDeviceComponent)
+        g_mAppDeviceSettings['pageHubiThingDeviceModifyButton'] = replaceChildDevice(pageHubiThingDeviceModify, pageHubiThingDeviceSmartDevice, pageHubiThingDeviceSmartDeviceComponent, platformNamespace)
 }
 
-String replaceChildDevice(String deviceNetworkId, String deviceId, String componentId) {    
+String replaceChildDevice(String deviceNetworkId, def deviceId, String componentId, String platformNamespace) {    
     String response = errorMsg("Error: Could not find device to replace")
     def replicaDevice = getDevice(deviceNetworkId)
     
     if(replicaDevice) {
         String label = replicaDevice?.getDisplayName()
         try {
-            Map replica = [ deviceId:deviceId, componentId:componentId, replicaId:(app.getId()), type:( getChildDevice( replicaDevice?.deviceNetworkId )!=null ? 'child' : 'mirror')]
+            Map replica = [ deviceId:deviceId, componentId:componentId, replicaId:(app.getId()), type:( getChildDevice( replicaDevice?.deviceNetworkId )!=null ? 'child' : 'mirror'), namespace:platformNamespace]
+            if(pageHubiThingDeviceSmartDevice instanceof List) {
+                if(pageHubiThingDeviceSmartDevice?.size()>1) {
+                    replica.deviceIds = pageHubiThingDeviceSmartDevice
+                    replica.deviceId = deviceNetworkId
+                } else {
+                    replica.deviceId = pageHubiThingDeviceSmartDevice[1]
+                }                    
+            }            
             setReplicaDataJsonValue(replicaDevice, "replica", replica)
             clearReplicaDataCache(replicaDevice, "capabilities", true)
             clearReplicaDataCache(replicaDevice, "description", true)
@@ -834,22 +1243,22 @@ String getHubitatDeviceStats(hubitatDevice) {
     return hubitatStats
 }
 
-String getSmartDeviceStats(smartDeviceId, smartDeviceComponentId) {
+String getSmartDeviceStats(String smartDeviceId, String smartDeviceComponentId) {
     String smartStats =  ""
-    if(smartDeviceId) {
-        Map smartDevices = getSmartDevicesMap()
+    if(smartDeviceId && getSmartDevice( smartDeviceId )) {
+        Map smartDevice = getSmartDevice( smartDeviceId )
         
         List smartCapabilities = []
-        smartDevices?.items?.find{it.deviceId == smartDeviceId}?.components?.each{ component ->        
-            if(component.id == smartDeviceComponentId) {
+        smartDevice?.components?.each{ component ->        
+            if(component?.id == smartDeviceComponentId) {
                 component?.capabilities?.each { capability ->
                     smartCapabilities.add("$capability.id")
                 }
             }
-        }       
-        smartStats += "Device Type: ${smartDevices?.items?.find{it.deviceId == smartDeviceId}?.deviceTypeName ?: (smartDevices?.items?.find{it.deviceId == smartDeviceId}?.name ?: "UNKNOWN")}\n"
-        smartStats += "Component: ${smartDeviceComponentId}\n"
-        smartStats += "Capabilities: ${smartCapabilities?.sort()?.join(', ')}"
+        }
+        smartStats += "Device Type: ${smartDevice?.deviceTypeName ?: (smartDevice?.name ?: "UNKNOWN")}\n"
+        smartStats += smartDevice?.entity_ids ? "Entity Ids: ${smartDevice?.entity_ids?.values()?.flatten()?.sort()?.join(', ')}\n" : "Component: ${smartDeviceComponentId}\n"
+        smartStats += "Capabilities: ${smartCapabilities?.sort()?.join(', ')}"        
     }
     return smartStats
 }
@@ -864,20 +1273,28 @@ void replicaDeviceRefreshHelper(data) {
     getReplicaDeviceRefresh(replicaDevice)    
 }
 
+Boolean isReplicaDeviceHass(replicaDevice) {
+    return (getReplicaDataJsonValue(replicaDevice, "replica")?.namespace == sHassNamespace)
+}
+
 void getReplicaDeviceRefresh(replicaDevice) {
-    logDebug "${app.getLabel()} executing 'getReplicaDeviceRefresh($replicaDevice)'"    
-    
-    String deviceId = getReplicaDeviceId(replicaDevice)    
-    if(deviceId) {
-        replicaDeviceSubscribe(replicaDevice)
-        getSmartDeviceStatus(deviceId)
-        pauseExecution(200) // no need to hammer ST
-        getSmartDeviceHealth(deviceId)
-        pauseExecution(200) // no need to hammer ST
-        getSmartDeviceDescription(deviceId)       
-    } 
-    else if(replicaDevice) {
-        unsubscribe(replicaDevice)
+    logDebug "${app.getLabel()} executing 'getReplicaDeviceRefresh($replicaDevice)'"
+    if(isReplicaDeviceHass(replicaDevice)) {
+        sendMessage(replicaDevice, "refresh" )
+        //pauseExecution(250) // no need to hammer HA. moved to sendMessage
+    } else {
+        String deviceId = getReplicaDeviceId(replicaDevice)
+        if(deviceId) {
+            replicaDeviceSubscribe(replicaDevice)
+            getSmartDeviceStatus(deviceId)
+            pauseExecution(250) // no need to hammer ST
+            getSmartDeviceHealth(deviceId)
+            pauseExecution(250) // no need to hammer ST
+            getSmartDeviceDescription(deviceId)
+            pauseExecution(250) // no need to hammer ST
+        } else if(replicaDevice) {
+            unsubscribe(replicaDevice)
+        }
     }
 }
 
@@ -899,11 +1316,13 @@ void replicaDeviceSubscribe(replicaDevice) {
     }
 }
 
-def pageMirrorDevice(){    
-    Map smartDevices = getSmartDevicesMap()
+def pageMirrorDevice(){
+    logDebug "${app.getLabel()} executing 'pageMirrorDevice()'"
+    state.dynamicPageName = "pageMirrorDevice"
+    List smartDevices = getSmartDeviceList()?.clone()
     
     List smartDevicesSelect = []
-    smartDevices?.items?.sort{ a,b -> naturalSort(a.label,b.label) }?.each { smartDevice ->
+    smartDevices?.sort{ a,b -> naturalSort(a.label,b.label) }?.each { smartDevice ->
         smartDevice?.components?.each { component ->
             if( !smartDevicesSelect?.find{ smartDevice.deviceId==it.keySet().getAt(0) }  )
                 smartDevicesSelect.add([ "$smartDevice.deviceId" : "$smartDevice.label &ensp; (deviceId: $smartDevice.deviceId)" ])       
@@ -911,7 +1330,7 @@ def pageMirrorDevice(){
     }
     
     List smartComponentsSelect = []
-    smartDevices?.items?.find{it.deviceId == pageMirrorDeviceSmartDevice}?.components.each { component ->
+    getSmartDevice(pageMirrorDeviceSmartDevice)?.components?.each { component ->
         smartComponentsSelect.add(component.id)
     }
 
@@ -930,7 +1349,7 @@ def pageMirrorDevice(){
     String smartStats = getSmartDeviceStats(pageMirrorDeviceSmartDevice, pageMirrorDeviceSmartDeviceComponent)
 
     Integer refreshInterval = (g_mAppDeviceSettings?.pageMirrorDeviceMirrorButton || g_mAppDeviceSettings?.pageHubiThingDeviceModifyButton) ? 15 : 0
-    return dynamicPage(name: "pageMirrorDevice", uninstall: false, refreshInterval:refreshInterval) {
+    return dynamicPage(name: state.dynamicPageName, uninstall: false, refreshInterval:refreshInterval) {
         displayHeader()        
 
         section(menuHeader("Mirror HubiThings Device $sHubitatIconStatic $sSamsungIconStatic")) { 
@@ -952,16 +1371,17 @@ def pageMirrorDevice(){
                 href "pageConfigureDevice", title: "$sImgRule Configure HubiThings Rules", description: "Click to show"                
             }
         }
-        commonReplicaDevicesSection("pageMirrorDevice")
+        commonReplicaDevicesSection(state.dynamicPageName)
     }
 }
 
 void pageMirrorDeviceMirrorButton() {
-    logDebug "${app.getLabel()} executing 'pageMirrorDeviceMirrorButton()' $pageMirrorDeviceSmartDevice $pageMirrorDeviceSmartDeviceComponent $pageMirrorDeviceHubitatDevice"    
+    logDebug "${app.getLabel()} executing 'pageMirrorDeviceMirrorButton()' $pageMirrorDeviceSmartDevice $pageMirrorDeviceSmartDeviceComponent $pageMirrorDeviceHubitatDevice"
+    String platformName = (state?.dynamicPageName=="pageHubiThingDeviceHass") ? "Home Assistant" : "SmartThings"
     if(!pageMirrorDeviceSmartDevice)
-        g_mAppDeviceSettings['pageMirrorDeviceMirrorButton'] = errorMsg("Error: SmartThings Device selection is invalid")
+        g_mAppDeviceSettings['pageMirrorDeviceMirrorButton'] = errorMsg("Error: $platformName Device selection is invalid")
     else if(!pageMirrorDeviceSmartDeviceComponent)
-        g_mAppDeviceSettings['pageMirrorDeviceMirrorButton'] = errorMsg("Error: SmartThings Device Component selection is invalid")
+        g_mAppDeviceSettings['pageMirrorDeviceMirrorButton'] = errorMsg("Error: $platformName Device Component selection is invalid")
     else if(!pageMirrorDeviceHubitatDevice)
         g_mAppDeviceSettings['pageMirrorDeviceMirrorButton'] = errorMsg("Error: Hubitat Device selection is invalid") 
     else
@@ -991,7 +1411,6 @@ String createMirrorDevice(String deviceId, String componentId, String deviceNetw
 }
 
 def pageVirtualDevice() {
-    
     List virtualDeviceTypesSelect = []    
     getVirtualDeviceTypes()?.sort{ it.id }?.each {
         virtualDeviceTypesSelect.add([ "${it.id}" : "${it.name} ${it?.attributes ? " &ensp; (${it.attributes.sort().join(', ')})" : ""}" ])   
@@ -1132,10 +1551,10 @@ String virtualDevicesSection(Map allVirtualDevices, Map allSmartLocations) {
         List hubitatDevices = getReplicaDevices(virtualDevice.deviceId)
 		for (Integer i = 0; i ==0 || i < hubitatDevices.size(); i++) {
             def replicaDevice = hubitatDevices[i]?:null
-            String deviceUrl = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                            
+            String devUri = "http://${location.hub.getDataValue("localIP")}/device/edit/${replicaDevice?.getId()}"                            
             String location = allSmartLocations?.items?.find{ it.locationId==virtualDevice.locationId }?.name ?: virtualDevice.locationId
             devicesTable += "<tr><td>${virtualDevice.label}</td>"
-            devicesTable += replicaDevice ? "<td><a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"            
+            devicesTable += replicaDevice ? "<td><a href='$devUri' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>" : "<td>--</td>"            
             devicesTable += "<td>${virtualDevice.name}</td>"
             devicesTable += "<td style='text-align:center;'>$location</td></tr>"
         }
@@ -1894,9 +2313,9 @@ Boolean checkCommand(replicaDevice, type, ruleCommand) {
     //return commands?.get(ruleCommand?.label)
 }       
 
-def pageConfigureDevice() {    
+def pageConfigureDevice() {
     List replicaDevicesSelect = []
-    getAllReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }.each {    
+    getAllSTReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }.each {    
         Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
         replicaDevicesSelect.add(device)   
     }
@@ -1918,7 +2337,7 @@ def pageConfigureDevice() {
                 g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.clear()                
                 app.updateSetting("pageConfigureDeviceAllowDuplicateAttribute", false)
                 app.updateSetting("pageConfigureDeviceMuteTriggerRuleInfo", false)
-                app.updateSetting("pageConfigureDeviceDisableStatusUpdate", (replicaDevice && replicaDevice?.device?.deviceType?.namespace!="replica"))
+                app.updateSetting("pageConfigureDeviceDisableStatusUpdate", (replicaDevice && replicaDevice?.device?.deviceType?.namespace!=sSTNamespace))
                 //logWarn JsonOutput.toJson(app)       
             }
      
@@ -2227,17 +2646,29 @@ void appButtonHandlerUnLock() {
     g_bAppButtonHandlerLock[app.id] = false
 }
 
-void allSmartDeviceRefresh(delay=1) {
-    // brute force grabbing all devices in my OAuths.
-    // smartLocationQuery is async so will not be available for first refresh
-    Map smartDevices = [items:[]]
-    getChildApps()?.each{ 
-        smartDevices.items.addAll( it.getSmartSubscribedDevices()?.items )
-        it.smartLocationQuery()
-    }
-    setSmartDevicesMap( smartDevices )
+@Field volatile static Map<Long,Boolean> g_bAllSmartDeviceRefresh = [:]
+void allSmartDeviceRefresh() {
+    logInfo "${app.getLabel()} executing 'allSmartDeviceRefresh()'"
+    clearAllVolatileCache() // lets clear the cache of any stale devices.   
+    
+    getSmartDeviceList()
+    getHassDeviceList()
+    g_bAllSmartDeviceRefresh[app.getId()] = null
     // check that everything is happy. This blocks for a second per device and will not allow concur runs. So thread it.
-    runIn(delay<1?:1, getSmartDeviceRefresh)
+    runIn(2, getSmartDeviceRefresh)
+}
+// this can be really fast and I found using 'this' doesn't get it done.
+@Field static final Object scheduleAllSmartDeviceRefreshLock = new Object()
+Boolean scheduleAllSmartDeviceRefresh(Integer delay=5, override=false) {
+    Boolean response = false
+    synchronized(scheduleAllSmartDeviceRefreshLock) {
+        if(g_bAllSmartDeviceRefresh[app.getId()]==null || !override) {
+            g_bAllSmartDeviceRefresh[app.getId()] = true
+            runIn(delay,'allSmartDeviceRefresh')
+            response = true
+        }
+    }
+    return response
 }
 
 void locationModeHandler(def event) {
@@ -2267,8 +2698,13 @@ void locationKnobExecuteHelper(Map event) {
 void getSmartDeviceRefresh(String locationId=null) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceRefresh(locationId=$locationId)'"
     if(!appGetSmartDeviceRefreshLock()) return
-    
-    getAllReplicaDevices()?.each { replicaDevice -> 
+   
+    Map uniqueReplicaDevicesMap = [:]
+    getAllReplicaDevices()?.each{ replicaDevice ->
+        String deviceId = getReplicaDeviceId( replicaDevice )
+        uniqueReplicaDevicesMap[deviceId] = replicaDevice
+    }   
+    uniqueReplicaDevicesMap?.values()?.toList()?.each { replicaDevice ->
         if(locationId==null || (locationId==getReplicaDataJsonValue(replicaDevice, "description")?.locationId)) { 
             getReplicaDeviceRefresh(replicaDevice) // this blocks for a couple seconds per device
         }
@@ -2426,8 +2862,8 @@ void smartTriggerHandlerCache(replicaDevice, attribute, value) {
 
 Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTime=null) {
     logDebug "${app.getLabel()} executing 'smartTriggerHandler()' replicaDevice:'${replicaDevice?.getDisplayName()}'"
-    Map response = [statusCode:iHttpError]    
-    
+    Map response = [statusCode:iHttpError] 
+   
     Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")
     event?.each { capability, attributes ->
         attributes?.each{ attribute, value ->
@@ -2486,22 +2922,28 @@ String hasCommandType(def replicaDevice, String method) {
     return response
 }
 
-Map getReplicaDeviceEventsCache(replicaDevice) {
+Map getReplicaDeviceEventsCache(replicaDevice) { 
     String deviceId = getReplicaDeviceId(replicaDevice)
-    return (deviceId ? getSmartDeviceEventsCache(deviceId) : [:])    
+    return getSmartDeviceEventsCache(deviceId)   
 }
 
 Map getSmartDeviceEventsCache(deviceId) {
-    Map response = [:]
+    deviceId = deviceId?:"dummy" // in case deviceId was null
+    Map response = defaultResponse = [ eventCount:0, messageCount:0, eventCache:[:] ]
     try {
         Long appId = app.getId()
-        if(g_mSmartDeviceStatusMap[appId]==null) { 
+        if(g_mSmartDeviceStatusMap[appId] == null) { 
             g_mSmartDeviceStatusMap[appId] = [:]
         }
-        if(!g_mSmartDeviceStatusMap[appId]?.get(deviceId)) {
-            g_mSmartDeviceStatusMap[appId][deviceId] = [ eventCount:0, eventCache:[:] ]
+        if(g_mSmartDeviceStatusMap[appId][deviceId] == null) {
+            g_mSmartDeviceStatusMap[appId][deviceId] = defaultResponse
+        } else {
+            response = g_mSmartDeviceStatusMap[appId][deviceId]
+            // Ensure the keys are initialized in case they are missing
+            response.eventCount = response?.eventCount ?: 0
+            response.messageCount = response?.messageCount ?: 0
+            response.eventCache = response?.eventCache ?: [:]
         }
-        response = g_mSmartDeviceStatusMap[appId]?.get(deviceId)
     } catch(e) { 
         //we don't care.
         //logWarn "getSmartDeviceEventsCache $e"
@@ -2511,14 +2953,20 @@ Map getSmartDeviceEventsCache(deviceId) {
 
 String updateSmartDeviceEventsStatus(replicaDevice) {
     String value = "--"
-    if(replicaDevice) {
-        String healthState = getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase()
-        String noRules = getReplicaDataJsonValue(replicaDevice, "rules")?.components ? "" : "<span style='color:$sColorDarkRed;'>$sWarningsIcon $sNoRules</span>"
-            
-        String eventCount = (getReplicaDeviceEventsCache(replicaDevice)?.eventCount ?: 0).toString()
-        value = (healthState=='offline' ? "<span style='color:$sColorDarkRed;'>$sWarningsIcon $sOffline</span>" : noRules ?: eventCount)
-        if(state.pageMainLastRefresh && (state.pageMainLastRefresh + (iPageMainRefreshInterval*1000)) > now()) { //only send if someone is watching 
-            sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
+    if(replicaDevice) { 
+        //Map replica = getReplicaDataJsonValue(replicaDevice, "replica")
+        Boolean isHass = isReplicaDeviceHass(replicaDevice)        
+        Map smartDevice = getSmartDevice( getReplicaDeviceId(replicaDevice) )
+        
+        String healthState = !isHass ? getReplicaDataJsonValue(replicaDevice, "health")?.state?.toLowerCase() : (replicaDevice.currentValue("healthStatus")?.toLowerCase() ?: "online")
+        String noRules = (isHass || getReplicaDataJsonValue(replicaDevice, "rules")?.components) ? "" : "<span style='color:$sColorDarkRed;'>$sWarningsIcon $sNoRules</span>"            
+        String eventCount = getSmartDeviceApi(smartDevice) ? (getReplicaDeviceEventsCache(replicaDevice)?.eventCount ?: 0).toString() : "<span style='color:$sColorDarkRed;'>$sWarningsIcon $sNotAuthorized</span>" 
+       
+        value = (healthState=="offline" ? "<span style='color:$sColorDarkRed;'>$sWarningsIcon $sOffline</span>" : noRules ?: eventCount)
+        if(replicaDevice?.deviceNetworkId && state.pageMainLastRefresh && (state.pageMainLastRefresh + (iPageMainRefreshInterval*1000)) > now()) { //only send if someone is watching 
+            // old socket method
+            //sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
+            sendEvent(name:replicaDevice.deviceNetworkId.toString(), value:value)
         }
     }
     return value
@@ -2781,6 +3229,7 @@ void asyncHttpGetCallback(resp, data) {
         resp.headers.each { logTrace "${it.key} : ${it.value}" }
         logTrace "response data: ${resp.data}"
         
+        if(data?.deviceId) getSmartDeviceEventsCache(data.deviceId)?.eventCount += 1       
         switch(data?.method) {
             case "getSmartDeviceHealth":
                 def health = new JsonSlurper().parseText(resp.data)                
@@ -2800,7 +3249,7 @@ void asyncHttpGetCallback(resp, data) {
                 break
             case "getSmartDeviceStatus":
                 Map status = new JsonSlurper().parseText(resp.data)        
-                getReplicaDevices(data.deviceId)?.each { replicaDevice -> smartStatusHandler(replicaDevice, data.deviceId, status) }
+                getReplicaDevices(data.deviceId)?.each { replicaDevice -> smartStatusHandler(replicaDevice, data.deviceId, status) }                
                 status = null
                 break      
             default:
@@ -2896,24 +3345,30 @@ void asyncHttpPostCallback(resp, data) {
     }
 }
 
-Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
+public Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
     logDebug "${app.getLabel()} executing 'oauthEventHandler()'"
     Map response = [statusCode:iHttpSuccess]
+    
+    if(g_mSmartDeviceListCache[app.getId()]==null) {
+        if(scheduleAllSmartDeviceRefresh()) logWarn "${app.getLabel()} rejecting SmartThings events until 'allSmartDeviceRefresh' completes"
+        return response
+    }
 
     eventData?.events?.each { event ->
         switch(event?.eventType) {
             case 'DEVICE_EVENT':
-                Map device = getSmartDeviceEventsCache(event?.deviceEvent?.deviceId)
-                if(device?.eventCount!=null) device.eventCount += 1
                 // this needs to be done here and not the smartEventHandler to allow for componentId support
-                getReplicaDevices(event?.deviceEvent?.deviceId)?.each{ replicaDevice ->
+                String deviceId = event?.deviceEvent?.deviceId
+                getReplicaDevices(deviceId)?.each{ replicaDevice ->
                     if(hasCommand(replicaDevice, 'replicaEvent')) {
                         replicaDevice.replicaEvent(app, event)
                     }
-                } 
-                getReplicaDevices(event?.deviceEvent?.deviceId, event?.deviceEvent?.componentId)?.each{ replicaDevice ->
+                }
+                String componentId = event?.deviceEvent?.componentId
+                getReplicaDevices(deviceId, componentId)?.each{ replicaDevice ->
                     response.statusCode = smartEventHandler(replicaDevice, event?.deviceEvent, eventPostTime).statusCode
                 }
+                getSmartDeviceEventsCache(deviceId)?.eventCount += 1
                 break
             case 'DEVICE_HEALTH_EVENT':
                 String deviceId = event?.deviceHealthEvent?.deviceId
@@ -2922,6 +3377,7 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
                     response.statusCode = smartHealthHandler(replicaDevice, deviceId, healthEvent, eventPostTime).statusCode
                     logInfo "${app.getLabel()} health event $replicaDevice is ${event?.deviceHealthEvent?.status.toLowerCase()}"
                 }
+                getSmartDeviceEventsCache(deviceId)?.eventCount += 1
                 break
             case 'MODE_EVENT':
                 logDebug "${app.getLabel()} mode event: $event"
@@ -2929,8 +3385,7 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
                     if(hasCommand(replicaDevice, 'setModeValue')) {
                         Map description = getReplicaDataJsonValue(replicaDevice, "description")
                         if(event?.modeEvent?.locationId==description?.locationId) {
-                            Map device = getReplicaDeviceEventsCache(replicaDevice)
-                            if(device?.eventCount!=null) device.eventCount += 1
+                            getReplicaDeviceEventsCache(replicaDevice)?.eventCount += 1
                             updateSmartDeviceEventsStatus(replicaDevice)
                             replicaDevice.setModeValue(event?.modeEvent?.modeId)
                         }
@@ -2984,6 +3439,12 @@ Map oauthEventHandler(Map eventData, Long eventPostTime=null) {
 <path fill="currentColor" d="m40.592 3.6222c-1.4074 0.031312-2.9567 0.66796-4.1641 1.0723-1.6729 0.56186-3.2257 1.44-4.7793 2.2676-3.2391 1.7251-6.4448 4.0107-9.2188 6.4102-5.7396 4.9663-10.707 10.694-14.391 17.355-4.2146 7.6219-6.8328 16.011-7.6641 24.684-0.79583 8.314 0.58216 17.529 3.1426 25.533 3.5646 11.143 11.782 29.281 37.533 40.475 19.111 8.3084 40.065 4.959 54.133-2.2676 14.629-7.512 26.684-21.062 31.73-36.793 0.0106-0.0032 0.0576-0.1198 0.21484-0.63086 2.8705-9.9146 3.2267-15.26 2.3106-24.543-0.9192-10.232-3.4611-15.992-5.5606-20.678-1.9937-4.452-4.4114-9.2086-7.666-12.887-0.40521 0.33078 2.6483 3.3871 2.5488 4.123-0.43226-0.01825-1.1165-1.4416-1.3613-1.7734-0.2244-0.30414-0.72566-0.51094-0.8418-0.70898-0.79947-1.3631-2.0565-2.6974-3.1289-3.8594-0.37815 0.13803 0.33559 0.54626 0.16211 0.63281 0.012-0.0063-2.4119-2.5439-2.5723-2.7012-0.13547 0.14321 3.1729 3.8723 3.5391 4.3359 0.29373 0.37652 2.8795 3.439 2.5879 3.7637-0.4136-0.87923-6.1644-7.4554-7.1523-8.3887-0.41147-0.38906-1.8488-2.041-2.3926-1.9238 0.55306 0.70934 1.2317 1.3052 1.8516 1.9531 0.3208 0.33294 0.6153 0.93792 0.99609 1.1836-0.25839 0.07347-1.0788-0.87933-1.3125-1.1016-0.31-0.29628-1.9434-2.1659-2.3633-1.9883-0.16866 0.47652 3.3778 3.5548 3.8008 4.0625 0.61361 0.73962 1.8546 1.6129 2.1582 2.6113-1.2009-0.85361-5.7741-6.1246-7.1699-7.334-1.376-1.189-2.7999-2.367-4.3223-3.3633-0.4896-0.32077-3.3759-2.5313-3.8535-2.2285 1.0765 1.0959 2.8324 1.9251 4.0996 2.8496 1.45 1.0588 2.8712 2.1607 4.2129 3.3555 1.5307 1.364 2.9504 2.8516 4.2852 4.4062 0.97187 1.1312 2.5503 2.58 3.1035 3.9707-0.39694-0.17598-0.66443-0.63092-0.93165-0.94727-0.62293-0.73652-4.6414-5.0809-6.1367-6.4043-2.8256-2.4991-5.9318-4.9751-9.2578-6.7734-0.02814 0.63798 3.288 2.291 3.8984 2.752 1.2073 0.912 2.5721 1.8036 3.5918 2.9297-0.28027-0.13077-1.1122-0.95164-1.3242-0.75586 0.522 0.53439 1.1364 0.99056 1.6894 1.4941 2.5532 2.3251 4.4689 4.4836 6.6465 7.2227 2.5588 3.2177 4.8833 6.6804 6.6562 10.395 3.7249 7.8109 5.6608 15.932 6.0742 24.561 0.19746 3.9968-0.15858 8.5023-1.1758 12.381-1.0656 4.0678-2.0254 8.1482-3.8144 11.98-3.3724 7.224-8.0298 14.858-14.357 19.869-3.2312 2.5577-6.313 5.0111-9.9453 7.0059-3.8025 2.088-7.8317 3.8475-11.986 5.1074-8.2923 2.5162-17.204 3.3879-25.764 1.6504-4.2604-0.86669-8.4568-1.709-12.484-3.4121-3.8161-1.6151-7.443-3.6428-10.871-5.9668-6.7484-4.5781-12.572-10.857-16.619-17.937-8.736-15.276-10.322-33.882-3.6016-50.25 3.0911-7.5292 7.8795-14.31 13.855-19.828 2.9855-2.7552 6.2349-5.2298 9.7109-7.3359 0.99693-0.6048 11.073-5.5999 10.926-6.0332-0.02293-0.06811-1.5626-0.48959-1.8184-0.40039-0.46573 0.16146-6.9184 3.3332-9.6758 4.7461 1.5713-0.80572 3.0907-1.7893 4.6152-2.6855 0.30613-0.18028 4.3375-2.776 4.3828-2.7363-0.54226-0.49213-2.6009 0.74097-3.0176 0.94922 0.6172-0.31147 1.2072-0.70483 1.7988-1.0586 0.2984-0.17866 0.63032-0.34222 0.89844-0.56445 0.01561-0.01251-0.13137-0.61428-0.24805-0.5625-1.0969 0.49157-11.565 6.1743-15.629 8.6133 1.1224-0.65412 2.1609-1.5684 3.2754-2.2617 4.1839-2.6052 8.5841-4.8702 12.996-7.0566-0.45467 0.22492-4.8364 1.6149-4.9629 1.3848 0.01506 0.027061 3.3272-1.5054 3.3359-1.4902-0.29534-0.53707-6.1584 1.9871-6.8887 2.1953 0.07453 0.029216 2.2283-1.2006 2.5059-1.3242 0.364-0.16256 2.1408-1.2509 2.498-1.125-0.4199-0.15493-0.87267-0.21161-1.3418-0.20117zm48.314 2.3438c0.94267 0.38642 1.7734 0.88288 2.6953 1.2344 0.33693 0.1276 0.75174 0.22808 0.9668 0.58789 0.0516 0.08443 1.196 0.49155 1.2559 0.47266 0.22401-0.08088 0.39012 0.04834 0.5625 0.12695 1.2395 0.5692 4.0458 2.2936 4.3203 2.3926 0-0.06057 0.0062-0.12098 0.0078-0.17969-0.0932-0.11528-0.22544-0.17939-0.3457-0.25195-2.8161-1.7344-5.8256-3.0624-8.8984-4.2676-0.16826-0.065764-0.33526-0.14925-0.56445-0.11523zm5.3203 1.4473c0.90934 0.47293 1.8178 0.94504 2.7246 1.418 0.01398-0.02494 0.02741-0.05349 0.04102-0.07617-0.8792-0.53027-1.7814-1.016-2.7656-1.3418zm8.166 4.0059c0.66258 0.48385 4.5548 3.4835 5.7637 4.6035 0.0745 0.06917 0.17375 0.22194 0.27735 0.10742 0.0995-0.11263-0.0594-0.19835-0.13867-0.26562-0.38014-0.32451-3.463-2.886-4.6641-3.7891-0.37487-0.27889-0.76159-0.54788-1.2383-0.65625zm5.748 2.5527c-0.016 0.01678-0.0358 0.03613-0.0547 0.05469 0.9068 0.84839 4.0619 3.8602 4.7363 4.5176 0.0219-0.0257 0.0438-0.04776 0.0684-0.07422-0.064-0.14778-0.19091-0.24592-0.30078-0.35742-0.5292-0.54055-1.0509-1.0914-1.5977-1.6133-0.9188-0.88029-1.8485-1.7429-2.8516-2.5273zm2.6738 0.80273c-0.0219 0.01587-0.0413 0.03579-0.0625 0.05469 0.0235 0.03651 2.7538 2.7734 4.0371 4.1641 0.0537 0.05632 0.0977 0.13753 0.22265 0.10352 0-0.1081-0.0765-0.17491-0.14062-0.24219-1.2364-1.3588-2.4809-2.704-3.8496-3.9316-0.0605-0.05632-0.13462-0.09855-0.20703-0.14844zm-0.10742 1.0605c-0.0149-0.0083-0.0315-0.0064-0.0469 0.01172-0.0344 0.03402 4e-3 0.06074 0.0391 0.07812 0.0276 0.03024 1.0764 1.1106 1.1035 1.1387 0.3724 0.37493 0.7455 0.74812 1.1152 1.123 0.0287 0.02646 2.1856 2.416 2.1856 2.416 0.0515 0.04989 0.10661 0.09937 0.1582 0.15039 0.0219-0.05783 0.0591-0.09993 0.11914-0.12109-0.64279-0.82133-1.37-1.5658-2.123-2.2871 0 0-0.10642-0.10818-0.17578-0.17578-0.0231-0.02254-0.0522-0.05557-0.0586-0.05859v-2e-3c-0.33441-0.4292-0.70386-0.82018-1.1445-1.1426-2e-3 -2e-3 -0.0713-0.06788-0.084-0.08008-0.15961-0.15308-1.0195-0.99002-1.0469-1.0117-0.0121-0.01482-0.0265-0.03094-0.041-0.03906zm-44.055 2.5215c-0.05185-0.01091-0.09832-0.0095-0.13672 0.0098-0.786 0.39281-23.224 19.66-26.447 22.463-1.6385 1.4245-3.2613 2.8666-4.5801 4.6016-0.46866 0.61455-1.1188 1.6068-0.8125 2.4219 0.23534 0.62865 0.59362 1.5561 0.9707 2.1191 0.52293 0.77813 0.3716 1.8222 1.6055 1.3613 0.86614-0.32349 6.0136-3.4432 7.7266-4.6094 3.7323-2.5416 17.33-13.594 20.539-16.408 0.27453-0.24216 0.77888-0.97611 1.1914-0.60156 0.31867 0.28694 0.66743 0.54869 0.99609 0.82422 0.82973 0.69267 21.763 17.29 23.613 18.781 0.53174 0.42973 1.9878 1.1834 1.9961 1.9512 0.01107 1.0735 0.12435 21.487 0.04102 30.623-0.0088 1.0147-3.125 0.98206-4.1875 0.98047-2.1297-3e-3 -11.14 0.13748-13.516 0.16016-2.0917 0.01825-4.1537 0.32392-6.2402 0.4082-4.3443 0.17654-21.704 1.4142-22.695 1.5352-0.64533 0.0796-1.7726-0.04032-2.2793 0.45703 1.5572 0.01701 3.1126 0.03774 4.6699 0.05664-2.2147 0.59002-4.8056 0.51081-7.0879 0.68164-2.4401 0.18123-4.9662 0.2512-7.3594 0.79492 0.7932 0.26192 1.6308 0.1482 2.459 0.22266 0.59586 0.048-0.23716 0.45396-0.28516 0.54883 0.18494 0.02268 0.35214 0.09094 0.5 0.20508-0.42867 0.3157-1.1119 0.1143-1.4473 0.56641 0.50733 0.22613 5.8137-0.19418 5.8262 0.52344-0.3244 0.1251-0.69258 0.02285-0.98633 0.25 1.0296 0.04346 2.0183 0.22877 3.0605 0.23633 0.40253 0 1.1166 0.05761 1.4863 0.17969 0.52293 0.17133-1.1513 0.58827-1.248 0.59961-0.69173 0.08655-2.4595 0.08395-2.6309 0.21094 2.2625 0.16025 4.5287-0.0031 6.7891 0.18359 2.1573 0.18123 4.3165 0.32386 6.4785 0.40625 4.2989 0.16668 30.235 0.23985 38.902 0.22852 2.1563-0.0015 4.4357-0.21042 6.5566 0.27344 0.58227 0.13236 0.89969-0.35917 1.5352-0.2832 0.52525 0.07922 0.15229-0.85472 0.56055-0.91406 0.10945-0.01466-0.36158-4.6921-0.36914-5.2285-0.0375-2.1011-0.35956-34.458-0.36523-35.674-4e-3 -0.63028 0.21192-1.8778-0.0859-2.4434-0.3708-0.70893-1.5804-1.3625-2.1934-1.875-0.25951-0.21777-9.2403-7.6819-12.693-10.43-6.3213-5.0319-12.643-10.08-18.689-15.445-0.16684-0.14862-0.80503-0.87675-1.168-0.95312zm48.371 0.74609c0.0145 0.22046 0.12749 0.29406 0.20508 0.38476 0.28653 0.34016 2.1462 2.6135 2.791 3.4141 0.0369-0.03628 0.0758-0.07158 0.11132-0.10938-0.0901-0.23494-1.6863-2.1365-2.3144-2.9141-0.22027-0.26933-0.4575-0.52292-0.79297-0.77539zm3.748 8.6816c0.0885-0.08228 0.31395 0.34306 0.29883 0.38086 9e-3 -0.03326-0.14404-0.1269-0.17578-0.17188-0.0276-0.0094-0.17411-0.15796-0.12305-0.20898z">
 </path></symbol></defs><use href="#hubitat-svg"/></svg>"""       
 @Field static final String sHubitatIcon="""<svg width="1.0em" height="1.0em" version="2.0"><use href="#hubitat-svg"/></svg>"""
+
+@Field static final String sHassIconStatic="""<svg style="display:none" version="2.0"><defs><symbol id="hassio-svg" viewbox="0 0 130 130" xmlns="http://www.w3.org/2000/svg">
+<path fill="currentColor" d="M 128.9035 67.4877 H 117.5185 V 118.0877 H 73.2435 V 97.0255 L 90.8903 79.3787 L 95.381 80.1377 C 102.718 80.1377 108.6635 74.1922 108.6635 66.8552 C 108.6635 59.5182 102.718 53.5727 95.381 53.5727 A 13.2825 13.2825 90 0 0 82.0985 66.8552 L 82.731 71.3459 L 73.2435 80.96 V 46.299 C 77.418 44.022 80.201 39.6577 80.201 34.5977 A 13.2825 13.2825 90 0 0 66.9185 21.3152 A 13.2825 13.2825 90 0 0 53.636 34.5977 C 53.636 39.6577 56.419 44.022 60.5935 46.299 V 80.96 L 51.106 71.3459 L 51.7385 66.8552 A 13.2825 13.2825 90 0 0 38.456 53.5727 A 13.2825 13.2825 90 0 0 25.1735 66.8552 A 13.2825 13.2825 90 0 0 38.456 80.1377 L 42.9468 79.3787 L 60.5935 97.0255 V 118.0877 H 16.3185 V 67.4877 H 5.2498 C 2.5933 67.4877 0 67.4877 0 66.1595 C 0.0633 64.7679 2.7197 62.1115 5.4395 59.3917 L 60.5935 4.2377 C 62.6808 2.1505 64.8313 -0 66.9185 -0 C 69.0058 -0 71.1563 2.1505 73.2435 4.2377 L 98.5435 29.5377 V 23.2127 H 111.1935 V 42.1877 L 128.777 59.7712 C 131.307 62.3012 133.9003 64.8945 133.9635 66.2227 C 133.9635 67.4877 131.4335 67.4877 128.9035 67.4877 M 38.456 61.1627 A 5.6925 5.6925 90 0 1 44.1485 66.8552 A 5.6925 5.6925 90 0 1 38.456 72.5477 A 5.6925 5.6925 90 0 1 32.7635 66.8552 A 5.6925 5.6925 90 0 1 38.456 61.1627 M 95.381 61.1627 C 98.5435 61.1627 101.0735 63.6927 101.0735 66.8552 C 101.0735 70.0177 98.5435 72.5477 95.381 72.5477 A 5.6925 5.6925 90 0 1 89.6885 66.8552 A 5.6925 5.6925 90 0 1 95.381 61.1627 M 66.9185 28.9052 C 70.081 28.9052 72.611 31.4352 72.611 34.5977 C 72.611 37.7602 70.081 40.2902 66.9185 40.2902 C 63.756 40.2902 61.226 37.7602 61.226 34.5977 C 61.226 31.4352 63.756 28.9052 66.9185 28.9052 Z">
+</path></symbol></defs><use href="#hassio-svg"/></svg>"""
+@Field static final String sHassIcon="""<svg width="1.0em" height="1.0em" version="2.0"><use href="#hassio-svg"/></svg>"""
+ 
                
 @Field static final String sImgRule = """<img style="margin-Top:-6px" height="18" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJMYXllcl8xIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxwYXRoIGQ9Ik0yMSwxMmMwLS41NC0uMDUtMS4wOC0uMTUtMS42M2wzLjA1LTEuNzUtMi45OS01LjItMy4wNSwxLjc1Yy0uODQtLjcyLTEuODEtMS4yOC0yLjg2LTEuNjVWMGgtNlYzLjUyYy0xLjA1LC4zNy0yLjAyLC45My0yLjg2LDEuNjVsLTMuMDUtMS43NUwuMSw4LjYybDMuMDUsMS43NWMtLjEsLjU0LS4xNSwxLjA5LS4xNSwxLjYzcy4wNSwxLjA4LC4xNSwxLjYzTC4xLDE1LjM4bDIuOTksNS4yLDMuMDUtMS43NWMuODQsLjcyLDEuODEsMS4yOCwyLjg2LDEuNjV2My41Mmg2di0zLjUyYzEuMDUtLjM3LDIuMDItLjkzLDIuODYtMS42NWwzLjA1LDEuNzUsMi45OS01LjItMy4wNS0xLjc1Yy4xLS41NCwuMTUtMS4wOSwuMTUtMS42M1ptLjE3LDQuMTJsLTEsMS43My0yLjYzLTEuNTEtLjU0LC41NWMtLjg5LC45MS0yLjAxLDEuNTYtMy4yNSwxLjg4bC0uNzUsLjE5djMuMDRoLTJ2LTMuMDRsLS43NS0uMTljLTEuMjQtLjMyLTIuMzYtLjk3LTMuMjUtMS44OGwtLjU0LS41NS0yLjYzLDEuNTEtMS0xLjczLDIuNjMtMS41MS0uMjEtLjc1Yy0uMTctLjYyLS4yNi0xLjI1LS4yNi0xLjg2cy4wOS0xLjIzLC4yNi0xLjg2bC4yMS0uNzUtMi42My0xLjUxLDEtMS43MywyLjYzLDEuNTEsLjU0LS41NWMuODktLjkxLDIuMDEtMS41NiwzLjI1LTEuODhsLjc1LS4xOVYyaDJ2My4wNGwuNzUsLjE5YzEuMjQsLjMyLDIuMzYsLjk3LDMuMjUsMS44OGwuNTQsLjU1LDIuNjMtMS41MSwxLDEuNzMtMi42MywxLjUxLC4yMSwuNzVjLjE3LC42MiwuMjYsMS4yNSwuMjYsMS44NnMtLjA5LDEuMjMtLjI2LDEuODZsLS4yMSwuNzUsMi42MywxLjUxWk0xMi4wMiw2LjhsMS45NiwuMzktMiwxMC0xLjk2LS4zOSwyLTEwWm0tMi4zMSwzLjU0bC0xLjcxLDEuNzEsMS43MSwxLjY5LTEuNDEsMS40MS0xLjcxLTEuNzFjLS43OC0uNzgtLjc4LTIuMDQsMC0yLjgxbDEuNzEtMS43MSwxLjQxLDEuNDFabTcuNzEsLjNjLjc4LC43OCwuNzgsMi4wNCwwLDIuODFsLTEuNzEsMS43MS0xLjQxLTEuNDEsMS43MS0xLjcxLTEuNzEtMS43LDEuNDEtMS40MSwxLjcxLDEuNzFaIi8+PC9zdmc+Cg=='/>"""
 @Field static final String sImgDevv = """<img style="margin-Top:-6px;transform: scaleX(-1);" height="22" src='data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJMYXllcl8xIiBkYXRhLW5hbWU9IkxheWVyIDEiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiPjxwYXRoIGQ9Ik0yMi43MywxOS4wNWwtLjk4LS41NWMuMTUtLjQ4LC4yNi0uOTgsLjI2LTEuNXMtLjEtMS4wMy0uMjYtMS41bC45OC0uNTVjLjQ4LS4yNywuNjUtLjg4LC4zOS0xLjM2LS4yNy0uNDgtLjg4LS42Ni0xLjM2LS4zOWwtLjk4LC41NWMtLjcxLS44Mi0xLjY3LTEuNDItMi43Ny0xLjY1di0xLjFjMC0uNTUtLjQ1LTEtMS0xcy0xLC40NS0xLDF2MS4xYy0xLjEsLjIyLTIuMDYsLjgzLTIuNzcsMS42NWwtLjk4LS41NWMtLjQ4LS4yNy0xLjA5LS4xLTEuMzYsLjM5LS4yNywuNDgtLjEsMS4wOSwuMzksMS4zNmwuOTgsLjU1Yy0uMTUsLjQ4LS4yNiwuOTgtLjI2LDEuNXMuMSwxLjAzLC4yNiwxLjVsLS45OCwuNTVjLS40OCwuMjctLjY1LC44OC0uMzksMS4zNiwuMTgsLjMzLC41MiwuNTEsLjg3LC41MSwuMTcsMCwuMzMtLjA0LC40OS0uMTNsLjk4LS41NWMuNzEsLjgyLDEuNjcsMS40MiwyLjc3LDEuNjV2MS4xYzAsLjU1LC40NSwxLDEsMXMxLS40NSwxLTF2LTEuMWMxLjEtLjIyLDIuMDYtLjgzLDIuNzctMS42NWwuOTgsLjU1Yy4xNSwuMDksLjMyLC4xMywuNDksLjEzLC4zNSwwLC42OS0uMTgsLjg3LS41MSwuMjctLjQ4LC4xLTEuMDktLjM5LTEuMzZabS01LjczLC45NWMtMS42NSwwLTMtMS4zNS0zLTNzMS4zNS0zLDMtMywzLDEuMzUsMywzLTEuMzUsMy0zLDNabS02LjIzLTkuNzVsLjk4LC41NWMuMTUsLjA5LC4zMiwuMTMsLjQ5LC4xMywuMzUsMCwuNjktLjE4LC44Ny0uNTEsLjI3LS40OCwuMS0xLjA5LS4zOS0xLjM2bC0uOTgtLjU1Yy4xNS0uNDgsLjI2LS45OCwuMjYtMS41cy0uMS0xLjAzLS4yNi0xLjVsLjk4LS41NWMuNDgtLjI3LC42NS0uODgsLjM5LTEuMzYtLjI3LS40OC0uODgtLjY2LTEuMzYtLjM5bC0uOTgsLjU1Yy0uNzEtLjgyLTEuNjctMS40Mi0yLjc3LTEuNjVWMWMwLS41NS0uNDUtMS0xLTFzLTEsLjQ1LTEsMXYxLjFjLTEuMSwuMjItMi4wNiwuODMtMi43NywxLjY1bC0uOTgtLjU1Yy0uNDgtLjI3LTEuMDktLjEtMS4zNiwuMzktLjI3LC40OC0uMSwxLjA5LC4zOSwxLjM2bC45OCwuNTVjLS4xNSwuNDgtLjI2LC45OC0uMjYsMS41cy4xLDEuMDMsLjI2LDEuNWwtLjk4LC41NWMtLjQ4LC4yNy0uNjUsLjg4LS4zOSwxLjM2LC4xOCwuMzMsLjUyLC41MSwuODcsLjUxLC4xNywwLC4zMy0uMDQsLjQ5LS4xM2wuOTgtLjU1Yy43MSwuODIsMS42NywxLjQyLDIuNzcsMS42NXYxLjFjMCwuNTUsLjQ1LDEsMSwxczEtLjQ1LDEtMXYtMS4xYzEuMS0uMjIsMi4wNi0uODMsMi43Ny0xLjY1Wm0tMy43Ny0uMjVjLTEuNjUsMC0zLTEuMzUtMy0zczEuMzUtMywzLTMsMywxLjM1LDMsMy0xLjM1LDMtMywzWiIvPjwvc3ZnPgo='/>"""
@@ -3089,6 +3550,14 @@ com.hubitat.app.DeviceWrapper getDevice(deviceNetworkId) {
     return getAllDevices()?.find{ it.deviceNetworkId == deviceNetworkId } // only one 
 }
 
+List<com.hubitat.app.DeviceWrapper> getAllHassReplicaDevices() {
+    getAllReplicaDevices()?.findAll{ isReplicaDeviceHass(it) }
+}
+
+List<com.hubitat.app.DeviceWrapper> getAllSTReplicaDevices() {
+    getAllReplicaDevices()?.findAll{ !isReplicaDeviceHass(it) }
+}
+
 List<com.hubitat.app.DeviceWrapper> getAllReplicaDevices() {
     return getAllDevices()?.findAll{ getReplicaDeviceId(it) }  // more than one  
 }
@@ -3106,7 +3575,7 @@ List<com.hubitat.app.DeviceWrapper> getReplicaDevices(deviceId, componentId = nu
 }
 
 List getAllReplicaDeviceIds() {
-    return getAllReplicaDevices()?.collect{ getReplicaDeviceId(it) }?.unique() ?: []
+    return getAllReplicaDevices()?.collect{ getReplicaDeviceId(it) as String }?.unique() ?: []
 }
 // ******** Child and Mirror Device get Functions - End ********
 
@@ -3114,7 +3583,7 @@ List getAllReplicaDeviceIds() {
 private String getReplicaDeviceId(def replicaDevice) {
     String deviceId = null
     Map replica = getReplicaDataJsonValue(replicaDevice, "replica")
-    if(replica?.replicaId==app.getId()) { // just get MY app devices. could have a problem with mirror devices.
+    if(replica?.replicaId as Long==app.getId() && replicaDevice?.typeName!=sApiTypeName) { // just get MY app devices. could have a problem with mirror devices. don't collect HASS APIs
         deviceId = replica?.deviceId
     }
     return deviceId        
@@ -3125,6 +3594,7 @@ private void setReplicaDataJsonValue(def replicaDevice, String dataKey, Map data
 }
 
 private void setReplicaDataValue(def replicaDevice, String dataKey, String dataValue) {
+    logDebug "${app.getLabel()} executing 'setReplicaDataValue()' $replicaDevice : $dataKey : $dataValue"
     getReplicaDataValue(replicaDevice, dataKey, dataValue) // update cache first
     replicaDevice?.updateDataValue(dataKey, dataValue) // STORE IT to device object
 }
