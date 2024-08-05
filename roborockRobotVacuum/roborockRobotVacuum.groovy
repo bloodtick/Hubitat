@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.4"}
+public static String version() {return "1.1.5"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
@@ -96,6 +96,7 @@ preferences {
     input(name:"password", type:"password", title: "<b>Roborock Password:</b>", required: true, width:4)
     input(name:"regionUri", type:"enum", title: "<b>Account Region:</b>", options:["https://usiot.roborock.com":"US", "https://euiot.roborock.com":"EU", "https://cniot.roborock.com":"CN", "https://ruiot.roborock.com":"RU"], defaultValue: "https://usiot.roborock.com", required: true, width:4)
     input(name:"allowLogin", type:"bool", title: "<b>Authorize Account User Login:</b>", defaultValue: true, width:4, description: "<i>Enable to re/attempt intial login with username and password.</i>")
+    input(name:"autoLogin", type: "enum", title: "<b>Auto Authorize Account User Login:</b>", options: [ "manual":"Manual Only", "900":"15 Minutes", "1800":"30 Minutes", "3600":"1 Hour", "10800":"3 Hours"], defaultValue: "1800", description: "<i>If device goes offline re/attempt intial login with username and password.</i>", required: true)
     input(name:"areaUnit", type:"enum", title: "<b>Device Area Unit:</b>", options:["0":"Square Foot (ft²)", "1":"Square Meter (m²)"], defaultValue: "0", required: true, width:4)
     input(name:"numberOfButtons", type: "number", title: "<b>Set Number of Buttons:</b>", range: "1...", defaultValue: 1, required: true, width:4)
     input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false, width:4)
@@ -264,11 +265,27 @@ void disconnect() {
 void connect() {
     logDebug "${device.displayName} executing 'connect()'"
     Map rriot = getLoginData()?.rriot
-    String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
-    String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
+    String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10)
+    String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16)
     
     logInfo "${device.displayName} connecting mqttUser:$mqttUser to $rriot.r.m"
-    interfaces.mqtt.connect(rriot.r.m, "${device.deviceNetworkId}", mqttUser, mqttPassword, byteInterface:true)
+    try {
+        interfaces.mqtt.connect(rriot.r.m, "${device.deviceNetworkId}", mqttUser, mqttPassword, byteInterface:true)
+        logDebug "${device.displayName} connected successfully"
+    } catch (org.eclipse.paho.client.mqttv3.MqttSecurityException e) {
+        // what i need to catch: org.eclipse.paho.client.mqttv3.MqttSecurityException: Not authorized to connect (method connect)
+        // what i can fake:      org.eclipse.paho.client.mqttv3.MqttSecurityException: Bad user name or password (method connect)
+        logError "${device.displayName} MQTT Security Exception: Not authorized to connect - '${e.message}'"        
+        if(e?.message?.toLowerCase()?.contains("not authorized to connect") && settings?.autoLogin && settings.autoLogin!="manual") {
+        //if(e?.message?.toLowerCase()?.contains("bad user name or password") && settings.autoLogin && settings.autoLogin!="manual") {
+            logInfo "${device.displayName} auto scheduling 'initialize' in ${settings.autoLogin} seconds"
+            unschedule()
+            device.updateSetting("allowLogin",[value:'true',type:"bool"])
+            runIn(settings.autoLogin.toInteger(), "initialize")
+        }    
+    } catch (Exception e) {
+        logError "${device.displayName} MQTT Connection Exception: ${e.message}"
+    }    
 }
 
 def mqttClientStatus(String message) {
