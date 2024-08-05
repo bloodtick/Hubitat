@@ -128,6 +128,7 @@ def initialize() {
         // blow away all state information
         state?.keySet()?.collect()?.each{ state.remove(it) }
         state.sequence = (new Random().nextInt(2000) + 1)
+        if(state?.restore) state.duid = state.restore
         clearAttributes()        
         if(login()?.msg=="success") {
             device.updateSetting("allowLogin",[value:'false',type:"bool"])
@@ -178,7 +179,7 @@ def selectDevice() {
 
 void clearAttributes() {
     // blow away all attribute information. not sure if this 'is the way' but it works.
-    device.currentStates?.collect{ ((new groovy.json.JsonSlurper().parseText( groovy.json.JsonOutput.toJson(it) ))?.name) }?.each{ device.deleteCurrentState(it) }
+    device.currentStates?.collect{ ((new groovy.json.JsonSlurper().parseText( groovy.json.JsonOutput.toJson(it) ))?.name) }?.each{ device.deleteCurrentState(it) }    
 }
 
 void getHomeDataCallback() {
@@ -271,6 +272,7 @@ void connect() {
     logInfo "${device.displayName} connecting mqttUser:$mqttUser to $rriot.r.m"
     try {
         interfaces.mqtt.connect(rriot.r.m, "${device.deviceNetworkId}", mqttUser, mqttPassword, byteInterface:true)
+        state.remove('restore')
         logDebug "${device.displayName} connected successfully"
     } catch (org.eclipse.paho.client.mqttv3.MqttSecurityException e) {
         // what i need to catch: org.eclipse.paho.client.mqttv3.MqttSecurityException: Not authorized to connect (method connect)
@@ -281,6 +283,7 @@ void connect() {
             logInfo "${device.displayName} auto scheduling 'initialize' in ${settings.autoLogin} seconds"
             unschedule()
             device.updateSetting("allowLogin",[value:'true',type:"bool"])
+            state.restore = state.duid
             runIn(settings.autoLogin.toInteger(), "initialize")
         }    
     } catch (Exception e) {
