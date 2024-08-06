@@ -280,6 +280,7 @@ void connect() {
         logError "${device.displayName} MQTT Security Exception: '${e.message}'"        
         if(e?.message?.toLowerCase()?.contains("not authorized to connect") && settings?.autoLogin && settings.autoLogin!="manual") {
         //if(e?.message?.toLowerCase()?.contains("bad user name or password") && settings.autoLogin && settings.autoLogin!="manual") {
+            processEvent("error_code", 257)
             logInfo "${device.displayName} auto scheduling 'initialize' in ${settings.autoLogin} seconds"
             unschedule()
             device.updateSetting("allowLogin",[value:'true',type:"bool"])
@@ -1164,7 +1165,8 @@ Integer qSize() {
 	24: "No-go zone or invisible wall detected",
 	254: "Bin full",
 	255: "Internal error",
-    256: "Wifi Offline"  // added 1.1.2 and deprecated wifi attribute
+    256: "Wifi Offline",  // added 1.1.2 and deprecated wifi attribute
+    257: "Authorization error", // added 1.1.5
 ]
 
 @Field static final List stateDoNotRefreshCodes = [ 0,1,2,3,9,10,12,14,100 ]
