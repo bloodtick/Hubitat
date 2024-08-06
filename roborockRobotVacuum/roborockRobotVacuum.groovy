@@ -277,7 +277,7 @@ void connect() {
     } catch (org.eclipse.paho.client.mqttv3.MqttSecurityException e) {
         // what i need to catch: org.eclipse.paho.client.mqttv3.MqttSecurityException: Not authorized to connect (method connect)
         // what i can fake:      org.eclipse.paho.client.mqttv3.MqttSecurityException: Bad user name or password (method connect)
-        logError "${device.displayName} MQTT Security Exception: '${e.message}'"        
+        logError "${device.displayName} mqtt security exception: '${e.message}'"        
         if(settings?.autoLogin && settings.autoLogin!="manual") {
             processEvent("error_code", 257)
             logInfo "${device.displayName} auto scheduling 'initialize' in ${settings.autoLogin} seconds"
