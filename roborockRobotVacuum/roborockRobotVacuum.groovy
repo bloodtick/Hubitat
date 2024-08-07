@@ -63,18 +63,18 @@ metadata {
         command "selectDevice"
 
         attribute "dustCollection", "enum", ["off","on"]
-        attribute "dockError", "enum", dockErrorCodes.values().collect()
+        attribute "dockError", "enum", dockErrorCodes.values().collect{ it.toLowerCase() }
         attribute "name", "string"
         attribute "rooms", "JSON_OBJECT"
         attribute "scenes", "JSON_OBJECT"
         if(hubitatVersion239) {
-            attribute "state", "enum", stateCodes.values().collect()   
-            attribute "error", "enum", errorCodes.values().collect()
+            attribute "state", "enum", stateCodes.values().collect{ it.toLowerCase() }   
+            attribute "error", "enum", errorCodes.values().collect{ it.toLowerCase() }
         } else {
             attribute "state", "string" // , stateCodes.values().collect() -- too long 2.3.9+ change to 1024  
             attribute "error", "string" // , errorCodes.values().collect() -- too long
         }        
-        attribute "fanPower", "enum", fanPowerCodes.values().collect()
+        attribute "fanPower", "enum", fanPowerCodes.values().collect{ it.toLowerCase() }
         attribute "cleanTime", "number"
         attribute "cleanArea", "number"
         attribute "cleanPercent", "number"
@@ -84,8 +84,8 @@ metadata {
         attribute "remainingSideBrush", "number"
         attribute "remainingHighSpeedMaintBrush", "number"
         attribute "locating", "enum", ["true","false"]
-        attribute "mopMode", "enum", mopModeCodes.values().collect()
-        attribute "mopWaterMode", "enum", mopWaterModeCodes.values().collect() 
+        attribute "mopMode", "enum", mopModeCodes.values().collect{ it.toLowerCase() }
+        attribute "mopWaterMode", "enum", mopWaterModeCodes.values().collect{ it.toLowerCase() } 
         //attribute "wifi", "enum", ["offline", "online"]
         attribute "healthStatus", "enum", ["offline", "online"]
 	}
