@@ -10,8 +10,8 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2024-04-18",
-    "releaseNotes": "1.1.5 Hopefully a fix for the random 'not authorized to connect' with mqtt. Update Preferences after downloading.\n1.1.4 appRoomClean(space or comma roomIds), remainingHighSpeedMaintBrush attribute, Fix Water Filter Tracking. Thanks @shimbone.\n1.1.3 numberOfButtons preference setting for new ez-dashboards. Suggest updating preferences after update.\n1.1.2 Updated for 2.3.9+ fix to attribute enum. Depreciated 'wifi' attribute and moved to error. Updated event processing to allow for log.warn on errors.\n1.1.1 Updated hash algo to match HA solution. Debug added for login.\n1.1.0 Intital support for scenes (aka routines), proper rooms json fix.\n1.0.6 Added RU & CH regions, check for account location.\n1.0.5 Reduced log output, added MapWater parameter to appRoomClean.",
-    "version": "1.1.5",
+    "releaseNotes": "1.1.6 Error event added for authorization error. Fixed enums for Rule Engine.\n1.1.5 Hopefully a fix for the random 'not authorized to connect' with mqtt. Update Preferences after downloading.\n1.1.4 appRoomClean(space or comma roomIds), remainingHighSpeedMaintBrush attribute, Fix Water Filter Tracking. Thanks @shimbone.",
+    "version": "1.1.6",
     "drivers": [
         {
             "id": "f33dcb2f-3c85-4f92-9f1f-5edce5a3ffa1",
