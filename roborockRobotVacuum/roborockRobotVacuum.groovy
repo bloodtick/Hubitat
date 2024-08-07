@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.5"}
+public static String version() {return "1.1.6"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
