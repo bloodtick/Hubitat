@@ -86,7 +86,6 @@ metadata {
         attribute "locating", "enum", ["true","false"]
         attribute "mopMode", "enum", mopModeCodes.values().collect{ it.toLowerCase() }
         attribute "mopWaterMode", "enum", mopWaterModeCodes.values().collect{ it.toLowerCase() } 
-        //attribute "wifi", "enum", ["offline", "online"]
         attribute "healthStatus", "enum", ["offline", "online"]
 	}
 }
