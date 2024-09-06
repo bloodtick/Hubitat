@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.6"}
+public static String version() {return "1.1.7"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
@@ -228,7 +228,9 @@ def refresh(Map data=[type:1]) {
 def execute(String command, String args=null) {
     // I have no idea if this conversion works for everything. It works for somethings... ;) 
     def param = args ? convertNumbers((new JsonSlurper().parseText(args))) : []
-    logInfo "${device.displayName} executing execute(command:$command, param:$param)"
+    // reduce info logging on these cyclic checks
+    Closure logFunction = [ "get_prop", "get_room_mapping", "get_consumable" ].find{ it == command } ? this.&logDebug : this.&logInfo
+    logFunction( "${device.displayName} executing execute(command:$command, param:$param)" )
     
     Integer id = (Integer)(state.sequence++ & 0xFFFFFFFF)
     qPush([duid: getDeviceId(), command: command, param: param, id:id])
@@ -513,7 +515,7 @@ void processEvent(String name, def value) {
     case "home_sec_enable_password":
         break
     case "strainer_work_times":  // start reported by Q Revo
-		Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / life.filter) * 100 ).toInteger()))
+		Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / life.filter) * 100).toInteger()))
         sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "${device.displayName} filter life remaining is $percentAvail%")
         break
     case "wash_status":
@@ -1231,6 +1233,7 @@ Integer qSize() {
     34: "Duct Blockage",
     38: "Water Empty",
     39: "Waste Water Tank Full",
+    40: "Water Filter Not Installed",
     44: "Dirty Tank Latch Open",
     46: "No Dust Bin",
     53: "Cleaning Tank Full Blocked",
