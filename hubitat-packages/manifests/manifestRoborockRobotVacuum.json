@@ -10,8 +10,8 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2024-04-18",
-    "releaseNotes": "1.1.6 Error event added for authorization error. Fixed enums for Rule Engine.\n1.1.5 Hopefully a fix for the random 'not authorized to connect' with mqtt. Update Preferences after downloading.\n1.1.4 appRoomClean(space or comma roomIds), remainingHighSpeedMaintBrush attribute, Fix Water Filter Tracking. Thanks @shimbone.",
-    "version": "1.1.6",
+    "releaseNotes": "1.1.7 Added dockErrorCodes 40, reduced logging.\n1.1.6 Error event added for authorization error. Fixed enums for Rule Engine.\n1.1.5 Hopefully a fix for the random 'not authorized to connect' with mqtt. Update Preferences after downloading.\n1.1.4 appRoomClean(space or comma roomIds), remainingHighSpeedMaintBrush attribute, Fix Water Filter Tracking. Thanks @shimbone.",
+    "version": "1.1.7",
     "drivers": [
         {
             "id": "f33dcb2f-3c85-4f92-9f1f-5edce5a3ffa1",
