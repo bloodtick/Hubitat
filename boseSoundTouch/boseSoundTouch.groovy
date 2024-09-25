@@ -21,7 +21,7 @@
 *  1.1.00 2020-10-08 Added basic webSocket processing for Hubitat only based upon tomw code base.
 *  1.1.01 2020-10-24 Ignore exception error on xml only when using parseLanMessage() in parse function.
 *  1.1.02 2024-03-15 Remove a lot of the SmartThings nonsense. Improve webSocket. Added HDMI and home automation buttons. Rename back to just Bose SoundTouch.
-*
+*  1.1.03 2024-09-24 Updated socket logic to restart if nothing in an hour. Sometimes was in a weird state. Added healthStatus attribute and Initialize capability
 */
 
 import groovy.json.*
@@ -29,10 +29,11 @@ import groovy.xml.XmlUtil
 import groovy.transform.CompileStatic
 import groovy.transform.Field
 
-@Field volatile static Map<String,String> g_mWebSocketStatus = [:]
+@Field volatile static Map<String,Long> g_mWebSocketTimestamp = [:]
 @Field volatile static Map<String,Map> g_mStatePending = [:]
 @Field volatile static Map<String,Map> g_mStateReady = [:]
 @Field volatile static Map<String,Integer> g_mVolume = [:]
+@Field static final Integer checkInterval = 300
 
 metadata {
     definition (name: "Bose SoundTouch", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/boseSoundTouch/boseSoundTouch.groovy") {
@@ -44,6 +45,8 @@ metadata {
         capability "Music Player"
         capability "AudioVolume"
         capability "PushableButton"
+        capability "Initialize"
+        capability "HealthCheck"
         
         command "preset1"
         command "preset2"
@@ -53,7 +56,6 @@ metadata {
         command "preset6"
         command "aux"
         command "hdmi"
-        command "ping"
 
         attribute "preset1", "JSON_OBJECT"
         attribute "preset2", "JSON_OBJECT"
@@ -72,20 +74,23 @@ metadata {
         attribute "station4", "string"
         attribute "station5", "string"
         attribute "station6", "string"
+        
+        attribute "pattern", "string"
+        attribute "healthStatus", "enum", ["offline", "online"]
     }
 }
 
 preferences {
-    input(name:"deviceIp", type:"text", title: "Device IP Address", description: "Local lan IPv4 Address", defaultValue: "127.0.0.1", required: true)
-    input(name:"devicePollRateSecs", type: "number", title: "Device Poll Rate (30-600 seconds)", description: "Default is 300 seconds", range: "30..600", defaultValue: "300")
-    input(name:"deviceLogEnable", type: "bool", title: "Enable debug logging", defaultValue: false) 
+    input(name:"deviceIp", type:"text", title: "<b>Device IP Address</b>", description: "Local lan IPv4 Address", defaultValue: "127.0.0.1", required: true)
+    input(name:"numberOfButtons", type: "number", title: "<b>Set Number of Buttons:</b>", range: "1...", defaultValue: 4, required: true)
+    input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false)
+    input(name:"deviceDebugEnable", type: "bool", title: "Enable debug logging", defaultValue: false) 
     input(name:"deviceTraceEnable", type: "bool", title: "Enable trace logging", defaultValue: false)
 }
 
 def installed() {
     settings.deviceIp = "127.0.0.1"
-    settings.devicePollRateSecs = 300
-    settings.deviceLogEnable = false
+    settings.deviceDebugEnable = false
     settings.deviceTraceEnable = false
     sendEvent(name: "level", value: "0", unit: "%")
     sendEvent(name: "switch", value:"off", displayed: false)
@@ -100,21 +105,24 @@ def updated() {
 }
 
 def initialize() {
-    logDebug "Executing 'initialize()'"
+    logInfo "Executing 'initialize()'"
     unschedule()
+    sendEvent(name: "numberOfButtons", value: (settings?.numberOfButtons)?:4)
+    sendEvent(name: "checkInterval", value: checkInterval)
     interfaces.webSocket.close()
-    sendEvent(name: "numberOfButtons", value: 50)
+    g_mWebSocketTimestamp[device.getId()] = null
     runIn(2, ping)
     runIn(5, refresh)
 }
 
 def push(buttonNumber=null, String descriptionText=null) {
-    if(buttonNumber==null) {
+    if(buttonNumber==null && state?.pattern) {
         // these are rapid volume control keys that can be used for automation
-        if(state?.pattern == "++--") push(1, "${device.displayName} volume matched '${state.pattern}' and pushed button 1")
-        if(state?.pattern == "--++") push(2, "${device.displayName} volume matched '${state.pattern}' and pushed button 2")
-        if(state?.pattern == "+-+-") push(3, "${device.displayName} volume matched '${state.pattern}' and pushed button 3")
-        if(state?.pattern == "-+-+") push(4, "${device.displayName} volume matched '${state.pattern}' and pushed button 4")
+        //if(state.pattern == "++--") push(1, "${device.displayName} volume matched '${state.pattern}' and pushed button 1")
+        //if(state.pattern == "--++") push(2, "${device.displayName} volume matched '${state.pattern}' and pushed button 2")
+        //if(state.pattern == "+-+-") push(3, "${device.displayName} volume matched '${state.pattern}' and pushed button 3")
+        //if(state.pattern == "-+-+") push(4, "${device.displayName} volume matched '${state.pattern}' and pushed button 4")
+        if(state.pattern.size()>3) sendEvent(name: "pattern", value: state.pattern, isStateChange: true) // for other solutions if you don't want to use above.
         state.remove('pattern')
     } else {
         sendEvent(name: "pushed", value: buttonNumber, isStateChange: true, descriptionText: (descriptionText ?: "${device.displayName} pushed button $buttonNumber"))
@@ -195,8 +203,8 @@ def parse(String event) {
         logTrace "parse() exception ignored: $e"
     }
     def actions = []
-    //logDebug "parse() header:${data.header}"
-    //logDebug "parse() body:${data.body}"
+    logTrace "parse() header:${data.header}"
+    logTrace "parse() body:${data.body}"
 
     // List of permanent root node handlers
     def handlers = [
@@ -208,11 +216,11 @@ def parse(String event) {
     ]
 
     if (!data.header) {
-        // most likely this was a websocket callback. 
-        def xml = new XmlSlurper().parseText(event)
+        // most likely this was a websocket callback.
+        logDebug "parse() websocket: ${groovy.xml.XmlUtil.escapeXml(event)}"
+        def xml = new XmlSlurper().parseText(event)        
         if((!xml?.volumeUpdated?.isEmpty()) || (!xml?.nowPlayingUpdated?.isEmpty()) || (!xml?.infoUpdated?.isEmpty()))
         {
-            logTrace "parse() ${groovy.xml.XmlUtil.escapeXml(event)}" 
             runIn(3, ping)
         }
         // figure out a home automation trick since the websocket is very fast
@@ -222,14 +230,15 @@ def parse(String event) {
             g_mVolume[device.getId()] = xml?.volumeUpdated?.volume?.targetvolume.toInteger()
             state.pattern = (state?.pattern ?: "") + direction
             runIn(1, push)
-        }
+        }        
+        g_mWebSocketTimestamp[device.getId()] = now()
         return null
     }
     // Move any pending callbacks into ready state
     prepareCallbacks()
 
     def xml = new XmlSlurper().parseText(data.body)
-    logTrace "parse() xml:${xml.text()}"    
+    logDebug "parse() xml:${xml.text()}"    
     if (xml.text()=="unsupported device") {
         logInfo "${device.displayName} not supported by this device"
         return null
@@ -254,12 +263,18 @@ def parse(String event) {
 }
 
 /**
-* Called by health check if no events been generated in the last 12 minutes
-* If device doesn't respond it will be marked offline (not available)
+* Called by onAction every checkInterval seconds
+* If device doesn't respond it will be marked offline (not available) and socket retried
 */
 def ping() {
-    logDebug("ping()")    
-    if(!g_mWebSocketStatus[device.getId()]?.contains("open")) {
+    logDebug("ping()")
+    //logInfo (now() - ((Long)g_mWebSocketTimestamp[device.getId()]?:0L))    
+    if(g_mWebSocketTimestamp[device.getId()]==null || ( device.currentValue("switch")=="on" && now() - ((Long)g_mWebSocketTimestamp[device.getId()]?:0L) > 60L*60L*1000L )) {
+        if(g_mWebSocketTimestamp[device.getId()]!=null) {
+            interfaces.webSocket.close()
+            g_mWebSocketTimestamp[device.getId()] = null
+        }
+        runIn(5,"setHealthStatusValue")
         logInfo("${device.displayName} connecting webSocket ws://${getDeviceIP()}:8080/")
         interfaces.webSocket.connect("ws://${getDeviceIP()}:8080/", headers: ["Sec-WebSocket-Protocol":"gabbo"])
     }
@@ -267,13 +282,22 @@ def ping() {
 }
 
 def webSocketStatus(String message) {
-    logInfo("${device.displayName} webSocket $message")
-    g_mWebSocketStatus[device.getId()] = message
+    logDebug("${device.displayName} webSocket $message")
+    if(message?.contains("open")) {
+        g_mWebSocketTimestamp[device.getId()] = now() //this will get updated every websocket callback too
+    } else {
+        g_mWebSocketTimestamp[device.getId()] = null        
+    }
+    runIn(2,"setHealthStatusValue")
 }
 
-def webSocketMessage(String message) {
-    logInfo("${device.displayName} webSocket message $message")
-    state.webSocketMessage = message
+def setHealthStatusValue() {
+    String value = g_mWebSocketTimestamp[device.getId()]==null ? "offline" : "online"
+    if(device.currentValue("healthStatus")!=value) {
+        String descriptionText = "${device.displayName} healthStatus set to $value"
+        sendEvent(name: "healthStatus", value: value, descriptionText: descriptionText)
+        logInfo descriptionText
+    }
 }
 
 /**
@@ -366,7 +390,7 @@ def onAction(String user, data=null) {
     }
 
     if(user=="ping" || user=="refresh") 
-        runIn(settings.devicePollRateSecs, ping)
+        runIn(checkInterval, ping)
     else
         runIn(5, ping)        
 
@@ -1164,8 +1188,8 @@ def getDevicePort() {
     return "8090"
 }
 
-private logInfo(msg)  { log.info "${msg}" }
-private logDebug(msg) { if(settings?.deviceLogEnable == true) { log.debug "${msg}" } }
+private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
+private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
 private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
-private logWarn(msg)  { log.warn  "${msg}" } 
+private logWarn(msg)  { log.warn   "${msg}" }
 private logError(msg) { log.error  "${msg}" }
