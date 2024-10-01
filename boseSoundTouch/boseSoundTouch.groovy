@@ -268,14 +268,14 @@ def parse(String event) {
 */
 def ping() {
     logDebug("ping()")
-    //logInfo (now() - ((Long)g_mWebSocketTimestamp[device.getId()]?:0L))    
-    if(g_mWebSocketTimestamp[device.getId()]==null || ( device.currentValue("switch")=="on" && now() - ((Long)g_mWebSocketTimestamp[device.getId()]?:0L) > 60L*60L*1000L )) {
-        if(g_mWebSocketTimestamp[device.getId()]!=null) {
-            interfaces.webSocket.close()
-            g_mWebSocketTimestamp[device.getId()] = null
-        }
+    
+    Long lastSocketMsg = now() - ((Long)g_mWebSocketTimestamp[device.getId()]?:0L)
+    g_mWebSocketTimestamp[device.getId()] = ( device.currentValue("switch")=="on" && lastSocketMsg > 60L*60L*1000L ) ? null : g_mWebSocketTimestamp[device.getId()]
+    
+    if(g_mWebSocketTimestamp[device.getId()]==null) {
+        interfaces.webSocket.close()
         runIn(5,"setHealthStatusValue")
-        logInfo("${device.displayName} connecting webSocket ws://${getDeviceIP()}:8080/")
+        logInfo("${device.displayName} connecting webSocket ws://${getDeviceIP()}:8080")
         interfaces.webSocket.connect("ws://${getDeviceIP()}:8080/", headers: ["Sec-WebSocket-Protocol":"gabbo"])
     }
     onAction("ping")
@@ -611,7 +611,8 @@ def boseSetNowPlaying(xmlData, override=null) {
         } else {
             if(device.currentState("switch")?.value != "on") {
                 sendEvent(name:"switch", value:"on")
-                logInfo "${device.displayName} is on"
+                logInfo "${device.displayName} is on at ${device.currentValue("level")}%"
+                g_mWebSocketTimestamp[device.getId()] = null // redo the websocket
             }
         }
         boseSetPlayerAttributes(xmlData)
@@ -1050,14 +1051,14 @@ def bosePOST(String path, String data, String address=null) {
         hubAction = hubitat.device.HubAction.newInstance(param)
     }
     catch (Exception e) {
-        logError "boseGET() $e on $hubAction"
+        logError "bosePOST() $e on $hubAction"
     }
     if (hubAction) {
         try {
             sendHubCommand( hubAction )
         }
         catch (Exception e) {
-            logError "boseGET() $e on $sendHubCommand"
+            logError "bosePOST() $e on $sendHubCommand"
         }
     }
 }
