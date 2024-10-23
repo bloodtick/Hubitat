@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.7"}
+public static String version() {return "1.1.8"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
@@ -52,6 +52,11 @@ metadata {
         // Use Hubitat 'Button Controller' built in app to set commands to run.
         capability "PushableButton"
 
+        command "connect"
+        command "disconnect"
+        command "getHomeData"
+        command "getHomeRooms"
+        
         command "appClean"
         command "appDock"
         command "appPause"
@@ -98,6 +103,7 @@ preferences {
     input(name:"autoLogin", type: "enum", title: "<b>Auto Authorize Account User Login:</b>", options: [ "manual":"Manual Only", "900":"15 Minutes", "1800":"30 Minutes", "3600":"1 Hour", "10800":"3 Hours"], defaultValue: "1800", description: "<i>If device goes offline re/attempt intial login with username and password.</i>", required: true)
     input(name:"areaUnit", type:"enum", title: "<b>Device Area Unit:</b>", options:["0":"Square Foot (ft²)", "1":"Square Meter (m²)"], defaultValue: "0", required: true, width:4)
     input(name:"numberOfButtons", type: "number", title: "<b>Set Number of Buttons:</b>", range: "1...", defaultValue: 1, required: true, width:4)
+    input(name:"cleanAttributeDisable", type:"bool", title: "Disable chatty cleanPercent, cleanArea, cleanPercent events:", defaultValue: false, width:4)
     input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false, width:4)
     input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false, width:4)
     //input(name:"deviceTraceEnable", type:"bool", title: "Enable Trace logging:", defaultValue: false, width:4)
@@ -238,17 +244,20 @@ def execute(String command, String args=null) {
 }  
 
 void executeQueue() {
-    if(!qIsEmpty()) {
+    if(!qIsEmpty() && interfaces.mqtt.isConnected()) {
         Map cmd = qPeek()
         runIn(15, "watchdog") // unscheduled in processMsg()
         publish(cmd.duid, cmd.command, cmd.param, cmd.id)
+    } else if(!qIsEmpty() && !interfaces.mqtt.isConnected()) {
+        logWarn "${device.displayName} scheduling 'connect()' in 'executeQueue()'"
+        runIn(1, "connect")        
     } else {
         unschedule('watchdog')
     }
 }
 
 void watchdog() {
-    logWarn "${device.displayName} executing 'watchdog()'"    
+    logWarn "${device.displayName} executing 'watchdog()' on queue:${qPeek()}"    
     disconnect()
     runIn(1, "getHomeData")
 }
@@ -335,7 +344,7 @@ void unsubscribe() {
 }
 
 void sendEventX(Map x) {
-    if(device.currentValue(x?.name).toString() != x?.value.toString()) {
+    if(device.currentValue(x?.name).toString() != x?.value.toString() && !x?.eventDisable) {
         if(x?.descriptionText) { if(x?.logLevel=="warn") logWarn (x?.descriptionText); else logInfo (x?.descriptionText); }
         sendEvent(name: x?.name, value: x?.value, unit: x?.unit, descriptionText: x?.descriptionText, isStateChange: (x?.isStateChange ?: false))
     }
@@ -434,12 +443,12 @@ void processEvent(String name, def value) {
         break
     case "clean_time":
         Integer totalMinutes = Math.ceil(value.toInteger()/60).toInteger()
-        sendEventX(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: "${device.displayName} clean time is $totalMinutes ${totalMinutes==1?"minute":"minutes"}")
+        sendEventX(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: "${device.displayName} clean time is $totalMinutes ${totalMinutes==1?"minute":"minutes"}", eventDisable: cleanAttributeDisable)
         break
     case "clean_area":
         String unit = (areaUnit==null || areaUnit=="0") ? "ft²" : "m²"
         Integer area = (unit=="ft²") ? value.toInteger() / 92903.04 : value.toInteger() / 1000000
-        sendEventX(name: "cleanArea", value: area, unit: unit, descriptionText: "${device.displayName} clean area is $area $unit")
+        sendEventX(name: "cleanArea", value: area, unit: unit, descriptionText: "${device.displayName} clean area is $area $unit", eventDisable: cleanAttributeDisable)
         break
     case "map_present":
         break
@@ -504,7 +513,7 @@ void processEvent(String name, def value) {
     case "unsave_map_flag":
         break
     case "clean_percent":
-        sendEventX(name: "cleanPercent", value: value.toInteger(), unit: "%", descriptionText: "${device.displayName} percent completed is $value%")        
+        sendEventX(name: "cleanPercent", value: value.toInteger(), unit: "%", descriptionText: "${device.displayName} percent completed is $value%", eventDisable: cleanAttributeDisable)        
         break
     case "rss":
     case "dss":
@@ -914,7 +923,7 @@ void getHomeDetail() {
         headers: ['header_clientid':(md5hex(settings.username).bytes.encodeBase64().toString()), 'Authorization': (getLoginData()?.token) ]
     ]
     try {
-	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeDetail", store: "homeDetail"])
+	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeDetail", store: "homeDetail", params:params])
 	} catch (e) {
 	    logWarn "${device.displayName} 'getHomeDetail()' asynchttpGet() error: $e"
 	}
@@ -930,7 +939,7 @@ void getHomeData() {
         headers: [ 'Authorization': getHawkAuthentication(rriot?.u, rriot?.s, rriot?.h, path) ]
     ]
     try {
-	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeData", store: "homeData"])
+	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeData", store: "homeData", params:params])
 	} catch (e) {
 	    logWarn "${device.displayName} 'getHomeData()' asynchttpGet() error: $e"
 	}
@@ -946,7 +955,7 @@ void getHomeRooms() {
         headers: [ 'Authorization': getHawkAuthentication(rriot?.u, rriot?.s, rriot?.h, path) ]
     ]
     try {
-	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeRooms", store: "homeRooms"])
+	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeRooms", store: "homeRooms", params:params])
 	} catch (e) {
 	    logWarn "${device.displayName} 'getHomeRooms()' asynchttpGet() error: $e"
 	}
@@ -961,7 +970,7 @@ void getDeviceScenes() {
         headers: [ 'Authorization': getHawkAuthentication(rriot?.u, rriot?.s, rriot?.h, path) ]
     ]
     try {
-	    asynchttpGet("asyncHttpCallback", params, [method: "getDeviceScenes"])
+	    asynchttpGet("asyncHttpCallback", params, [method: "getDeviceScenes", params:params])
 	} catch (e) {
 	    logWarn "${device.displayName} 'getDeviceScenes()' asynchttpGet() error: $e"
 	}
@@ -978,7 +987,7 @@ void setDeviceScene(String sceneId) {
         body: [ sceneId: sceneId ]
     ]
     try {
-	    asynchttpPost("asyncHttpCallback", params, [method: "setDeviceScene", sceneId: sceneId])
+	    asynchttpPost("asyncHttpCallback", params, [method: "setDeviceScene", sceneId: sceneId, params:params])
 	} catch (e) {
 	    logWarn "${device.displayName} 'setDeviceScene()' asynchttpPost() error: $e"
 	}
@@ -1025,7 +1034,8 @@ void asyncHttpCallback(resp, data) {
         }
     }
     else {
-        logWarn("${device.displayName} asyncHttpGetCallback() ${data?.method} status:${resp.status}")
+        logWarn("${device.displayName} asyncHttpGetCallback() ${data?.method} status:${resp.status} errorMessage:${resp?.errorMessage?:"none"} params:${data?.params}")
+        logTrace("Available Properties: ${resp.properties}")
     }
 }
 
