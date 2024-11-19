@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.8"}
+public static String version() {return "1.1.9"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
@@ -550,7 +550,7 @@ void processMsg(Map message) {
         Map home = getHomeDataResult()
         String duid = getDeviceId()        
         String productId = home?.devices?.find{ it.duid == duid }?.productId
-        String code = home?.products?.find{ it.id == productId }?.schema?.find { it.id == key }?.code
+        String code = home?.products?.find{ it.id == productId }?.schema?.find { it.id?.toString() == key?.toString() }?.code
         
         if(code=="rpc_response") {
             
@@ -568,7 +568,7 @@ void processMsg(Map message) {
             // lets get our command that sent this request and we can start the queue up again.
             Map cmd = qPop()
             executeQueue()
-       
+    
             if((cmd?.command=="get_prop" && cmd?.param==["get_status"]) || cmd?.command=="get_consumable") {
                 logDebug "${device.displayName} command '$cmd.command' was accepted"
                 jsonValue?.result?.each{ result ->
