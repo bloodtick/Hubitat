@@ -51,11 +51,6 @@ metadata {
         // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
         // Use Hubitat 'Button Controller' built in app to set commands to run.
         capability "PushableButton"
-
-        command "connect"
-        command "disconnect"
-        command "getHomeData"
-        command "getHomeRooms"
         
         command "appClean"
         command "appDock"
