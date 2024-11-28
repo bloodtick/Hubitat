@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.9"}
+public static String version() {return "1.1.10"}
 @Field static final Boolean hubitatVersion239 = false
 
 import groovy.json.JsonOutput
@@ -125,6 +125,7 @@ def initialize() {
             
     if(settings?.allowLogin && settings?.username && settings?.password) {
         logInfo "${device.displayName} executing 'initialize()' allowLogin"
+        disconnect()
         // blow away all state information
         state?.keySet()?.collect()?.each{ state.remove(it) }
         state.sequence = (new Random().nextInt(2000) + 1)
@@ -132,14 +133,12 @@ def initialize() {
         clearAttributes()        
         if(login()?.msg=="success") {
             device.updateSetting("allowLogin",[value:'false',type:"bool"])
-            disconnect()
             runIn(1, "getHomeDetail") //runs getHomeData()->getHomeDataCallback() async serial
         } else {
             logWarn "${device.displayName} login with username:'$username' password:'$password' failed"
         }
     } 
     else if(state?.login) {
-        state.remove("autoRefresh") // removed in 1.0.4
         disconnect()
         runIn(1, "getHomeData") //runs getHomeDataCallback() async serial
     }
@@ -183,10 +182,10 @@ void clearAttributes() {
 }
 
 void getHomeDataCallback() {
-    logDebug "${device.displayName} executing 'getHomeDataCallback()'"
+    logDebug "${device.displayName} executing 'getHomeDataCallback()' ${getHomeDataResult()}"
     logDebug "${device.displayName} device id is ${getDeviceId()}"
     
-    Boolean deviceOnline = !!(getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.online)
+    Boolean deviceOnline = !!(getHomeDataResult()?.devices?.find{ it.duid?.toString() == getDeviceId() }?.online)
     //processEvent("wifi", (deviceOnline ? "online" : "offline"))
     if(!deviceOnline) {
         //logWarn "${device.displayName} wifi is offline"
@@ -209,7 +208,7 @@ void updateHomeData() {
     execute("get_room_mapping")
 	if(device.currentValue("switch")!="on") execute("get_consumable") 	
 	
-    String name = getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.name ?: "unknown"
+    String name = getHomeDataResult()?.devices?.find{ it.duid?.toString() == getDeviceId() }?.name ?: "unknown"
     processEvent("name", name)
 }
 
@@ -244,7 +243,7 @@ void executeQueue() {
         runIn(15, "watchdog") // unscheduled in processMsg()
         publish(cmd.duid, cmd.command, cmd.param, cmd.id)
     } else if(!qIsEmpty() && !interfaces.mqtt.isConnected()) {
-        logWarn "${device.displayName} scheduling 'connect()' in 'executeQueue()'"
+        logInfo "${device.displayName} scheduling 'connect()' in 'executeQueue()'"
         runIn(1, "connect")        
     } else {
         unschedule('watchdog')
@@ -252,12 +251,14 @@ void executeQueue() {
 }
 
 void watchdog() {
-    logWarn "${device.displayName} executing 'watchdog()' on queue:${qPeek()}"    
+    if(qIsEmpty()) return
+    logInfo "${device.displayName} executing 'watchdog()' on queue:${qPeek()}"    
     disconnect()
     runIn(1, "getHomeData")
 }
 
 void scheduleRefresh(Integer delay=5) {
+    logDebug "${device.displayName} executing 'scheduleRefresh($delay)'"
     runIn(delay, "refresh", [data: [type:2]])    
 }
 
@@ -265,7 +266,7 @@ void disconnect() {
     logInfo "${device.displayName} executing 'disconnect()'"
     unsubscribe()
     interfaces.mqtt.disconnect()
-    setHealthStatusEvent(false)
+    runIn(10, "setHealthStatusEvent") // false
 }
 
 void connect() {
@@ -330,12 +331,14 @@ void unsubscribe() {
     if(!interfaces.mqtt.isConnected()) return
     
     Map rriot = getLoginData()?.rriot
-    String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
-    String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
+    if(rriot) {
+        String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
+        String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
     
-    String topic = "rr/m/o/${rriot.u}/${mqttUser}/#"
-    logInfo "${device.displayName} unsubscribe topic:$topic"
-    interfaces.mqtt.unsubscribe(topic)
+        String topic = "rr/m/o/${rriot.u}/${mqttUser}/#"
+        logInfo "${device.displayName} unsubscribe topic:$topic"
+        interfaces.mqtt.unsubscribe(topic)
+    }
 }
 
 void sendEventX(Map x) {
@@ -409,19 +412,12 @@ void processEvent(String name, def value) {
         sendEventX(name: "remainingHighSpeedMaintBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} high-speed maintenance brush remaining life is $percentAvail%")
         break
     case "filter_life":
-        break
     case "filter_work_time":
-        break
     case "additional_props":
-        break
     case "task_complete":
-        break
     case "task_cancel_low_power":
-        break
     case "task_cancel_in_motion":
-        break
     case "charge_status":
-        break
     case "drying_status":
         break
     case "sensor_dirty_time":
@@ -429,11 +425,8 @@ void processEvent(String name, def value) {
         sendEventX(name: "remainingSensors", value: percentAvail, unit: "%", descriptionText: "${device.displayName} sensor time remaining is $percentAvail%")
         break
     case "filter_element_work_time":
-        break
     case "dust_collection_work_times":
-        break
     case "msg_ver":
-        break
     case "msg_seq":
         break
     case "clean_time":
@@ -446,19 +439,12 @@ void processEvent(String name, def value) {
         sendEventX(name: "cleanArea", value: area, unit: unit, descriptionText: "${device.displayName} clean area is $area $unit", eventDisable: cleanAttributeDisable)
         break
     case "map_present":
-        break
     case "in_cleaning":
-        break
     case "in_returning":
-        break
     case "in_fresh_state":
-        break
     case "lab_status":
-        break
     case "water_box_status":
-        break
     case "dnd_enabled":
-        break
     case "map_status":
         break
     case "is_locating":
@@ -466,19 +452,12 @@ void processEvent(String name, def value) {
         sendEventX(name: "locating", value: locatingString, descriptionText: "${device.displayName} locating value is $locatingString ($value)")        
         break
     case "lock_status":
-        break
     case "water_box_carriage_status":
-        break
     case "mop_forbidden_enable":
-        break
     case "camera_status":
-        break
     case "is_exploring":
-        break
     case "adbumper_status":
-        break
     case "water_shortage_status":
-        break
     case "dock_type":
         break
     case "dust_collection_status": 
@@ -486,7 +465,6 @@ void processEvent(String name, def value) {
         sendEventX(name: "dustCollection", value: dustCollectionString, descriptionText: "${device.displayName} dust collection is $dustCollectionString ($value)") 
         break
     case "auto_dust_collection":
-        break
     case "avoid_count":
         break
     case "mop_mode": 
@@ -494,9 +472,7 @@ void processEvent(String name, def value) {
         sendEventX(name: "mopMode", value: valueEnum, descriptionText: "${device.displayName} mop mode is $valueEnum ($value)")
         break
     case "debug_mode":
-        break
     case "collision_avoid_status":
-        break
     case "switch_map_mode":
         break
     case "dock_error_status": 
@@ -504,7 +480,6 @@ void processEvent(String name, def value) {
         sendEventX(name: "dockError", value: valueEnum, descriptionText: "${device.displayName} dock error is $valueEnum ($value)", logLevel:(value==0?"info":"warn"))
         break
     case "unsave_map_reason":
-        break
     case "unsave_map_flag":
         break
     case "clean_percent":
@@ -532,37 +507,39 @@ void processEvent(String name, def value) {
     case "dry_status":
     case "corner_clean_mode":
     case "common_status":
-    case "back_type":  // end reported by Q Revo
+    case "back_type":
+    case "replenish_mode":
+    case "repeat":
         break
     default:
-        logDebug "${device.displayName} did not process name:$name with value:$value"     
+        if(settings?.deviceDebugEnable) logWarn "${device.displayName} did not process name:$name with value:$value"     
     }
     if(descriptionText) logInfo descriptionText
 }
 
 void processMsg(Map message) {
     logDebug "${device.displayName} executing 'processMsg($message)'"
-    // we have good connection to device since we got a message back from it.
-    setHealthStatusEvent(true)
-
     message?.dps?.each { key,value ->        
         // look up id and find the 'code' that was mapped in the home data. duid is used find the productID. 
         Map home = getHomeDataResult()
         String duid = getDeviceId()        
-        String productId = home?.devices?.find{ it.duid == duid }?.productId
+        String productId = home?.devices?.find{ it.duid?.toString() == duid?.toString() }?.productId
         String code = home?.products?.find{ it.id == productId }?.schema?.find { it.id?.toString() == key?.toString() }?.code
+        //String code = home?.products?.find{ it.id == productId }?.schema?.find { it.id == key }?.code
         
         if(code=="rpc_response") {
+            // we have good connection to device since we got a message back from it.
+            setHealthStatusEvent(true)
             
             def jsonValue = null
             try {
                 jsonValue = (new JsonSlurper()).parseText( value )
             } catch(e) {
-                logWarn "${device.displayName} message not json: message:$message value:$value"
+                logWarn "${device.displayName} message not json: key:$key value:$value message:$message"
             }
             
             if(qPeek()?.id?.toInteger() != jsonValue?.id?.toInteger()) {
-                logDebug "${device.displayName} message unknown: command:$cmd result:$jsonValue"
+                if(settings?.deviceDebugEnable) logWarn "${device.displayName} message unknown: $jsonValue"
                 return
             }           
             // lets get our command that sent this request and we can start the queue up again.
@@ -595,13 +572,18 @@ void processMsg(Map message) {
                 scheduleRefresh()
             }                
             else {
-                logWarn "${device.displayName} message not handled: command:$cmd result:$jsonValue"
+                logWarn "${device.displayName} rpc_response not handled: command:$cmd result:$jsonValue"
             }
         }
-        else {            
+        else if(code!=null && value!=null) {            
             processEvent(code,value)
             scheduleRefresh()
-        }         
+        }
+        else {
+            // this should never happen. if it does, clear the queue and wait for the normal 30min refresh to try again.
+            logError "${device.displayName} message not handled: key:$key value:$value"
+            qClear()
+        }
     } 
 }
 
@@ -618,8 +600,9 @@ void setRoomsValue(Map get_room_mapping) {
     }
 }
 
-void setHealthStatusEvent(Boolean mqttClientStatus) {
-    Boolean deviceOnline = getHomeDataResult()?.devices?.find{ it.duid == getDeviceId() }?.online
+void setHealthStatusEvent(Boolean mqttClientStatus=false) {
+    unschedule('setHealthStatusEvent')
+    Boolean deviceOnline = getHomeDataResult()?.devices?.find{ it.duid?.toString() == getDeviceId() }?.online
     String healthStatus = mqttClientStatus && deviceOnline ? "online" : "offline"
     processEvent("healthStatus", healthStatus)
 }
