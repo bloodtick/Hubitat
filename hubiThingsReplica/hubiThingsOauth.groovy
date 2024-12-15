@@ -16,8 +16,7 @@
 *  Date: 2022-12-04
 *
 *  1.0.00 2022-12-04 First pass.
-*  ...    Deleted
-*  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
+*  ...
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices.
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic (no OAuth changes)
@@ -27,9 +26,10 @@
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger() (no OAuth changes) 
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name.
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
+*  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
 *  LINE 30 MAX */  
 
-public static String version() { return "1.4.00" }
+public static String version() { return "1.4.01" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -56,6 +56,7 @@ import groovy.transform.Field
 @Field static final String  sColorDarkGrey="#696969"
 @Field static final String  sColorDarkRed="DarkRed"
 @Field static final String  sColorYellow="#8B8000"
+@Field static final Integer iRescheduled=15*60
 
 definition(
     parent: 'replica:HubiThings Replica',
@@ -72,7 +73,7 @@ definition(
 ){}
 
 String getDefaultLabel() {
-    return pageMainPageAppLabel?:app.getLabel()?:sDefaultAppName
+    return pageMainPageAppLabel ? (getApiId()?"$pageMainPageAppLabel ${getApiId()}":pageMainPageAppLabel) : app.getLabel()?:sDefaultAppName
 }
 
 preferences {
@@ -384,7 +385,7 @@ def pageMain(){
                         smartDevices?.items?.sort{ a,b -> naturalSort((a?.label?:a?.name).toString(), (b?.label?:b?.name).toString()) }
                         smartDevices?.items?.sort{ a,b -> naturalSort( "${getSmartRoomName(a?.roomId.toString())?:""} : ${(a?.label?:it?.name).toString()}", "${getSmartRoomName(b?.roomId.toString())?:""} : ${(b?.label?:it?.name).toString()}") }
                     } catch(e) { 
-                        logWarn "${getDefaultLabel()} pageMainSmartDevices $e"
+                        logDebug "${getDefaultLabel()} pageMainSmartDevices $e"
                     }
                     smartDevices?.items?.each {
                         Map device = [ "${it.deviceId}" : "${getSmartRoomName(it?.roomId)?:""} : ${(it?.label?:it?.name).toString()}" ]
@@ -652,16 +653,19 @@ void setSmartSubscriptions() {
 
 void setSmartDeviceSubscriptions() {
     logDebug "${getDefaultLabel()} executing 'setSmartDeviceSubscriptions()'"
+    if(!asyncHttpCheck("setSmartDeviceSubscriptions")) return
     setSmartSubscriptions()
     
     Map update = checkSmartSubscriptions()    
     update?.select?.each{ deviceId ->
         logDebug "${getDefaultLabel()} subscribed to $deviceId"
         setSmartDeviceSubscription(deviceId)
+        pauseExecution(100)
     }
     update?.delete?.each{ deviceId ->
         logDebug "${getDefaultLabel()} unsubscribe to $deviceId"
         deleteSmartSubscriptions("DEVICE", deviceId)
+        pauseExecution(100)
     }
     if(update?.ready) {        
         runIn(2, getSmartSubscriptionList)
@@ -766,10 +770,28 @@ Map setSmartSceneLifecycleSubscription() {
     return response
 }
 
+private Boolean asyncHttpCheck(String method) {
+    if(!state.containsKey('authTokenError') || getAuthStatus()=="FAILURE") {
+        if(state[method]!=true) {
+        	logError "${getDefaultLabel()} does not have a valid authToken. Rejecting method:$method"
+        	state[method]= true
+        }
+        return false
+    } else if(state.containsKey(method)) state.remove(method)
+    
+    if(state.containsKey('rescheduled') && state.rescheduled>now()) {
+        logWarn "${getDefaultLabel()} had too many requests now waiting ${Math.ceil((state.rescheduled - now())/(1000*60)) as Integer} minutes. Rejecting method:$method"
+        return false
+    } else if(state.containsKey('rescheduled')) state.remove('rescheduled')
+    
+    return true
+}
+
 private Map asyncHttpPostJson(String callbackMethod, Map data) {
     logDebug "${getDefaultLabel()} executing 'asyncHttpPostJson()'"
     Map response = [statusCode:iHttpError]
-	
+    if(!asyncHttpCheck(data.method)) return response
+    
     Map params = [
 	    uri: data.uri,
 	    path: data.path,
@@ -831,7 +853,7 @@ void asyncHttpPostCallback(resp, data) {
     }
     else {
         resp.headers.each { logTrace "${it.key} : ${it.value}" }
-        logWarn("${getDefaultLabel()} asyncHttpPostCallback ${data?.method} status:${resp.status} reason:${resp.errorMessage}")
+        logWarn("${getDefaultLabel()} asyncHttpPostCallback ${data?.method} status:${resp.status} reason:${resp.errorMessage} ${data?.deviceId?"device:$data.deviceId":""}")
     }
 }
 
@@ -901,6 +923,7 @@ String getSmartLocationName(String locationId) {
 private Map asyncHttpGet(String callbackMethod, Map data) {
     logDebug "${getDefaultLabel()} executing 'asyncHttpGet()'"
     Map response = [statusCode:iHttpError]
+    if(!asyncHttpCheck(data.method)) return response
 	
     Map params = [
 	    uri: data.uri,
@@ -952,7 +975,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.subscriptions = g_mSmartSubscriptionList[app.getId()] = subscriptionList
                     setSmartDeviceSubscriptions()
                 }
-                logInfo "${getDefaultLabel()} ${getApiId()} ${changed?"updated":"checked"} subscription list"
+                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} subscription list"
                 break
             case "getSmartDeviceList":            
                 Map deviceList = new JsonSlurper().parseText(resp.data)
@@ -964,7 +987,7 @@ void asyncHttpGetCallback(resp, data) {
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
                 clearSmartLocationQueryLock()
-                logInfo "${getDefaultLabel()} ${getApiId()} ${changed?"updated":"checked"} device list"
+                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} device list"
                 break
             case "getSmartRoomList":            
                 Map roomList = new JsonSlurper().parseText(resp.data)
@@ -974,7 +997,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.rooms = g_mSmartRoomList[app.getId()] = roomList
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
-                logInfo "${getDefaultLabel()} ${getApiId()} ${changed?"updated":"checked"} room list"
+                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} room list"
                 getSmartDeviceList()                
                 break
             case "getSmartLocationList":            
@@ -986,7 +1009,7 @@ void asyncHttpGetCallback(resp, data) {
                     state.locationId = locationList?.items?.collect{ it.locationId }?.unique()?.getAt(0)
                     g_bSmartLocationQueryChanged[app.getId()] = true
                 }
-                logInfo "${getDefaultLabel()} ${getApiId()} ${changed?"updated":"checked"} location list"
+                logInfo "${getDefaultLabel()} ${changed?"updated":"checked"} location list"
                 getSmartRoomList()
                 break
             default:
@@ -997,8 +1020,9 @@ void asyncHttpGetCallback(resp, data) {
         logTrace "response data: ${resp.data}"
     }
     else {
-        logWarn("${getDefaultLabel()} asyncHttpGetCallback '${data?.method}' status:${resp.status} reason:${resp.errorMessage} - rescheduled in 15 minutes")
-        runIn(15*60, data?.method)
+        logWarn("${getDefaultLabel()} asyncHttpGetCallback '${data?.method}' status:${resp.status} reason:${resp.errorMessage} - rescheduled in ${iRescheduled/60} minutes")
+        state.rescheduled = (now() + iRescheduled*1000) - 1000
+        runIn(iRescheduled, data?.method)
     }
 }
 
@@ -1089,16 +1113,16 @@ Map oauthRefresh() {
 
 void appStatus() {
     if(getAuthStatus()=="AUTHORIZED") {
-        app.updateLabel( "$pageMainPageAppLabel ${getApiId()} : ${getFormat("text","Authorized")}" ) // this will send updated() command
+        app.updateLabel( "${getDefaultLabel()} : ${getFormat("text","Authorized")}" ) // this will send updated() command
     }
     else if (getAuthStatus()=="WARNING") {
-        app.updateLabel( "$pageMainPageAppLabel ${getApiId()} : ${getFormat("text","Authorization Warning",null,sColorYellow)}" ) // this will send updated() command
+        app.updateLabel( "${getDefaultLabel()} : ${getFormat("text","Authorization Warning",null,sColorYellow)}" ) // this will send updated() command
     }
     else if (getAuthStatus()=="FAILURE") {
-        app.updateLabel( "$pageMainPageAppLabel ${getApiId()} : ${getFormat("text","Authorization Failure",null,sColorDarkRed)}" ) // this will send updated() command
+        app.updateLabel( "${getDefaultLabel()} : ${getFormat("text","Authorization Failure",null,sColorDarkRed)}" ) // this will send updated() command
     }
     else {
-        app.updateLabel( "$pageMainPageAppLabel ${getApiId()}" ) // this will send updated() command
+        app.updateLabel( "${getDefaultLabel()}" ) // this will send updated() command
     }    
     getParent()?.childHealthChanged( app )
 }
@@ -1137,11 +1161,13 @@ void stopApp() { // called by deleteApp() directly.
     state.remove('refreshToken')
     state.remove('rooms')
     state.remove('subscriptions')
+    state.remove('rescheduled')
     app.removeSetting("hubitatQueryString")
     g_mSmartSubscriptionList[app.getId()] = null
     g_mSmartLocationList[app.getId()] = null
     g_mSmartRoomList[app.getId()] = null
     g_mSmartDeviceList[app.getId()] = null
+    clearSmartLocationQueryLock()
     runIn(1,appStatus)
 }
 
