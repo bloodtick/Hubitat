@@ -2,7 +2,7 @@
     "packageName": "HubiThings Replica",
     "author": "Bloodtick Jones",
     "communityLink": "https://community.hubitat.com/t/release-hubithings-replica/107976",
-    "minimumHEVersion": "2.3.7",
+    "minimumHEVersion": "2.3.9",
     "category": "Integrations",
     "tags": [
         "Automations & Groups",
@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).\nOptional driver for Replica Temp-Humidity-Pressure Sensor by @bthrock\n1.3.15 2024-03-23 Various driver updates for pushbutton use with ez-dashboard. Added Aeotec Camera\n",
+    "releaseNotes": "1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid.\n1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).\nOptional driver for Replica Temp-Humidity-Pressure Sensor by @bthrock\n1.3.15 2024-03-23 Various driver updates for pushbutton use with ez-dashboard. Added Aeotec Camera\n",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
@@ -20,7 +20,7 @@
             "required": true,
             "oauth": false,
             "primary": true,
-            "version": "1.4.00"
+            "version": "1.4.01"
         },
         {
             "id": "9bb9eacb-c243-43d6-9dc4-520f0e476016",
@@ -29,7 +29,7 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
             "required": true,
             "oauth": true,
-            "version": "1.4.00"
+            "version": "1.4.01"
         }
     ],
     "drivers": [
@@ -159,7 +159,7 @@
             "namespace": "replica",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/devices/replicaLocationKnob.groovy",
             "required": true,
-            "version": "1.3.7"
+            "version": "1.3.9"
         },
         {
             "id": "d78a680a-91a9-4113-9105-b6dd28f5348c",
