@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.07 2023-03-14 Bug fixes for possible Replica UI list nulls. C-8 hub migration OAuth warning.
 *  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic
@@ -27,9 +26,10 @@
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger()
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. (no Replica changes)
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
+*  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.4.00" }
+public static String version() { return "1.4.01" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -552,7 +552,7 @@ private void setSmartDevicesList() {
         it.smartLocationQuery()
     }
     g_mSmartDeviceListCache[app.getId()] = smartDevices?.clone()
-    if(getChildApps()?.size()) logInfo "${app.getLabel()} cached SmartThings device list of ${g_mSmartDeviceListCache[app.getId()]?.size()?:0} in ${now() - g_mSmartDeviceListCacheLock[app.getId()]?:0} ms"
+    if(getChildApps()?.size()) logInfo "${app.getLabel()} cached SmartThings device list of ${g_mSmartDeviceListCache[app.getId()]?.size()?:0} ${ g_mSmartDeviceListCacheLock[app.getId()] ? "in ${now() - g_mSmartDeviceListCacheLock[app.getId()] } ms" : "" }" 
     g_mSmartDeviceListCacheLock[app.getId()] = null    
 }
 
