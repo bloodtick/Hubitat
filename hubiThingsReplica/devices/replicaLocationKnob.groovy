@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.7"}
+public static String version() {return "1.3.9"}
 
 metadata 
 {
@@ -145,6 +145,14 @@ metadata
     }
 }
 
+def logsOff() {
+    device.updateSetting("deviceDebugEnable",[value:'false',type:"bool"])
+    device.updateSetting("deviceTraceEnable",[value:'false',type:"bool"])
+    logInfo "${device.displayName} disabling debug logs"
+}
+Boolean autoLogsOff() { if ((Boolean)settings.deviceDebugEnable || (Boolean)settings.deviceTraceEnable) runIn(1800, "logsOff")}
+
+
 void delLocationAdditionalAttributesAttributes(Boolean force=false) {
     if(settings.deviceAdditionalAttributes.toBoolean()==false || force)
         for(String item : ["isDay", "alert", "alertIssueTime", "alertExpireTime", "alertSeverity", "alertHeadlineText", "lastUpdateTime", "airQualityLevel", "airQualityDescription"]) {
@@ -164,9 +172,11 @@ def updated() {
 def initialize() {
     updateDataValue("triggers", groovy.json.JsonOutput.toJson(getReplicaTriggers()))
     updateDataValue("commands", groovy.json.JsonOutput.toJson(getReplicaCommands()))
+    
     unschedule()
     runEvery1Hour(refresh)
     runIn(15, refresh) // replica needs to load 'description' information before we can startup
+    autoLogsOff()
     
     // set defaults. these might not set immediately.
     if(settings?.deviceSmartThingServices==null)   device.updateSetting('deviceSmartThingServices',[value:"disable",type:"enum"])
@@ -916,7 +926,7 @@ String getWUIconName(String wxPhraseLong, Boolean isDay)     {
     10: [1213, 0.7, "snow",         ["Light Snow","Light Snow/Wind","Snow Shower","Snow Shower/Wind","Blowing Snow/Wind"]],
     13: [1219, 0.3, "snow",         ["Heavy Snow/Wind"]],
     14: [1219, 0.5, "snow",         ["Snow","Snow/Wind"]],
-    15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain","Wintry Mix/Wind","Light Rain/Freezing Rain","Rain/Freezing Rain","Freezing Rain","Rain and Snow"]],
+    15: [1198, 0.7, "sleet",        ["Wintry Mix","Light Freezing Rain","Wintry Mix/Wind","Light Rain/Freezing Rain","Rain/Freezing Rain","Freezing Rain","Rain and Snow","Freezing Drizzle"]],
     16: [1114, 0.3, "snow",         ["Blowing Snow","Blowing Snow/Wind"]],    
     20: [1273, 0.5, "tstorms",      ["Light Rain with Thunder","Thunderstorm","Heavy Thunderstorm","Thunderstorm/Wind","Heavy Thunderstorm/Wind"]],
     21: [1195, 0.2, "rain",         ["Heavy Rain","Heavy Rain/Wind"]]
