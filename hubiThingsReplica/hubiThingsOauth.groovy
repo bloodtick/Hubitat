@@ -16,8 +16,7 @@
 *  Date: 2022-12-04
 *
 *  1.0.00 2022-12-04 First pass.
-*  ...
-*  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices.
+*  ...    Deleted
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic (no OAuth changes)
 *  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers. (no OAuth changes)
@@ -27,9 +26,10 @@
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name.
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
+*  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  LINE 30 MAX */  
 
-public static String version() { return "1.4.01" }
+public static String version() { return "1.5.00" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -50,7 +50,7 @@ import groovy.transform.Field
 @Field static final Integer iRefreshInterval=0
 @Field static final String  sURI="https://api.smartthings.com"
 @Field static final String  sOauthURI="https://auth-global.api.smartthings.com"
-@Field static final List    lOauthScope=["r:locations:*", "x:locations:*", "r:devices:*", "x:devices:*", "r:scenes:*", "x:scenes:*"]
+@Field static final List    lOauthScope=["r:deviceprofiles","i:deviceprofiles:*","r:customcapability","r:hubs:*","r:installedapps:*","w:installedapps:*", "r:locations:*","w:locations:*","x:locations:*", "r:devices:*","w:devices:*","x:devices:*", "r:scenes:*","x:scenes:*", "r:rules:*","w:rules:*","x:rules:*", "x:notifications:*"]
 @Field static final String  sColorDarkBlue="#1A77C9"
 @Field static final String  sColorLightGrey="#DDDDDD"
 @Field static final String  sColorDarkGrey="#696969"
@@ -84,6 +84,7 @@ mappings {
     path("/callback") { action: [ POST: "callback"] } // orginal callback, deprecated in 1.3.15 to give indication of 'who' owns this. 
     path("/replicaCallback") { action: [ POST: "callback"] } // new callback
     path("/oauth/callback") { action: [ GET: "oauthCallback" ] }
+    path("/oauthToken") { action: [ GET: "oauthToken" ] }
 }
 
 /************************************** PARENT METHODS START *******************************************************/
@@ -215,8 +216,13 @@ public String getLocationId() {
     return state?.locationId
 }
 
-public String getAuthToken(Boolean usePat=false) {
-     return (usePat ? (getParent()?.getAuthToken() ?: userSmartThingsPAT) : ( (state.authTokenExpires>now()) ? state?.authToken : getParent()?.getAuthToken() ?: userSmartThingsPAT )) 
+public String getOAuthToken(String method, Boolean forcePat=false, Boolean noWarning=false) {
+    String token = ((forcePat || now()>state.authTokenExpires) ? (getParent()?.getOAuthToken("$sDefaultAppName:$method",getLocationId()?:"location not set",true,noWarning) ?: userSmartThingsPAT) : state?.authToken ?: userSmartThingsPAT ) 
+    return token
+}
+
+public String getAuthToken(String method="getAuthToken") {
+    return getOAuthToken(method)
 }
 
 public Integer getMaxDeviceLimit() {
@@ -295,13 +301,13 @@ def pageMain(){
     
     return dynamicPage(name: "pageMain", install: true, uninstall: true, refreshInterval: refreshInterval) {
         displayHeader()
-      
+        
         String comments = "This application utilizes the SmartThings Cloud API to create and delete subscriptions. SmartThings enforces rates and guardrails with a maximum of 30 devices per installed application, "
                comments+= "40 requests to create subscriptions per 15 minutes, and an overall rate limit of 15 requests per 15 minutes to query the subscription API for status updates. "
                comments+= "Suggest taking your time when selecting devices so you do not exceed these limits. You can have up to a maximum of 100 installed applications per SmartThings location.<br><br>"
-               comments+= "Unlike the SmartThings Personal Access Token (PAT) that is valid for 50 years from creation, the OAuth authorization token is valid for 24 hours and must be refreshed. "
-               comments+= "<b>The authorization token refresh is automatically handled by the ${getDefaultLabel()} application every three hours</b>, "
-               comments+= "but if your Hubitat hub is offline for an extended time period, you will need to reauthorize the token manually via the '$sSamsungIcon SmartThings OAuth Authorization' link."
+               comments+= "Unlike the SmartThings Personal Access Token (PAT), which <b>was valid for 50 years from creation but is changing to 24 hours</b> as of January 2025 and will need to be manually updated to change the API, the OAuth authorization token is valid for 24 hours and must be refreshed. "
+               comments+= "<b>The authorization token refresh is automatically handled by the $sDefaultAppName application every three hours.</b>, "
+               comments+= "However, if your Hubitat hub is offline for an extended period, you will need to reauthorize the token manually via the '$sSamsungIcon SmartThings OAuth Authorization' link."
                comments+= "${refreshInterval ? "<div style='text-align:right';>Repaint: $refreshTime</div>" : ""}"
         section() { 
             paragraph( getFormat("comments",comments,null,"Gray") )            
@@ -313,8 +319,8 @@ def pageMain(){
             }
         }        
         if(state?.user=="bloodtick") { section() { input(name: "dynamic::pageMainTestButton", type: "button", width: 2, title: "$sHubitatIcon Test", style:"width:75%;") } }
-        
-        if(getAuthToken()) {
+       
+        if(getOAuthToken("pageMain",false,true)) {
             section(menuHeader("SmartThings API $sHubitatIconStatic $sSamsungIconStatic")) {
                 if(!state.appId) {
                     input(name: "pageMain::createApp", type: "button", width: 2, title: "Create API", style:"width:75%; color:$sColorDarkBlue; font-weight:bold;")
@@ -333,7 +339,12 @@ def pageMain(){
                           status += "• Device Count: ${getSmartDevices()?.items?.size()?:0}\n" //this needs to be first since it will fetch location, rooms, devices, in that order
                           status += "• Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
                           status += "• Location: ${getSmartLocationName(state.locationId)}\n"     
-                          status += "• Token Expiration: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}"
+                          status += "• Token Expiration: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}\n"
+                          String restInternal = "${getFullLocalApiServerUrl()}/oauthToken?access_token=${state.accessToken}"
+                          String restExternal = "${getFullApiServerUrl()}/oauthToken?access_token=${state.accessToken}"
+                          status += "• Token REST API: ${getFormat("hyperlink","Internal",restInternal)}${getFormat("hyperlink"," (JSON)",restInternal+"&json=true")} - ${getFormat("hyperlink","External",restExternal)}${getFormat("hyperlink"," (JSON)",restExternal+"&json=true")}\n"
+                          //status += "• Token Scope: ${lOauthScope?.sort()?.join(', ')}\n"
+                        
                           if(state?.oauthCallback=="INVALID")
                               status += getFormat("text","<br><br>Action: Callback Invalid! 'Delete API' is required to restore!",null,sColorDarkRed)
                           else if(getAuthStatus()=="WARNING")
@@ -798,7 +809,7 @@ private Map asyncHttpPostJson(String callbackMethod, Map data) {
         body: data.body,
         contentType: "application/json",
         requestContentType: "application/json",
-		headers: [ Authorization: "Bearer ${getAuthToken()}" ]
+		headers: [ Authorization: "Bearer ${getOAuthToken("asyncHttpPostJson:$data.method")}" ]
     ]
 	try {
 	    asynchttpPost(callbackMethod, params, data)
@@ -877,7 +888,7 @@ Map getSmartDeviceList() {
 void getSmartDeviceListPages( Map deviceList ) {
     logDebug "${getDefaultLabel()} executing 'getSmartDeviceListPages()' size:${deviceList?.items?.size()} next:${deviceList?._links?.next}"
     deviceList?._links?.next?.each{ key, href ->        
-        Map params = [ uri: href, headers: [ Authorization: "Bearer ${getAuthToken()}" ] ]
+        Map params = [ uri: href, headers: [ Authorization: "Bearer ${getOAuthToken("getSmartDeviceListPages")}" ] ]
         try {
             httpGet(params) { resp ->
                 deviceList?.items?.addAll( resp.data?.items )
@@ -928,7 +939,7 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
     Map params = [
 	    uri: data.uri,
 	    path: data.path,
-		headers: [ Authorization: "Bearer ${getAuthToken()}" ]
+		headers: [ Authorization: "Bearer ${getOAuthToken("asyncHttpGet:$data.method")}" ]
     ]
 	try {
 	    asynchttpGet(callbackMethod, params, data)
@@ -1024,6 +1035,22 @@ void asyncHttpGetCallback(resp, data) {
         state.rescheduled = (now() + iRescheduled*1000) - 1000
         runIn(iRescheduled, data?.method)
     }
+}
+
+def oauthToken() {
+    logDebug"${getDefaultLabel()} oauthToken() $params"
+    String authToken = (state?.authToken!=null  && state?.authTokenExpires>now()) ? state?.authToken : "Not Valid"
+    if(params?.json) {        
+        Map data = [ authToken: authToken, timestamp: ((new Date()).format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone("UTC"))) ]
+        if(authToken==state.authToken) {
+            data.scope = lOauthScope?.sort()
+            data.expiration = (new Date(state?.authTokenExpires).format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone("UTC")))
+            data.locationId = getLocationId()
+            data.locationName = getLocation()
+        }
+        return render(contentType: "application/json", data: data.sort(), status: (authToken!=state.authToken)?200:404)
+    }
+    return render(contentType: "text/plain", data: authToken, status: (authToken!=state.authToken)?200:404)
 }
 
 def oauthCallback() {
@@ -1196,7 +1223,7 @@ def createApp() {
         uri: sURI,
         path: "/apps",
         body: JsonOutput.toJson(app),
-        headers: [ Authorization: "Bearer ${getAuthToken(true)}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("createApp",true)}" ]        
     ]
 
     try {
@@ -1227,7 +1254,7 @@ def deleteApp(appNameOrId) {
     def params = [
         uri: sURI,
         path: "/apps/$appNameOrId",
-        headers: [ Authorization: "Bearer ${getAuthToken(true)}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("deleteApp",true)}" ]        
     ]
     try {
         httpDelete(params) { resp ->   
@@ -1249,7 +1276,7 @@ def getApp(appNameOrId) {
 	def params = [
         uri: sURI,
 		path: "/apps/$appNameOrId",
-        headers: [ Authorization: "Bearer ${getAuthToken(true)}" ]
+        headers: [ Authorization: "Bearer ${getOAuthToken("getApp",true)}" ]
 		]    
     def data = [method:"getApp"]
 	try {
@@ -1264,7 +1291,7 @@ def listApps() {
 	def params = [
         uri: sURI,
 		path: "/apps",
-        headers: [ Authorization: "Bearer ${getAuthToken(true)}" ]
+        headers: [ Authorization: "Bearer ${getOAuthToken("listApps",true)}" ]
 		]    
     def data = [method:"listApps"]
 	try {
@@ -1362,5 +1389,5 @@ private logWarn(msg)  { log.warn  "${msg}" }
 private logError(msg) { log.error "${msg}" }
 
 void pageMainTestButton() {  
-    logWarn getAuthToken(true)
+    logWarn getOAuthToken("pageMainTestButton")
 }
