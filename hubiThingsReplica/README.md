@@ -34,7 +34,7 @@ Operation:
 7. Click 'Configure HubiThings Devices' and follow the creation process. (Start easy with a simple ST device and use a Replica DH).
 8. If #7 was a Replica DH, the rules and device will auto configure and you are ready, if you pick a Virtual device, you will now need to go to "Configure HubiThings Rules" and match attributes to commands.
 
-NOTE: SmartThings is changing their PAT policy to only be valid for 24 hours, as of Replica version you will need a valid PAT to create and delete the OAuth API. There appears to be a bug on creating virtual devices that needs a valid PAT which hopefully is resolved. See SmartThings topic [here](https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019).
+NOTE: SmartThings is changing their PAT policy to only be valid for 24 hours, as of Replica version 1.5.00 you will need a valid PAT to create and delete the HubiThings OAuth API. There appears to be a bug on creating virtual devices that needs a valid PAT which hopefully is resolved and will require code updates. See SmartThings topic [here](https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019).
 
 Update 2023/01/13: Release 1.3.00. Change log [here](https://community.hubitat.com/t/beta-hubithings-replica/107976/152).<br/>
 Update 2023/01/17: Release 1.3.00. Added to HPM. For existing installs see [here](https://community.hubitat.com/t/release-hubithings-replica/107976/185).<br/>
