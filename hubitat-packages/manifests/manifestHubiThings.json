@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019\n1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid.\n1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).\n",
+    "releaseNotes": "1.5.00 2024-12-20 Updates to use the OAuth token as much as possible.\nSee here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019\n1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid.\n1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).\n",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
