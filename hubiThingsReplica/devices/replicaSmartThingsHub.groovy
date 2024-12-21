@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.1"}
+public static String version() {return "1.5.0"}
 
 metadata 
 {
@@ -120,7 +120,7 @@ import groovy.transform.Field
 @Field static final String  sURI="https://api.smartthings.com"
 
 private String getAuthToken() {
-    return parent?.getAuthToken()
+    return parent?.getOAuthToken("${device.displayName}:getAuthToken", getLocationId())
 }
 
 private String getLocationId() {
