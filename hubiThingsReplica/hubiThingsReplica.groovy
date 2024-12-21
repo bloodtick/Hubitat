@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.08 2023-04-23 Support for more SmartThings Virtual Devices. Refactor of deviceTriggerHandlerPrivate() to support.
 *  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic
 *  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers.
@@ -27,9 +26,10 @@
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. (no Replica changes)
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
+*  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.4.01" }
+public static String version() { return "1.5.00" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -58,7 +58,6 @@ import groovy.transform.Field
 @Field static final String  sNotAuthorized="&ZeroWidthSpace;Not Authorized"
 @Field static final String  sNoRules="&ZeroWidthSpace;No Rules"
 @Field static final String  sOffline="&ZeroWidthSpace;Offline"
-
 
 // IN-MEMORY VARIABLES (Cleared on HUB REBOOT or CODE UPDATES)
 @Field volatile static Map<Long,Map>   g_mSmartDeviceStatusMap = [:]
@@ -220,8 +219,16 @@ public void childHealthChanged(def childApp) {
    }
 }
 
-public String getAuthToken() {
-    return userSmartThingsPAT
+public String getOAuthToken(String method, String uuid="unknown", Boolean forcePat=false, Boolean noWarning=false) {
+    // try for location and then try by device id
+    def ouathApp = getChildApps()?.find{ it.getLocationId()==uuid } ?: getSmartDeviceApi( getSmartDevice( uuid ) ) ?: null
+    String token = (ouathApp && !forcePat) ? ouathApp.getAuthToken(method) : userSmartThingsPAT
+    if(token==userSmartThingsPAT && !noWarning) logWarn "${app.getLabel()} using SmartThings PAT ${forcePat?"(FORCED) ":""}which could expire within 24 hours. method:'$method' uuid:'$uuid'"
+    return token
+}
+
+public String getAuthToken(String method="getAuthToken") {
+    return getOAuthToken(method)
 }
 
 public void setLocationMode(String mode) {
@@ -312,8 +319,8 @@ public void parseMessage(Map message) {
             }
         }
         if(!deviceFound) {
-            logWarn "${app.getLabel()} failed message:'$message.type' to '$message.apiId.$entity_id'"
-            runIn(2, refreshHassAPIs)
+            logWarn "${app.getLabel()} failed parseMessage:'$message.type' to '$message.apiId.$entity_id'"
+            runIn(2, refreshHassAPIs, [data: [apiId:message.apiId]])
         }
     }
 } 
@@ -325,18 +332,19 @@ public void sendMessage(def device, String service, Map data = [:], Map callback
     logDebug "${app.getLabel()} sendMessage($device, $deviceId, $smartDevice)"
     getSmartDeviceEventsCache(deviceId).messageCount += 1
 
+    Boolean deviceFound = false
     smartDevice?.entity_ids?.each{ apiId, entity_ids -> 
         Boolean exit=false // not sure why it didn't like break in the each loop. this works the same.
         entity_ids?.each{ entity_id ->
+            deviceFound = true
             if(exit) return
             
             if(service=="refresh") { // special call to shift from websocket to rest api for status                
                 getHassAPI( apiId )?.getStatus( entity_id )
-                runIn(2, refreshHassAPIs)
                 return
             }
             
-            domain = (entity_id?.tokenize(".")[0])
+            String domain = (entity_id?.tokenize(".")[0])
             if(entity_ids.size()>1 && !service.contains(".")) {
                 // throw warning about you need to have domain identified with service if more than one entity_id is attached. try them all
                 logWarn "${app.getLabel()} error '${getDevice( device.deviceNetworkId )}' attempting send '$service' without identifying domain in multi-entity $entity_ids driver"
@@ -358,6 +366,10 @@ public void sendMessage(def device, String service, Map data = [:], Map callback
             getHassAPI( apiId )?.sendMessage( message, true, callback )
         }
     }
+    if(!deviceFound) {
+        logWarn "${app.getLabel()} failed sendMessage:'$service' to '$device'"
+        runIn(2, refreshHassAPIs)
+    }
 }
 
 public void sendMessageCallback(Map message = [:]) {   
@@ -366,10 +378,10 @@ public void sendMessageCallback(Map message = [:]) {
     }
 }
 
-void refreshHassAPIs(String apiId = null) {
-    logDebug "${app.getLabel()} executing 'refreshHassAPIs($apiId)'"
+void refreshHassAPIs(Map data = [:]) {
+    logInfo "${app.getLabel()} executing 'refreshHassAPIs(data:$data)'"
     getHassAPIs()?.each{
-        if(apiId==null || it?.getApiId()==apiId) it.refresh()
+        if(apiId==[:] || it?.getApiId()==data?.apiId as String) it.refresh()
     }
 }    
 
@@ -588,7 +600,7 @@ def pageMain(){
                 }                
                 if(userShowSmartThings || !isHassInstalled) {                           
                     String comments = "This application utilizes the SmartThings Cloud API to create, delete and query devices. <b>You must supply a SmartThings Personal Access Token (PAT) with all Authorized Scopes permissions to enable functionality</b>. "
-                           comments+= "A PAT is valid for 50 years from creation date. Click the ${sSamsungIcon} SmartThings Personal Access Token link to be directed to the SmartThings website."
+                           comments+= "<b>A PAT was valid for 50 years from creation date but is changing to 24 hours</b> as of January 2025. Click the ${sSamsungIcon} SmartThings Personal Access Token link to be directed to the SmartThings website."
                     paragraphComment(comments)
                 
                     input(name: "userSmartThingsPAT", type: "password", title: getFormat("hyperlink","&ensp;$sSamsungIcon SmartThings Personal Access Token:","https://account.smartthings.com/tokens"), description: "SmartThings UUID Token", width: 6, submitOnChange: true, newLineAfter:true)                
@@ -627,15 +639,13 @@ def pageMain(){
                         getHassAPIs()?.each { hassAPI ->
                             Map config = hassAPI.getConfig()                            
                             String connection = "<span style='color:$sColorDarkBlue;font-weight:bold;text-transform:capitalize;' class='device-current-state-${hassAPI.getId()}-connection'>${hassAPI?.currentValue("connection",true) ?: "unknown"}</span>"
-                            String locationName = "<span class='device-current-state-${hassAPI.getId()}-locationName'>${hassAPI?.currentValue("locationName",true) ?: config?.uri}</span>"
-                            String devUri = "http://${location.hub.getDataValue("localIP")}/device/edit/${hassAPI.getId()}"
-                            href(title: "$sHubitatIcon ${hassAPI.getDisplayName()} : (id:${config.apiId})", url: devUri, width: 6, description:"")
-                            href(title: "$sHassIcon $locationName : $connection", url: config.uri, width: 6, description:"", newLineAfter:true)
+                            //String locationName = "<span class='device-current-state-${hassAPI.getId()}-locationName'>${hassAPI?.currentValue("locationName",true) ?: config?.uri}</span>"
+                            href(title: "$sHassIcon HubiThings ${hassAPI.getDisplayName()} ${config.apiId} : $connection", url: hassAPI.getUri(), description:"", newLineAfter:true)
+                            //href(title: "$sHassIcon $locationName : $connection", url: config.uri, width: 6, description:"", newLineAfter:true)
                             unsubscribe(hassAPI); subscribe(hassAPI, "healthStatus", hassHealthHandler)
                         }
                     }
                 }
-              
                 paragraph( getFormat("line") )
                 input(name: "pageMainShowAdvanceConfiguration", type: "bool", title: "$sHubitatIcon Advanced Configuration", defaultValue: false, submitOnChange: true)                    
                 if(pageMainShowAdvanceConfiguration) {             
@@ -775,7 +785,9 @@ void updatePageMain() {
     app.updateSetting("pageMainShowConfig", false)
     app.updateSetting("pageMainShowAdvanceConfiguration", false)
     app.updateSetting("appDebugEnable", false)
-    app.updateSetting("appTraceEnable", false)    
+    app.updateSetting("appTraceEnable", false)
+    app.updateSetting("userShowSmartThings", false)
+    app.updateSetting("userShowHass", false)    
 }
 
 def pageAuthDevice() {    
@@ -1122,7 +1134,7 @@ String createChildDevice(Map deviceType, String name, String label, String devic
         }            
         setReplicaDataJsonValue(replicaDevice, "replica", replica)
         if(replicaDevice?.hasCommand('configure')) replicaDevice.configure()
-        replicaDeviceRefresh(replicaDevice)
+        else replicaDeviceRefresh(replicaDevice,5)
         
         app.updateSetting( "pageSupportNewDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
         app.updateSetting( "pageConfigureDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
@@ -1264,8 +1276,8 @@ String getSmartDeviceStats(String smartDeviceId, String smartDeviceComponentId) 
 }
 
 void replicaDeviceRefresh(replicaDevice, delay=1) {
-    logInfo "${app.getLabel()} refreshing '$replicaDevice' device"
-    runIn(delay<1?:1, replicaDeviceRefreshHelper, [data: [deviceNetworkId:(replicaDevice.deviceNetworkId)]])
+    logInfo "${app.getLabel()} refreshing '$replicaDevice' device${delay>1?" in $delay seconds":""}"
+    runIn(delay, replicaDeviceRefreshHelper, [data: [deviceNetworkId:(replicaDevice.deviceNetworkId)]])
 }
 
 void replicaDeviceRefreshHelper(data) {
@@ -1609,8 +1621,8 @@ void pageVirtualDeviceCreateButton() {
                         getSmartDeviceDescription(deviceId)
                 }
                 else {
-                    Map deviceType = getDeviceHandlers()?.items?.find{ it?.id==pageVirtualDeviceHubitatType }                 
-                    g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createChildDevice(deviceType, virtualDeviceType?.name, virtualDeviceType?.name, deviceId, componentId)
+                    Map deviceType = getDeviceHandlers()?.items?.find{ it?.id==pageVirtualDeviceHubitatType } 
+                    g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createChildDevice(deviceType, virtualDeviceType?.name, virtualDeviceType?.name, deviceId, componentId, sSTNamespace)
                 }                
             }
             if(virtualDeviceType?.replicaType == 'scene') {
@@ -1630,7 +1642,7 @@ void pageVirtualDeviceCreateButton() {
             }
         }
         else
-            g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = errorMsg("Error: '$name' was not created")
+            g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = errorMsg("Error: '${virtualDeviceType?.name}' was not created")
     }
 }
 
@@ -2012,7 +2024,7 @@ Map createVirtualDevice(String locationId, String roomId, String name, String pr
         path: ((prototype=="VIRTUAL_CUSTOM") ? "/virtualdevices" : "/virtualdevices/prototypes"),
         contentType: "application/json",
         requestContentType: "application/json",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("createVirtualDevice", locationId, true)}" ]        
     ]
     try {
         httpPost(params) { resp ->
@@ -2028,13 +2040,23 @@ Map createVirtualDevice(String locationId, String roomId, String name, String pr
 }
 
 Map getVirtualDeviceList() {
-    logDebug "${app.getLabel()} executing 'getVirtualDeviceList()'"
+    Map response = [statusCode:iHttpSuccess, data:[items:[]]]
+    getChildApps()?.each { 
+        Map singleResponse = getVirtualDeviceList(it.getLocationId())
+        response.statusCode = singleResponse.statusCode!=iHttpSuccess ? singleResponse.statusCode : response.statusCode
+        response.data.items.addAll( singleResponse.data?.items )
+    }
+    return response    
+}
+
+Map getVirtualDeviceList(String locationId) {
+    logDebug "${app.getLabel()} executing 'getVirtualDeviceList($locationId)'"
     Map response = [statusCode:iHttpError]
 
     Map params = [
         uri: sURI,
         path: "/virtualdevices",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("getVirtualDeviceList", locationId)}" ]        
     ]
     try {
         httpGet(params) { resp ->
@@ -2043,14 +2065,13 @@ Map getVirtualDeviceList() {
             response.statusCode = resp.status         
         }
     } catch (e) {
-        logWarn "${app.getLabel()} has getVirtualDeviceList() error: $e"        
+        logWarn "${app.getLabel()} has getVirtualDeviceList($locationId) error: $e"        
     }
     return response
 }
 
 Map renameVirtualDevice(String deviceId, String label) {
     logDebug "${app.getLabel()} executing 'renameVirtualDevice()'"
-    Map response = [statusCode:iHttpError]
     
     Map params = [
         uri: sURI,
@@ -2058,7 +2079,7 @@ Map renameVirtualDevice(String deviceId, String label) {
         path: "/devices/$deviceId",
         contentType: "application/json",
         requestContentType: "application/json",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("renameVirtualDevice", deviceId)}" ]        
     ]
     try {
         httpPut(params) { resp ->
@@ -2080,7 +2101,7 @@ Map deleteSmartDevice(String deviceId) {
     Map params = [
         uri: sURI,
         path: "/devices/$deviceId",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("deleteSmartDevice", deviceId)}" ]        
     ]
     try {
         httpDelete(params) { resp ->
@@ -2098,11 +2119,11 @@ Map deleteSmartDevice(String deviceId) {
 Map getSmartRoomList(String locationId) {
     logDebug "${app.getLabel()} executing 'getSmartRoomList($locationId)'"
     Map response = [statusCode:iHttpError]
-
+        
     Map params = [
         uri: sURI,
         path: "/locations/${locationId}/rooms",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("getSmartRoomList", locationId)}" ]        
     ]
     try {
         httpGet(params) { resp ->
@@ -2111,19 +2132,29 @@ Map getSmartRoomList(String locationId) {
             response.statusCode = resp.status         
         }
     } catch (e) {
-        logWarn "${app.getLabel()} has getSmartRoomList() error: $e"        
+        logWarn "${app.getLabel()} has getSmartRoomList($locationId) error: $e"        
     }
     return response
 }
 
 Map getSmartLocationList() {
-    logDebug "${app.getLabel()} executing 'getSmartLocationList()'"
+    Map response = [statusCode:iHttpSuccess, data:[items:[]]]
+    getChildApps()?.each { 
+        Map singleResponse = getSmartLocationList(it.getLocationId())
+        response.statusCode = singleResponse.statusCode!=iHttpSuccess ? singleResponse.statusCode : response.statusCode
+        response.data.items.addAll( singleResponse.data?.items )
+    }
+    return response    
+}
+
+Map getSmartLocationList(String locationId) {
+    logDebug "${app.getLabel()} executing 'getSmartLocationList($locationId)'"
     Map response = [statusCode:iHttpError]
 
     Map params = [
         uri: sURI,
         path: "/locations",
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("getSmartLocationList", locationId)}" ]        
     ]
     try {
         httpGet(params) { resp ->
@@ -2132,7 +2163,7 @@ Map getSmartLocationList() {
             response.statusCode = resp.status         
         }
     } catch (e) {
-        logWarn "${app.getLabel()} has getSmartLocationList() error: $e"        
+        logWarn "${app.getLabel()} has getSmartLocationList($locationId) error: $e"        
     }
     return response
 }
@@ -2140,12 +2171,12 @@ Map getSmartLocationList() {
 Map getSmartSceneList(String locationId) {
     logDebug "${app.getLabel()} executing 'getSmartSceneList($locationId)'"
     Map response = [statusCode:iHttpError]
-
+    
     Map params = [
         uri: sURI,
         path: "/scenes",
         query: [ locationId:locationId ],
-        headers: [ Authorization: "Bearer ${getAuthToken()}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("getSmartSceneList", locationId)}" ]        
     ]
     try {
         httpGet(params) { resp ->
@@ -2154,7 +2185,7 @@ Map getSmartSceneList(String locationId) {
             response.statusCode = resp.status         
         }
     } catch (e) {
-        logWarn "${app.getLabel()} has getSmartSceneList() error: $e"        
+        logWarn "${app.getLabel()} has getSmartSceneList($locationId) error: $e"        
     }
     return response
 }
@@ -2684,7 +2715,7 @@ void locationModeHandler(def event) {
 Boolean locationKnobExecute(Map event, delay=1) {
     logDebug "${app.getLabel()} executing 'locationKnobExecute($event)'"
     if(event?.name=="execute" &&  event?.value=="command" && event?.data?.command) {
-        runIn(delay<1?:1, locationKnobExecuteHelper, [data: event])
+        runIn(delay?:1, locationKnobExecuteHelper, [data: event])
         return true
     }
     return false
@@ -2738,10 +2769,13 @@ void deviceTriggerHandler(def replicaDevice, Map event) {
     if(locationKnobExecute(event)) {
         // noop
     }    
-    else if(event?.name == "configure" || event?.name == "refresh") {
+    else if(event?.name == "configure") {
         clearReplicaDataCache(replicaDevice)
-        replicaDeviceRefresh(replicaDevice)       
-    } 
+        replicaDeviceRefresh(replicaDevice,5)       
+    }
+    else if(event?.name == "refresh") {
+        replicaDeviceRefresh(replicaDevice)
+    }
     else if(!result) {
         logInfo "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' event:'${event?.name}' is not rule configured"
     }
@@ -3098,7 +3132,7 @@ Map replicaHasSmartCapability(replicaDevice, String capabilityId, Integer capabi
 
 void getAllReplicaCapabilities(replicaDevice, Integer delay=1) {
     logInfo "${app.getLabel()} refreshing all '$replicaDevice' device capabilities"
-    runIn(delay<1?:1, getAllReplicaCapabilitiesHelper, [data: [deviceNetworkId:(replicaDevice.deviceNetworkId)]])
+    runIn(delay?:1, getAllReplicaCapabilitiesHelper, [data: [deviceNetworkId:(replicaDevice.deviceNetworkId)]])
 }
 
 void getAllReplicaCapabilitiesHelper(Map data) {
@@ -3132,7 +3166,7 @@ Map getSmartDeviceCapability(String deviceId, String capabilityId, Integer capab
 
 void allSmartDeviceHealth(Integer delay=1) {
     logInfo "${app.getLabel()} refreshing all SmartThings device health"
-    runIn(delay<1?:1, getAllSmartDeviceHealth)
+    runIn(delay?:1, getAllSmartDeviceHealth)
 }
 
 void getAllSmartDeviceHealth() {
@@ -3164,7 +3198,7 @@ Map getSmartDeviceHealth(String deviceId) {
 
 void allSmartDeviceDescription(Integer delay=1) {
     logInfo "${app.getLabel()} refreshing all SmartThings device descriptions"
-    runIn(delay<1?:1, getAllDeviceDescription)
+    runIn(delay?:1, getAllDeviceDescription)
 }
 
 void getAllDeviceDescription() {
@@ -3185,7 +3219,7 @@ Map getSmartDeviceDescription(String deviceId) {
 
 void allSmartDeviceStatus(Integer delay=1) {
     logInfo "${app.getLabel()} refreshing all SmartThings device status"
-    runIn(delay<1?:1, getAllSmartDeviceStatus)    
+    runIn(delay?:1, getAllSmartDeviceStatus)    
 }
 
 void getAllSmartDeviceStatus() {
@@ -3211,7 +3245,7 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
     Map params = [
 	    uri: data.uri,
 	    path: data.path,
-		headers: [ Authorization: "Bearer ${getAuthToken()}" ]
+        headers: [ Authorization: "Bearer ${getOAuthToken("asyncHttpGet:$data.method", data?.deviceId ?: data?.locationId)}" ]
     ]
 	try {
 	    asynchttpGet(callbackMethod, params, data)
@@ -3272,7 +3306,7 @@ Map setSmartDeviceCommand(String deviceId, String component, String capability, 
         path: "/devices/$deviceId/commands",
         body: JsonOutput.toJson(commands),
         method: "setSmartDeviceCommand",
-        authToken: getAuthToken()        
+        deviceId: deviceId        
     ]
     if(appLogEventEnable && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         log.info "Device:${getReplicaDevices(deviceId)?.each{ it?.label }} commands:<b>${JsonOutput.toJson(commands)}</b>"
@@ -3291,7 +3325,7 @@ Map setVirtualDeviceAttribute(String deviceId, String component, String capabili
         path: "/virtualdevices/$deviceId/events",
         body: JsonOutput.toJson(deviceEvents),
         method: "setVirtualDeviceAttribute",
-        authToken: getAuthToken()        
+        deviceId: deviceId        
     ]
     if(appLogEventEnable && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         log.info "Device:${getReplicaDevices(deviceId)?.each{ it?.label }} deviceEvents:<b>${JsonOutput.toJson(deviceEvents)}</b>"
@@ -3310,7 +3344,7 @@ private Map asyncHttpPostJson(String callbackMethod, Map data) {
         body: data.body,
         contentType: "application/json",
         requestContentType: "application/json",
-		headers: [ Authorization: "Bearer ${getAuthToken()}" ]
+		headers: [ Authorization: "Bearer ${getOAuthToken("asyncHttpPostJson:$data.method", data?.deviceId ?: data?.locationId)}" ]
     ]
 	try {
 	    asynchttpPost(callbackMethod, params, data)
@@ -3683,6 +3717,6 @@ Map getDriverList() {
 // ******** Thanks to Dominick Meglio for the code above! - End ********
 
 void pageMainTestButton() {
-    logWarn getAuthToken()    
+    logWarn getOAuthToken("pageMainTestButton")    
     return
 }
