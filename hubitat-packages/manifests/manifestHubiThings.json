@@ -226,14 +226,6 @@
             "version": "1.3.5"
         },
         {
-            "id": "ce575210-3348-4b03-92d0-52ed4053b7fb",
-            "name": "Replica Temp/Humidity Sensor @bthrock",
-            "namespace": "replica",
-            "location": "https://raw.githubusercontent.com/TheMegamind/Replica-Drivers/main/replicaTempHumiditySensor.groovy",
-            "required": false,
-            "version": "1.3.1"
-        },
-        {
             "id": "1f423d47-bb94-44de-8ca6-db8cdd9342c6",
             "name": "Replica Sonos @bthrock",
             "namespace": "replica",
