@@ -550,7 +550,7 @@ void processMsg(Map message) {
                 logDebug "${device.displayName} command '$cmd.command' was accepted"
                 jsonValue?.result?.each{ result ->
                     if(cmd?.param==["get_status"]) {
-                        result.switch=(result?.in_cleaning?.toInteger()==1 || result?.is_locating?.toInteger()==1 || result?.is_exploring?.toInteger()==1) ? "on" : "off"
+                        result.switch=((result?.in_cleaning ?: 0).toInteger() != 0 || (result?.is_locating ?: 0).toInteger() != 0 || (result?.is_exploring ?: 0).toInteger() != 0) ? "on" : "off"
                         if(result?.battery?.toInteger()==100 && result?.state?.toInteger()==8) result.state=100
                         if(result?.clean_percent?.toInteger()==0 && result?.clean_area?.toInteger()>1) result.clean_percent=100
                         if(!stateDoNotRefreshCodes.contains(result.state)) { scheduleRefresh(60) } // some units don't send real time dps events
