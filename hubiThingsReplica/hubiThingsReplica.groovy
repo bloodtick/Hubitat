@@ -30,7 +30,7 @@
 *  LINE 30 MAX */ 
 
 public static String version() { return "1.5.01" }
-public static String copyright() { return "&copy; 2024 ${author()}" }
+public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
