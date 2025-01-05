@@ -1,5 +1,5 @@
 /**
-*  Copyright 2024 Bloodtick
+*  Copyright 2025 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.3.09 2023-06-05 Updated to support 'warning' for token refresh with still valid OAuth authorization.
 *  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic (no OAuth changes)
 *  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers. (no OAuth changes)
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests. (no OAuth changes)
@@ -27,9 +26,10 @@
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
 *  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
+*  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
 *  LINE 30 MAX */  
 
-public static String version() { return "1.5.00" }
+public static String version() { return "1.5.01" }
 public static String copyright() { return "&copy; 2024 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -340,10 +340,11 @@ def pageMain(){
                           status += "• Room Count: ${getSmartRooms()?.items?.size()?:0}\n"
                           status += "• Location: ${getSmartLocationName(state.locationId)}\n"     
                           status += "• Token Expiration: ${(new Date(state?.authTokenExpires).format("YYYY-MM-dd h:mm:ss a z"))}\n"
-                          String restInternal = "${getFullLocalApiServerUrl()}/oauthToken?access_token=${state.accessToken}"
+                          //String restInternal = "${getFullLocalApiServerUrl()}/oauthToken?access_token=${state.accessToken}"
+                          String restInternal = "http://${location.hub.localIP}:8080/apps/api/${app.id}/oauthToken?access_token=${state.accessToken}"
                           String restExternal = "${getFullApiServerUrl()}/oauthToken?access_token=${state.accessToken}"
-                          status += "• Token REST API: ${getFormat("hyperlink","Internal",restInternal)}${getFormat("hyperlink"," (JSON)",restInternal+"&json=true")} - ${getFormat("hyperlink","External",restExternal)}${getFormat("hyperlink"," (JSON)",restExternal+"&json=true")}\n"
-                          //status += "• Token Scope: ${lOauthScope?.sort()?.join(', ')}\n"
+                          status += "• Token REST API: ${getFormat("hyperlink","Internal",restInternal)}${getFormat("hyperlink"," (JSON)",restInternal+"&json=true")} - ${getFormat("hyperlink","External",restExternal)}${getFormat("hyperlink"," (JSON)",restExternal+"&json=true")}"
+                          status += ( getFormat("comments","\nThe HTTP/S GET REST API links are provided for using the $sSamsungIcon OAuth token in external applications. Note that the local Hubitat web port 80 server cannot be used for internal access. You must use port 8080, such as: 'http://127.0.0.1:8080'.",null,"Gray") )
                         
                           if(state?.oauthCallback=="INVALID")
                               status += getFormat("text","<br><br>Action: Callback Invalid! 'Delete API' is required to restore!",null,sColorDarkRed)
@@ -1041,16 +1042,16 @@ def oauthToken() {
     logDebug"${getDefaultLabel()} oauthToken() $params"
     String authToken = (state?.authToken!=null  && state?.authTokenExpires>now()) ? state?.authToken : "Not Valid"
     if(params?.json) {        
-        Map data = [ authToken: authToken, timestamp: ((new Date()).format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone("UTC"))) ]
+        Map<String, String> data = [ authToken: authToken, timestamp: ((new Date()).format("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", TimeZone.getTimeZone("UTC"))) as String ]
         if(authToken==state.authToken) {
             data.scope = lOauthScope?.sort()
-            data.expiration = (new Date(state?.authTokenExpires).format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone("UTC")))
-            data.locationId = getLocationId()
-            data.locationName = getLocation()
-        }
-        return render(contentType: "application/json", data: data.sort(), status: (authToken!=state.authToken)?200:404)
+            data.expiration = (new Date(state?.authTokenExpires).format("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", TimeZone.getTimeZone("UTC"))) as String
+            data.locationId = getLocationId() as String
+            data.locationName = getLocation() as String
+        }  
+        return render(contentType: "application/json", data: JsonOutput.toJson(data.sort()), status: (authToken==state?.authToken)?200:404)
     }
-    return render(contentType: "text/plain", data: authToken, status: (authToken!=state.authToken)?200:404)
+    return render(contentType: "text/plain", data: authToken, status: (authToken==state.authToken)?200:404)
 }
 
 def oauthCallback() {
