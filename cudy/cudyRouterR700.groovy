@@ -29,6 +29,7 @@ metadata {
     definition(name: "Cudy Router R700", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/refs/heads/main/cudy/cudyRouterR700.groovy")
     {
         capability "Actuator"
+        capability "ContactSensor"
         capability "Initialize"
         capability "Refresh"
         
@@ -87,6 +88,7 @@ def initialize() {
     logInfo "executing 'initialize()'"
     unschedule('refresh')
     sendEvent(name:"balancerStatus", value:"unknown")
+    sendEvent(name:"contact", value: "open")
     sendEvent(name:"publicIpAddress", value:"unknown")
     if(state?.authToken || authenticate()) {
         schedule("*/10 * * * * ?", refresh) // every 10 seconds
@@ -315,7 +317,13 @@ void asyncHttpCallback(resp, data) {
                 String balancerStatus = (dataMap?.status=="connected") ? "online" : (dataMap?.wan1=="online" || dataMap?.wan2=="online") ? "degraded" : dataMap?.status=="not connected" ? "offline" : "unknown"
                 if(device.currentValue("balancerStatus")!=balancerStatus) {
                     sendEvent(name:"balancerStatus", value: balancerStatus)
-                    if(balancerStatus=="online") logInfo("balancerStatus set to $balancerStatus") else logWarn("balancerStatus set to $balancerStatus")
+                    if(balancerStatus=="online") {
+                        logInfo("balancerStatus set to $balancerStatus")
+                        sendEvent(name:"contact", value: "closed")
+                    } else {
+                        logWarn("balancerStatus set to $balancerStatus")
+                        sendEvent(name:"contact", value: "open")
+                    }
                     runIn(1,"getSystemStatus")
                     runIn(10,"getPublicIpAddress")
                 }
