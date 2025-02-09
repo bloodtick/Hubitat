@@ -273,7 +273,7 @@ void asyncHttpCallback(resp, data) {
                 if(validIp(publicIpAddress) && device.currentValue("publicIpAddress")!=publicIpAddress) {
                     sendEvent(name:"publicIpAddress", value: publicIpAddress)
                     logInfo("publicIpAddress set to $publicIpAddress")
-                }
+                } else if (!validIp(publicIpAddress)) runIn(60,"getPublicIpAddress")
                 break
             case "getSystemLoad":
                 Map load = calcAvgCpuMem(dataMap?.load)
