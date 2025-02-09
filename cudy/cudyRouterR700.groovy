@@ -26,7 +26,7 @@ import java.text.SimpleDateFormat
 @Field volatile static Map<Long,Integer> g_iRefreshCount = [:]
 
 metadata {
-    definition(name: "Cudy Router R700", namespace: "bloodtick", author: "Hubitat", importUrl:"")
+    definition(name: "Cudy Router R700", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/refs/heads/main/cudy/cudyRouterR700.groovy")
     {
         capability "Actuator"
         capability "Initialize"
