@@ -1,0 +1,24 @@
+{
+    "packageName": "Cudy Router R700",
+    "author": "Bloodtick Jones",
+    "communityLink": "https://community.hubitat.com/t/run-dual-internet-providers-at-home/149109",
+    "minimumHEVersion": "2.3.9",
+    "category": "Integrations",
+    "tags": [
+        "Automations & Groups",
+        "Cloud",
+        "Tools & Utilities"
+    ],
+    "dateReleased": "2025-02-09",
+    "releaseNotes": "1.0.00 Initial Release.",
+    "version": "1.0.00",
+    "drivers": [
+        {
+            "id": "6168c537-f865-458c-824a-66f2e47653ec",
+            "name": "Cudy Router R700",
+            "namespace": "bloodtick",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/refs/heads/main/cudy/cudyRouterR700.groovy",
+            "required": true
+        }
+    ]
+}
