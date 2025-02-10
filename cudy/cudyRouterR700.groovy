@@ -120,10 +120,12 @@ def refresh() {
 def refreshAll() {
     g_iRefreshCount[device.getIdAsLong()] = 1    
     // should use a queue. but i am being lazy.
-    if(settings?.routerCpuMemStats) getSystemLoad()
-    //pauseExecution(100)
+    if(settings?.routerCpuMemStats) {
+		getSystemLoad()
+		pauseExecution(100)
+	}
     //getSystemStatus() // don't think we need this other than first time if we capture the time.
-    pauseExecution(100)
+    //pauseExecution(100)
     getBalancerStatus()
     pauseExecution(100)
     getWan1Status()
