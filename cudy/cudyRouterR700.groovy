@@ -45,8 +45,7 @@ metadata {
         attribute "wan1OnlineSince", "string"
         attribute "wan2OnlineSince", "string"
         attribute "cpuPercent", "number"
-        attribute "memPercent", "number"
-        
+        attribute "memPercent", "number"        
         attribute "healthStatus", "enum", ["offline", "online"]
     }
 }
@@ -76,7 +75,7 @@ def updated() {
     logDebug "executing 'updated()'"
     unschedule()
     autoLogsOff()
-    if(!validDateFormat()) logWarn "invalid ISO 8601 format"
+    if(!validDateFormat(settings?.deviceFormat)) logWarn "invalid ISO 8601 format"
     if(validIp(routerHost) && routerPassword && authenticate()) {
         initialize()
     } else {
@@ -437,10 +436,10 @@ Boolean validIp(String ip) {
     return (ip && ip ==~ /\b(?:\d{1,3}\.){3}\d{1,3}\b/)
 }
 
-Boolean validDateFormat() {
+Boolean validDateFormat(String dateFormat) {
     Boolean response = false
     try {
-    	SimpleDateFormat sdf = new SimpleDateFormat(settings?.deviceFormat)
+    	SimpleDateFormat sdf = new SimpleDateFormat(dateFormat)
     	logDebug sdf.format(new Date())
         state.remove('dateFormatInvalid')
         response = true
