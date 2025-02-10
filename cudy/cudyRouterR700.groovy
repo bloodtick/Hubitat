@@ -34,6 +34,7 @@ metadata {
         capability "Refresh"
         
         command "reboot"
+        command "resend"
         
         attribute "publicIpAddress", "string"
         attribute "lastRebootTime", "string"
@@ -134,6 +135,24 @@ def refreshAll() {
        (publicIpAddress != device.currentValue("wan1IpAddress") && publicIpAddress != device.currentValue("wan2IpAddress"))) { 
         runIn(10, "getPublicIpAddress")
     }
+}
+
+def resend() {
+    logDebug "executing 'resend()'" 
+    // a very special update. we are messing around with network connectivity. this will/could cause missed events to external listners (SharpTools)
+    sendEvent(name:"contact", value:device.currentValue("contact"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"publicIpAddress", value:device.currentValue("publicIpAddress"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"lastRebootTime", value:device.currentValue("lastRebootTime"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"balancerStatus", value:device.currentValue("balancerStatus"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"wan1Status", value:device.currentValue("wan1Status"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"wan2Status", value:device.currentValue("wan2Status"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"wan1IpAddress", value:device.currentValue("wan1IpAddress"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"wan2IpAddress", value:device.currentValue("wan2IpAddress"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"wan1OnlineSince", value:device.currentValue("wan1OnlineSince"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"wan2OnlineSince", value:device.currentValue("wan2OnlineSince"), descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"cpuPercent", value:device.currentValue("cpuPercent"), unit:"%", descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"memPercent", value:device.currentValue("memPercent"), unit:"%", descriptionText:"resend", isStateChange:true)
+    sendEvent(name:"healthStatus", value:device.currentValue("healthStatus"), descriptionText:"resend", isStateChange:true)
 }
 
 void setHealthStatusEvent(String healthStatus="offline") {
