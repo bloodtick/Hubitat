@@ -52,8 +52,9 @@ metadata {
 
 preferences {
     input(name:"routerHost", type:"string", title:"Router Host", description:"Enter router IP address", required: true)
-    input(name:"routerUsername", type:"string", title:"Router Username", description:"Enter username (default: admin)", defaultValue: "admin", required: false)
+    input(name:"routerUsername", type:"string", title:"Router Username  (default: 'admin')", description:"Enter username", defaultValue: "admin", required: false)
     input(name:"routerPassword", type:"password", title:"Router Password", description:"Enter password", required: true)
+    input(name:"routerCpuMemStats", type:"bool", title: "Enable router CPU and memory attributes:", defaultValue: true)
     input(name:"deviceFormat", type:"string", title: "Date format (default: 'yyyy-MM-dd h:mm:ss a'):", description: "<a href='https://en.wikipedia.org/wiki/ISO_8601' target='_blank'>ISO 8601 date/time string legal format</a>", defaultValue: "yyyy-MM-dd h:mm:ss a")
     input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false)
     input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false)
@@ -76,6 +77,7 @@ def updated() {
     unschedule()
     autoLogsOff()
     if(!validDateFormat(settings?.deviceFormat)) logWarn "invalid ISO 8601 format"
+    if(!settings?.routerCpuMemStats) { device.deleteCurrentState("cpuPercent"); device.deleteCurrentState("memPercent") }
     if(validIp(routerHost) && routerPassword && authenticate()) {
         initialize()
     } else {
@@ -117,7 +119,7 @@ def refresh() {
 def refreshAll() {
     g_iRefreshCount[device.getIdAsLong()] = 1    
     // should use a queue. but i am being lazy.
-    getSystemLoad()
+    if(settings?.routerCpuMemStats) getSystemLoad()
     //pauseExecution(100)
     //getSystemStatus() // don't think we need this other than first time if we capture the time.
     pauseExecution(100)
