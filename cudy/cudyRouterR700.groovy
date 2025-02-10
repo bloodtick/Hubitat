@@ -152,9 +152,11 @@ def resend() {
     sendEvent(name:"wan2IpAddress", value:device.currentValue("wan2IpAddress"), descriptionText:"resend", isStateChange:true)
     sendEvent(name:"wan1OnlineSince", value:device.currentValue("wan1OnlineSince"), descriptionText:"resend", isStateChange:true)
     sendEvent(name:"wan2OnlineSince", value:device.currentValue("wan2OnlineSince"), descriptionText:"resend", isStateChange:true)
-    sendEvent(name:"cpuPercent", value:device.currentValue("cpuPercent"), unit:"%", descriptionText:"resend", isStateChange:true)
-    sendEvent(name:"memPercent", value:device.currentValue("memPercent"), unit:"%", descriptionText:"resend", isStateChange:true)
-    sendEvent(name:"healthStatus", value:device.currentValue("healthStatus"), descriptionText:"resend", isStateChange:true)
+	sendEvent(name:"healthStatus", value:device.currentValue("healthStatus"), descriptionText:"resend", isStateChange:true)
+	if(settings?.routerCpuMemStats) {
+    	sendEvent(name:"cpuPercent", value:device.currentValue("cpuPercent"), unit:"%", descriptionText:"resend", isStateChange:true)
+    	sendEvent(name:"memPercent", value:device.currentValue("memPercent"), unit:"%", descriptionText:"resend", isStateChange:true)
+	}    
 }
 
 void setHealthStatusEvent(String healthStatus="offline") {
