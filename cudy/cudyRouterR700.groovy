@@ -76,6 +76,7 @@ def updated() {
     logDebug "executing 'updated()'"
     unschedule()
     autoLogsOff()
+    if(!validDateFormat()) logWarn "invalid ISO 8601 format"
     if(validIp(routerHost) && routerPassword && authenticate()) {
         initialize()
     } else {
@@ -126,8 +127,11 @@ def refreshAll() {
     getWan1Status()
     pauseExecution(100)
     getWan2Status()
-    if(device.currentValue("publicIpAddress")=="unknown" && device.currentValue("balancerStatus")!="unknown") { 
-        runIn(10,"getPublicIpAddress")
+    // do some checks on our public IP Address is valid
+    String publicIpAddress = device.currentValue("publicIpAddress")
+    if((!validIp(publicIpAddress) && !(["unknown", "offline"].contains(device.currentValue("balancerStatus")))) || 
+       (publicIpAddress != device.currentValue("wan1IpAddress") && publicIpAddress != device.currentValue("wan2IpAddress"))) { 
+        runIn(10, "getPublicIpAddress")
     }
 }
 
@@ -159,7 +163,7 @@ def authenticate() {
         body           : body,
         ignoreSSLIssues: true, // In case of SSL issues on some routers
         followRedirects: false, // Prevents Hubitat from failing due to redirect
-        timeout: 10,
+        timeout: 5,
     ]
 
     try {
@@ -273,7 +277,7 @@ void asyncHttpCallback(resp, data) {
                 if(validIp(publicIpAddress) && device.currentValue("publicIpAddress")!=publicIpAddress) {
                     sendEvent(name:"publicIpAddress", value: publicIpAddress)
                     logInfo("publicIpAddress set to $publicIpAddress")
-                } else if (!validIp(publicIpAddress)) runIn(60,"getPublicIpAddress")
+                }
                 break
             case "getSystemLoad":
                 Map load = calcAvgCpuMem(dataMap?.load)
@@ -288,7 +292,7 @@ void asyncHttpCallback(resp, data) {
                 if(device.currentValue("wan1IpAddress")!=wan1IpAddress) {
                     sendEvent(name:"wan1IpAddress", value: wan1IpAddress)
                     logInfo("wan1IpAddress set to $wan1IpAddress")
-                    runIn(10,"getPublicIpAddress")
+                    if(validIp(wan1IpAddress)) runIn(10,"getPublicIpAddress")
                 }
                 sendEvent(name: "wan1OnlineSince", value: uptimeToTimestamp(dataMap?.connected_time)?:dataMap?.status?:"unknown")
                 break
@@ -297,7 +301,7 @@ void asyncHttpCallback(resp, data) {
                 if(device.currentValue("wan2IpAddress")!=wan2IpAddress) {
                     sendEvent(name:"wan2IpAddress", value: wan2IpAddress)
                     logInfo("wan2IpAddress set to $wan2IpAddress")
-                    runIn(10,"getPublicIpAddress")
+                    if(validIp(wan2IpAddress)) runIn(10,"getPublicIpAddress")
                 }
                 sendEvent(name: "wan2OnlineSince", value: uptimeToTimestamp(dataMap?.connected_time)?:dataMap?.status?:"unknown")
                 break
@@ -351,7 +355,7 @@ String uptimeToTimestamp(String uptime) {
     def (days, h, m, s) = time.tokenize(":")*.toInteger()
     Long timestamp = ((now() / 1000).toLong() - (days * 86400 + h * 3600 + m * 60 + s)) * 1000
     
-    if(settings?.deviceFormat) {
+    if(!state?.dateFormatInvalid && settings?.deviceFormat) {
         SimpleDateFormat sdf = new SimpleDateFormat(settings?.deviceFormat)
         return sdf.format(new Date(timestamp))
     } else return timestamp.toString()
@@ -431,6 +435,17 @@ String escapeXmlForLog(String input) {
 
 Boolean validIp(String ip) {
     return (ip && ip ==~ /\b(?:\d{1,3}\.){3}\d{1,3}\b/)
+}
+
+Boolean validDateFormat() {
+    Boolean response = false
+    try {
+    	SimpleDateFormat sdf = new SimpleDateFormat(settings?.deviceFormat)
+    	logDebug sdf.format(new Date())
+        state.remove('dateFormatInvalid')
+        response = true
+    } catch (e) { state.dateFormatInvalid = true }
+    return response
 }
 
 private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${device.displayName} ${msg}" } }
