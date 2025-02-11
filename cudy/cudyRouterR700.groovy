@@ -31,7 +31,7 @@ metadata {
         capability "Actuator"
         capability "ContactSensor"
         capability "Initialize"
-        capability "Refresh"
+        //capability "Refresh" // we are hitting this method a lot. i don't think the user needs to see it. initalialize does more.
         
         command "reboot"
         command "resend"
@@ -52,10 +52,11 @@ metadata {
 }
 
 preferences {
-    input(name:"routerHost", type:"string", title:"Router Host", description:"Enter router IP address", required: true)
-    input(name:"routerUsername", type:"string", title:"Router Username  (default: 'admin')", description:"Enter username", defaultValue: "admin", required: false)
-    input(name:"routerPassword", type:"password", title:"Router Password", description:"Enter password", required: true)
-    input(name:"routerCpuMemStats", type:"bool", title: "Enable router CPU and Memory attributes:", defaultValue: true)
+    input(name:"routerHost", type:"string", title:"Router Host:", description:"Enter router IP address", required: true)
+    input(name:"routerUsername", type:"string", title:"Router Username  (default: 'admin'):", description:"Enter username", defaultValue: "admin", required: false)
+    input(name:"routerPassword", type:"password", title:"Router Password:", description:"Enter password", required: true)
+    input(name:"routerCpuMemStats", type:"bool", title: "Enable router CPU and Memory states:", defaultValue: true)
+    input(name:"routerResend", type:"bool", title: "Enable delayed resend of ALL router states:", defaultValue: true)
     input(name:"deviceFormat", type:"string", title: "Date format (default: 'yyyy-MM-dd h:mm:ss a'):", description: "<a href='https://en.wikipedia.org/wiki/ISO_8601' target='_blank'>ISO 8601 date/time string legal format</a>", defaultValue: "yyyy-MM-dd h:mm:ss a")
     input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false)
     input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false)
@@ -354,6 +355,7 @@ void asyncHttpCallback(resp, data) {
                     }
                     runIn(1,"getSystemStatus")
                     runIn(10,"getPublicIpAddress")
+                    if(settings?.routerResend) runIn(300,"resend")
                 }
                 break
             default:
