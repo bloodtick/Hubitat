@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.3.10 2023-06-17 Support SmartThings Virtual Lock, add default values to ST Virtuals, fix mirror/create flow logic (no OAuth changes)
 *  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers. (no OAuth changes)
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests. (no OAuth changes)
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
@@ -27,9 +26,10 @@
 *  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
 *  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
+*  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead
 *  LINE 30 MAX */  
 
-public static String version() { return "1.5.01" }
+public static String version() { return "1.5.02" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -951,15 +951,14 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
     return response
 }
 
-@Field volatile static Map<Long,Boolean> g_bSmartLocationQueryIsRunningLock = [:]
+@Field volatile static Map<Long,Long> g_lSmartLocationQueryIsRunningLock = [:]
 @Field volatile static Map<Long,Boolean> g_bSmartLocationQueryChanged = [:]
 void smartLocationQuery() {
-    logDebug "${getDefaultLabel()} executing 'smartLocationQuery()'"
-    if(g_bSmartLocationQueryIsRunningLock[app.getId()]) {
-        logInfo "${getDefaultLabel()} is currently querying for location, rooms and devices. Please wait."
+    if(g_lSmartLocationQueryIsRunningLock[app.getId()]!=null && g_lSmartLocationQueryIsRunningLock[app.getId()] > now() - 30*1000) { // only allow this once per 30 seconds
+        logInfo "${getDefaultLabel()} is currently querying for location, rooms and devices. Please wait ${30-((now() - g_lSmartLocationQueryIsRunningLock[app.getId()])/1000 as Integer)} seconds."
         return
-    }
-    g_bSmartLocationQueryIsRunningLock[app.getId()] = true
+    } else logDebug "${getDefaultLabel()} executing 'smartLocationQuery()'"
+    g_lSmartLocationQueryIsRunningLock[app.getId()] = now()
     getSmartLocationList()
     runIn(30, clearSmartLocationQueryLock)
 }
@@ -969,7 +968,7 @@ void clearSmartLocationQueryLock() {
     if(g_bSmartLocationQueryChanged[app.getId()])
         runIn(5, subscriptionDeviceListChanged, [data: [reason:"locationChanged"]])
     g_bSmartLocationQueryChanged[app.getId()] = false
-    g_bSmartLocationQueryIsRunningLock[app.getId()] = false
+    g_lSmartLocationQueryIsRunningLock[app.getId()] = now()
 }
 
 void asyncHttpGetCallback(resp, data) {
