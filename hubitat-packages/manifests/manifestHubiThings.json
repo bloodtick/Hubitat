@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events.\n2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead.\n1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token.\n1.5.00 2024-12-20 Updates to use the OAuth token as much as possible (suggest delete & recreate OAuth API).\nSee here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019\n",
+    "releaseNotes": "1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events.\n1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead.\n1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token.\n1.5.00 2024-12-20 Updates to use the OAuth token as much as possible (suggest delete & recreate OAuth API).\nSee here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019\n",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
