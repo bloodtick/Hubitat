@@ -20,7 +20,7 @@
             "required": true,
             "oauth": false,
             "primary": true,
-            "version": "1.5.02"
+            "version": "1.5.03"
         },
         {
             "id": "9bb9eacb-c243-43d6-9dc4-520f0e476016",
@@ -29,7 +29,7 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
             "required": true,
             "oauth": true,
-            "version": "1.5.02"
+            "version": "1.5.03"
         }
     ],
     "drivers": [
