@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.11 2023-07-05 Support for building your own Virtual Devices, Mute logs/Disable periodic refresh buttons on rules. Updated to support schema.oneOf.type drivers.
 *  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests.
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger()
@@ -27,9 +26,10 @@
 *  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
 *  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead
+*  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events. 
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.5.02" }
+public static String version() { return "1.5.03" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -141,8 +141,8 @@ def uninstalled() {
 }
 
 def hubRebootHandler(evt=null) {
-    logInfo "${app.getLabel()} hub rebooted scheduling 'allSmartDeviceRefresh'"
-    scheduleAllSmartDeviceRefresh(5,true)
+    logInfo "${app.getLabel()} hub rebooted scheduling 'allSmartDeviceRefresh' in 30 seconds"
+    scheduleAllSmartDeviceRefresh(30,true)
 }
 
 /************************************** CHILD METHODS START *******************************************************/
@@ -710,7 +710,7 @@ def pageMain(){
                         devicesTable += "<td><a href='$devUri' target='_blank' rel='noopener noreferrer'>${replicaDevice?.getDisplayName()}</a></td>"
                         devicesTable += getSmartDeviceApi(smartDevice) ? "<td><a href='$apiUri' target='_blank' rel='noopener noreferrer'>${getSmartDeviceApi(smartDevice)?.getLocationName()?:""} : ${smartDevice?.apiId?:""}</a></td>" : "<td>--</td>"
                         //devicesTable += getSmartDeviceApi(smartDevice) ? "<td style='text-align:center;' id='${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</td>" : "<td style='text-align:center;color:$sColorDarkRed;'>$sWarningsIcon $sNotAuthorized</td>"
-                        devicesTable += "<td style='text-align:center;'><span class='ssr-app-state-${app.getId()}-${replicaDevice?.deviceNetworkId}'>${updateSmartDeviceEventsStatus(replicaDevice)}</span></td>"
+                        devicesTable += "<td style='text-align:center;'><span class='ssr-app-state-${app.getId()}-${replicaDevice?.deviceNetworkId?.toString()?.replaceAll("-", "")}'>${updateSmartDeviceEventsStatus(replicaDevice)}</span></td>"
   
                     }
                     deviceCount = replicaDevices?.size()?:0 + smartDevices?.size()?:0 // fix the count
@@ -3000,7 +3000,7 @@ String updateSmartDeviceEventsStatus(replicaDevice) {
         if(replicaDevice?.deviceNetworkId && state.pageMainLastRefresh && (state.pageMainLastRefresh + (iPageMainRefreshInterval*1000)) > now()) { //only send if someone is watching 
             // old socket method
             //sendEvent(name:'smartEvent', value:value, descriptionText: JsonOutput.toJson([ deviceNetworkId:(replicaDevice?.deviceNetworkId), debug: appLogEnable ]))
-            sendEvent(name:replicaDevice.deviceNetworkId.toString(), value:value)
+            sendEvent(name:replicaDevice.deviceNetworkId.toString().replaceAll("-", ""), value:value)
         }
     }
     return value
