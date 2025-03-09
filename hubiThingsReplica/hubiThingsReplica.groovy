@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests.
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger()
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. (no Replica changes)
@@ -26,10 +25,11 @@
 *  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
 *  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead
-*  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events. 
+*  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events.
+*  1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.5.03" }
+public static String version() { return "1.5.04" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -68,7 +68,7 @@ import groovy.transform.Field
 @Field volatile static Map<Long,Map>   g_mSmartSceneListCache = [:]
 @Field volatile static Map<Long,Map>   g_mReplicaDeviceCache = [:]
 @Field volatile static Map<String,Map> g_mAppDeviceSettings = [:] // don't clear
-@Field volatile static Map<Long,List>  g_mHassDeviceListCache = [:]
+@Field volatile static Map<Long,Map>   g_mHassDeviceListCache = [:]
 
 void clearAllVolatileCache() {
     logDebug "${app.getLabel()} executing 'clearAllVolatileCache()'"
@@ -157,7 +157,7 @@ public void childUpdated(def childApp) {
 
 public void childUninstalled(def childApp) {
     logDebug "${app.getLabel()} executing 'childUninstalled($childApp.id)'"
-    runIn(2, allSmartDeviceRefresh)
+    scheduleAllSmartDeviceRefresh(10)
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
 
@@ -172,7 +172,7 @@ public void childSubscriptionDeviceListChanged(def childApp, def data=null) {
         }    
     } catch(e) {
         logInfo "${app.getLabel()} 'childSubscriptionDeviceListChanged($childApp.id)' did not complete successfully"
-        runIn(10,'allSmartDeviceRefresh')
+        scheduleAllSmartDeviceRefresh(10)
     }
     runIn(5, updateLocationSubscriptionSettings) // not the best place for this. not sure where is the best place.
 }
@@ -395,7 +395,7 @@ def getHassAPI(String apiId) {
 
 def pageMainCreateChildDeviceHassAPI() {
     createChildDevice([namespace:sHassNamespace, name:sApiTypeName], sApiTypeName, sApiTypeName, sApiTypeName, sApiTypeName, sHassNamespace)
-    scheduleAllSmartDeviceRefresh(3)
+    scheduleAllSmartDeviceRefresh()
 }
 
 @Field volatile static Map<Long,Long>  g_mHassDeviceListCacheLock = [:]
@@ -746,7 +746,7 @@ def pageMain(){
                     socketstatus += """<script>function onclose() { console.log("Connection closed"); if(document.getElementById('socketstatus')){ document.getElementById('socketstatus').textContent = "Notice: Websocket closed. Please refresh page to restart.";}}</script>""" 
 					paragraph( rawHtml: true, socketstatus ) */
 				}            
-				input(name: "dynamic::allSmartDeviceRefresh",  type: "button", width: 2, title: "$sHubitatIcon Refresh", style:"width:75%;")
+				input(name: "dynamic::scheduleAllSmartDeviceRefresh",  type: "button", width: 2, title: "$sHubitatIcon Refresh", style:"width:75%;")
 			}
 
 			section(menuHeader("Replica Device Creation and Control")){
@@ -2665,41 +2665,36 @@ void appButtonHandler(String btn) {
     appButtonHandlerUnLock()
 }
 
-@Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
+@Field volatile static Map<Long,Long> g_lAppButtonHandlerIsRunningLock = [:]
 Boolean appButtonHandlerLock() {
-    if(g_bAppButtonHandlerLock[app.id]) { logInfo "${app.getLabel()} appButtonHandlerLock is locked"; return false }
-    g_bAppButtonHandlerLock[app.id] = true
-    runIn(10,appButtonHandlerUnLock)
+    if(g_lAppButtonHandlerIsRunningLock[app.id]!=null && g_lAppButtonHandlerIsRunningLock[app.getId()] > now() - 10*1000 ) { logInfo "${app.getLabel()} appButtonHandlerLock is locked"; return false }
+    g_lAppButtonHandlerIsRunningLock[app.getId()] = now()
     return true
 }
 void appButtonHandlerUnLock() {
-    unschedule('appButtonHandlerUnLock')
-    g_bAppButtonHandlerLock[app.id] = false
+    g_lAppButtonHandlerIsRunningLock[app.getId()] = 0L
 }
 
-@Field volatile static Map<Long,Boolean> g_bAllSmartDeviceRefresh = [:]
+@Field volatile static Map<Long,Boolean> g_fAllSmartDeviceRefreshIsReady = [:]
+@Field volatile static Map<Long,Long> g_lAllSmartDeviceRefreshIsRunningLock = [:]
 void allSmartDeviceRefresh() {
     logInfo "${app.getLabel()} executing 'allSmartDeviceRefresh()'"
     clearAllVolatileCache() // lets clear the cache of any stale devices.   
-    
-    getSmartDeviceList()
-    getHassDeviceList()
-    g_bAllSmartDeviceRefresh[app.getId()] = null
-    // check that everything is happy. This blocks for a second per device and will not allow concur runs. So thread it.
-    runIn(2, getSmartDeviceRefresh)
+    // This will fetch all devices or just grabs the cache
+    Integer count = (getSmartDeviceList()?.size() ?: 0) + (getHassDeviceList().size() ?: 0)
+    g_fAllSmartDeviceRefreshIsReady[app.getId()] = true
+    // This blocks for a second per device
+    if(count) getSmartDeviceRefresh()
+    g_lAllSmartDeviceRefreshIsRunningLock[app.getId()] = 0L
 }
-// this can be really fast and I found using 'this' doesn't get it done.
-@Field static final Object scheduleAllSmartDeviceRefreshLock = new Object()
+
 Boolean scheduleAllSmartDeviceRefresh(Integer delay=5, override=false) {
-    Boolean response = false
-    synchronized(scheduleAllSmartDeviceRefreshLock) {
-        if(g_bAllSmartDeviceRefresh[app.getId()]==null || !override) {
-            g_bAllSmartDeviceRefresh[app.getId()] = true
-            runIn(delay,'allSmartDeviceRefresh')
-            response = true
-        }
-    }
-    return response
+    if(g_lAllSmartDeviceRefreshIsRunningLock[app.id]!=null && g_lAllSmartDeviceRefreshIsRunningLock[app.getId()] > now() - 300*1000 && !override ) { return !!g_fAllSmartDeviceRefreshIsReady[app.getId()] }
+    g_lAllSmartDeviceRefreshIsRunningLock[app.getId()] = now()
+    delay = (override || (g_fAllSmartDeviceRefreshIsReady[app.getId()]==true)) ? delay : 15
+    runIn(delay,'allSmartDeviceRefresh')
+    if(delay>5) logInfo "${app.getLabel()} scheduling 'allSmartDeviceRefresh()' delay:$delay override:$override"    
+    return true
 }
 
 void locationModeHandler(def event) {
@@ -2728,7 +2723,6 @@ void locationKnobExecuteHelper(Map event) {
 
 void getSmartDeviceRefresh(String locationId=null) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceRefresh(locationId=$locationId)'"
-    if(!appGetSmartDeviceRefreshLock()) return
    
     Map uniqueReplicaDevicesMap = [:]
     getAllReplicaDevices()?.each{ replicaDevice ->
@@ -2740,20 +2734,6 @@ void getSmartDeviceRefresh(String locationId=null) {
             getReplicaDeviceRefresh(replicaDevice) // this blocks for a couple seconds per device
         }
     }   
-    
-    appGetSmartDeviceRefreshUnLock()
-}
-
-@Field volatile static Map<Long,Boolean> g_bAppGetSmartDeviceRefreshLock = [:]
-Boolean appGetSmartDeviceRefreshLock() {
-    if(g_bAppGetSmartDeviceRefreshLock[app.id]) { logInfo "${app.getLabel()} appGetSmartDeviceRefreshLock is locked"; return false }
-    g_bAppGetSmartDeviceRefreshLock[app.id] = true
-    runIn(30,appGetSmartDeviceRefreshUnLock)
-    return true
-}
-void appGetSmartDeviceRefreshUnLock() {
-    unschedule('appGetSmartDeviceRefreshUnLock')
-    g_bAppGetSmartDeviceRefreshLock[app.id] = false
 }
 
 void deviceTriggerHandler(def event) {
