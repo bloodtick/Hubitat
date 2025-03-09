@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.3.12 2023-08-06 Bug fix for dup event trigger to different command event (virtual only). GitHub issue ticket support for new devices requests. (no OAuth changes)
 *  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger() (no OAuth changes) 
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name.
@@ -27,9 +26,10 @@
 *  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
 *  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead
 *  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events. (no OAuth changes)
+*  1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications
 *  LINE 30 MAX */  
 
-public static String version() { return "1.5.03" }
+public static String version() { return "1.5.04" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -550,16 +550,14 @@ void appButtonHandler(String btn) {
     appButtonHandlerUnLock()
 }
 
-@Field volatile static Map<Long,Boolean> g_bAppButtonHandlerLock = [:]
+@Field volatile static Map<Long,Long> g_lAppButtonHandlerIsRunningLock = [:]
 Boolean appButtonHandlerLock() {
-    if(g_bAppButtonHandlerLock[app.id]) { logInfo "${app.getLabel()} appButtonHandlerLock is locked"; return false }
-    g_bAppButtonHandlerLock[app.id] = true
-    runIn(10,appButtonHandlerUnLock)
+    if(g_lAppButtonHandlerIsRunningLock[app.id]!=null && g_lAppButtonHandlerIsRunningLock[app.getId()] > now() - 10*1000 ) { logInfo "${app.getLabel()} appButtonHandlerLock is locked"; return false }
+    g_lAppButtonHandlerIsRunningLock[app.getId()] = now()
     return true
 }
 void appButtonHandlerUnLock() {
-    unschedule('appButtonHandlerUnLock')
-    g_bAppButtonHandlerLock[app.id] = false
+    g_lAppButtonHandlerIsRunningLock[app.getId()] = 0L
 }
 
 def callback() {   
