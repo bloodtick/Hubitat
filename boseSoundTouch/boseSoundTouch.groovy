@@ -75,7 +75,7 @@ metadata {
         attribute "station5", "string"
         attribute "station6", "string"
         
-        attribute "pattern", "string"
+        attribute "volumePattern", "string"
         attribute "healthStatus", "enum", ["offline", "online"]
     }
 }
@@ -116,14 +116,14 @@ def initialize() {
 }
 
 def push(buttonNumber=null, String descriptionText=null) {
-    if(buttonNumber==null && state?.pattern) {
+    if(buttonNumber==null && state?.volumePattern) {
         // these are rapid volume control keys that can be used for automation
-        //if(state.pattern == "++--") push(1, "${device.displayName} volume matched '${state.pattern}' and pushed button 1")
-        //if(state.pattern == "--++") push(2, "${device.displayName} volume matched '${state.pattern}' and pushed button 2")
-        //if(state.pattern == "+-+-") push(3, "${device.displayName} volume matched '${state.pattern}' and pushed button 3")
-        //if(state.pattern == "-+-+") push(4, "${device.displayName} volume matched '${state.pattern}' and pushed button 4")
-        if(state.pattern.size()>3) sendEvent(name: "pattern", value: state.pattern, isStateChange: true) // for other solutions if you don't want to use above.
-        state.remove('pattern')
+        //if(state.volumePattern == "++--") push(1, "${device.displayName} volume matched '${state.volumePattern}' and pushed button 1")
+        //if(state.volumePattern == "--++") push(2, "${device.displayName} volume matched '${state.volumePattern}' and pushed button 2")
+        //if(state.volumePattern == "+-+-") push(3, "${device.displayName} volume matched '${state.volumePattern}' and pushed button 3")
+        //if(state.volumePattern == "-+-+") push(4, "${device.displayName} volume matched '${state.volumePattern}' and pushed button 4")
+        if(state.volumePattern.size()>3) sendEvent(name: "volumePattern", value: state.volumePattern, isStateChange: true) // for other solutions if you don't want to use above.
+        state.remove('volumePattern')
     } else {
         sendEvent(name: "pushed", value: buttonNumber, isStateChange: true, descriptionText: (descriptionText ?: "${device.displayName} pushed button $buttonNumber"))
         if(descriptionText) logInfo descriptionText
@@ -228,7 +228,7 @@ def parse(String event) {
             g_mVolume[device.getId()] = g_mVolume[device.getId()] ?: 0  
             String direction = (xml?.volumeUpdated?.volume?.targetvolume.toInteger() > g_mVolume[device.getId()]) ? "+" : "-"
             g_mVolume[device.getId()] = xml?.volumeUpdated?.volume?.targetvolume.toInteger()
-            state.pattern = (state?.pattern ?: "") + direction
+            state.volumePattern = (state?.volumePattern ?: "") + direction
             runIn(1, push)
         }        
         g_mWebSocketTimestamp[device.getId()] = now()
