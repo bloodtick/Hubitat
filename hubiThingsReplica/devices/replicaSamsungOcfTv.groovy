@@ -1,5 +1,5 @@
 /**
-*  Copyright 2024 Bloodtick
+*  Copyright 2025 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,7 +11,7 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.2"}
+public static String version() {return "1.3.3"}
 
 import groovy.transform.CompileStatic
 import groovy.transform.Field
@@ -24,14 +24,16 @@ metadata
         capability "Actuator"
         capability "Configuration"
         capability "Switch"
+        capability "Switch Level" // added for Alexa
         capability "Refresh"
         capability "MediaInputSource"
         capability "AudioVolume"
         capability "TV"
+        capability "Initialize"
         // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
         // Use Hubitat 'Button Controller' built in app to set commands to run. Buttons below 50 are reserved.
         capability "PushableButton"
-     
+    
         attribute "mediaInputSourceName", "string"
         attribute "supportedInputSources", "JSON_OBJECT"
         
@@ -61,10 +63,13 @@ metadata
         //command "execute", [[name: "command*", type: "STRING", description: "Command to execute"],[name: "args", type: "JSON_OBJECT", description: "Raw messages to be passed to a device"]] //capability "execute" in SmartThings
         attribute "data", "JSON_OBJECT" //capability "execute" in SmartThings
         
+        attribute "localPoll", "enum", ["initialize", "disabled", "enabled", "error" ]
+        attribute "volumePattern", "string"
         attribute "healthStatus", "enum", ["offline", "online"]
     }
     preferences {
         input(name:"numberOfButtons", type: "number", title: "Set Number of Buttons:", range: "1...", defaultValue: 50, required: true)
+        input(name:"deviceIp", type:"text", title: "Device IP Address:", description: "Local lan IPv4 address to enable <b>fast local poll</b> for volume updates when device is on. Disable with invalid IPv4 address or 127.0.0.1", defaultValue: "127.0.0.1", required: false)
         input(name:"deviceInfoDisable", type: "bool", title: "Disable Info logging:", defaultValue: false)
         input(name:"deviceDebugEnable", type: "bool", title: "Enable Debug logging:", defaultValue: false)
         input(name:"deviceDefaultReset", type: "bool", title: "Reset Device to Default State (use with &#9888; caution):", defaultValue: false)
@@ -106,6 +111,8 @@ def initialize() {
    } else runIn(1, refresh)
     autoLogsOff()
     sendEvent(name:"numberOfButtons", value: (settings?.numberOfButtons)?:50)
+    // Special localPoll for more-realtime volume changes. I understand this is how Home Assistant works too.
+    runIn(1, "initPollVolume")
 }
 
 def configure() {
@@ -283,17 +290,20 @@ def setVolumeValue(value) {
     
     String descriptionText = "${device.displayName} volume is $value%"
     sendEvent(name: "volume", value: value, unit:"%", descriptionText: descriptionText)
+    sendEvent(name: "level", value: value, unit:"%", descriptionText: descriptionText)
     logInfo descriptionText
 }
 
 def setSwitchValue(value) {
     logDebug "${device.displayName} executing 'setSwitchValue($value)' second refresh:${g_mSecondRefreshRequired[device.getId()]}"
-    if(value==device.currentValue("switch")) return
+    if(value==device.currentValue("switch")) return    
     
     String descriptionText = "${device.displayName} was turned $value"
-    sendEvent(name: "switch", value: value, descriptionText: descriptionText)
+    sendEvent(name: "switch", value: value, descriptionText: descriptionText)   
     logInfo descriptionText    
     runIn(1, refresh)
+    // will turn on when set on & proper ip is set, turn off when set is off.
+    runIn(value=="off" ? 1 : 5, "initPollVolume")
 }
 
 def setSwitchOff() {
@@ -367,6 +377,7 @@ def setInputSource(id) {
         sendCommand("setInputSourceMode", id) //["AM","CD","FM","HDMI","HDMI1","HDMI2","HDMI3","HDMI4","HDMI5","HDMI6","digitalTv","USB","YouTube","aux","bluetooth","digital","melon","wifi","network","optical","coaxial","analog1","analog2","analog3","phono"]
 }
 
+def setLevel(level,duration=0) { setVolume(level) }
 def setVolume(volume) {
     sendCommand("setVolume", volume, "%")
 }
@@ -497,8 +508,142 @@ void refresh() {
     logDebug "${device.displayName} completed 'refresh()' second refresh:${g_mSecondRefreshRequired[device.getId()]}"
 }
 
+def initPollVolume() {
+    unschedule("pollVolume")
+    unschedule("pollVolumeWatchdog")
+    if(device.currentValue("switch")=="on" && validIp(deviceIp) && !deviceIp?.startsWith("127.")) {
+        sendEvent(name: "localPoll", value: "initialize")
+        pollVolume(true)
+    } else if(device.currentValue("localPoll")!="disabled") {
+        sendEvent(name: "localPoll", value: "disabled")
+        if(!validIp(deviceIp) || deviceIp?.startsWith("127.")) device.deleteCurrentState("volumePattern")
+        logInfo "${device.displayName} stopping fast volume polling"
+    }
+}
+
+@Field static final Integer VOLUME_POLL_DELAY = 1000
+@Field static final Integer VOLUME_POLL_INACTIVITY_DELAY = 5000
+@Field volatile static Map<Long,Map> g_cachePollVolumeMap = [:]
+void pollVolume(Boolean initialize=false) {
+    Long devId = device.getIdAsLong()   
+    if (g_cachePollVolumeMap[devId]==null || initialize) {
+        String host = "${deviceIp}:9197"
+        String urn = "urn:schemas-upnp-org:service:RenderingControl:1"
+        String action = "GetVolume"
+        String body = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body><u:${action} xmlns:u="${urn}"><InstanceID>0</InstanceID><Channel>Master</Channel></u:${action}></s:Body>
+            </s:Envelope>
+        """.trim()
+
+        Map headers = [
+            "HOST": host,
+            "SOAPACTION": "\"${urn}#${action}\"",
+            "CONTENT-TYPE": "text/xml; charset=\"utf-8\"",
+            "CONTENT-LENGTH": "${body.length()}"
+        ]
+
+        // Create the full map
+        g_cachePollVolumeMap[devId] = [
+            runInMillis: VOLUME_POLL_DELAY,
+            body: body,
+            headers: headers,
+            lastVolume: -1,
+            lastChangeTimestamp: now(),
+            timestamp: now()            
+        ]
+        if(initialize) logInfo "${device.displayName} initialized fast volume polling to $deviceIp"
+    }
+    Map pollData = g_cachePollVolumeMap[devId]
+    pollData.timestamp = now()
+
+    // Use sendHubCommand because it is faster and lower overhead then normal http stack    
+    def hubAction = new hubitat.device.HubAction([
+        method: "POST",
+        path: "/upnp/control/AVTransport1",
+        body: pollData.body,
+        headers: pollData.headers
+    ], null, [callback: pollVolumeCallback])
+    // There is no error try/catch with sendHubCommand. So use a watchdog to restart if callback doesn't happen.
+    sendHubCommand(hubAction)
+    runInMillis((VOLUME_POLL_INACTIVITY_DELAY + 2000) as Integer, "pollVolumeWatchdog")    
+}
+
+void pollVolumeWatchdog(String descriptionText="watchdog timer expired") {
+    unschedule("pollVolumeWatchdog")
+    state.localPollDelay = state?.localPollDelay ? Math.min( state.localPollDelay * 2, 600 ) : 2
+    if(state?.localPollDelay>2) log.warn "${device.displayName} delaying poll volume retry by $state.localPollDelay seconds with reason: $descriptionText"
+    sendEvent(name: "localPoll", value: "error", descriptionText: descriptionText)
+    runIn(state.localPollDelay, "initPollVolume")
+}    
+
+void pollVolumeCallback(hubResponse) {
+    Long devId = device.getIdAsLong()
+    if (g_cachePollVolumeMap[devId]==null) {
+        pollVolume()
+        return
+    }
+    Map pollData = g_cachePollVolumeMap[devId]
+
+    try {
+        Map msg = parseLanMessage(hubResponse.description)
+        logDebug "${device.displayName} pollVolumeCallback $msg"
+
+        if(!msg?.data || !msg.data.text().isInteger()) {
+            throw new IllegalArgumentException("Invalid data from UPnP query: $msg")
+        }
+
+        Integer newVolume = msg.data.toInteger()
+        Integer lastVolume = pollData.lastVolume
+
+        if(newVolume != lastVolume) {
+            setVolumeValue(newVolume)
+            sendEvent(name: "localPoll", value: "enabled")
+            if(state.containsKey('localPollDelay')) state.remove("localPollDelay")
+            // speed up the check for while
+            pollData.runInMillis = (VOLUME_POLL_DELAY / 2) as Integer
+            pollData.lastChangeTimestamp = now()
+			// the entire reason I built this poll volume was for the volumePattern matcher. :) 
+            String direction = (newVolume > lastVolume) ? "+" : "-"
+            pollData.lastVolume = newVolume
+            state.volumePattern = (state?.volumePattern ?: "") + direction
+            runInMillis(VOLUME_POLL_DELAY * 1.5 as Integer, volumePattern)
+        } else if(now() > pollData.lastChangeTimestamp + 10*60*1000) { // slow down after 10 min of no activity
+            pollData.runInMillis = VOLUME_POLL_INACTIVITY_DELAY
+        } else if(now() > pollData.lastChangeTimestamp + 10*1000) { // go normal after 10 seconds
+            pollData.runInMillis = VOLUME_POLL_DELAY
+        }
+
+    } catch (Exception e) {    
+        pollVolumeWatchdog(e.message)
+        return
+    }
+	// remove our function delay, and never allow lower than 250ms.
+	Integer runInMillisDelay = Math.max((pollData?.runInMillis ?: VOLUME_POLL_DELAY) - (now() - (pollData?.timestamp ?: 0)), 250)
+	logDebug "${device.displayName} scheduling pollVolume in $runInMillisDelay ms"
+	runInMillis(runInMillisDelay as Integer, "pollVolume")
+}
+
+void volumePattern() {
+    if(state?.volumePattern?.size()>3) sendEvent(name: "volumePattern", value: state.volumePattern, isStateChange: true)
+    state.remove('volumePattern')
+}
+
 static String getReplicaRules() {
     return """{"version":1,"components":[{"command":{"capability":"switch","label":"command: off()","name":"off","type":"command"},"trigger":{"label":"command: off()","name":"off","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"switch","label":"command: on()","name":"on","type":"command"},"trigger":{"label":"command: on()","name":"on","type":"command"},"type":"hubitatTrigger"},{"command":{"label":"command: setSwitchValue(switch*)","name":"setSwitchValue","parameters":[{"name":"switch*","type":"ENUM"}],"type":"command"},"trigger":{"additionalProperties":false,"attribute":"switch","capability":"switch","label":"attribute: switch.*","properties":{"value":{"title":"SwitchState","type":"string"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setHealthStatusValue(healthStatus*)","name":"setHealthStatusValue","parameters":[{"name":"healthStatus*","type":"ENUM"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"healthStatus","capability":"healthCheck","label":"attribute: healthStatus.*","properties":{"value":{"title":"HealthState","type":"string"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"capability":"audioMute","label":"command: unmute()","name":"unmute","type":"command"},"trigger":{"label":"command: unmute()","name":"unmute","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"audioMute","label":"command: mute()","name":"mute","type":"command"},"trigger":{"label":"command: mute()","name":"mute","type":"command"},"type":"hubitatTrigger"},{"command":{"arguments":[{"name":"volume","optional":false,"schema":{"maximum":100,"minimum":0,"type":"integer"}}],"capability":"audioVolume","label":"command: setVolume(volume*)","name":"setVolume","type":"command"},"trigger":{"label":"command: setVolume(volume*)","name":"setVolume","parameters":[{"name":"volume*","type":"NUMBER"}],"type":"command"},"type":"hubitatTrigger"},{"command":{"label":"command: setMuteValue(mute*)","name":"setMuteValue","parameters":[{"name":"mute*","type":"ENUM"}],"type":"command"},"trigger":{"additionalProperties":false,"attribute":"mute","capability":"audioMute","label":"attribute: mute.*","properties":{"value":{"title":"MuteState","type":"string"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setVolumeValue(volume*)","name":"setVolumeValue","parameters":[{"name":"volume*","type":"NUMBER"}],"type":"command"},"trigger":{"additionalProperties":false,"attribute":"volume","capability":"audioVolume","label":"attribute: volume.*","properties":{"unit":{"default":"%","enum":["%"],"type":"string"},"value":{"maximum":100,"minimum":0,"type":"integer"}},"required":["value"],"title":"IntegerPercent","type":"attribute"},"type":"smartTrigger"},{"command":{"capability":"audioVolume","label":"command: volumeDown()","name":"volumeDown","type":"command"},"trigger":{"label":"command: volumeDown()","name":"volumeDown","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"refresh","label":"command: refresh:refresh()","name":"refresh","type":"command"},"trigger":{"label":"command: refresh()","name":"refresh","type":"command"},"type":"hubitatTrigger"},{"command":{"label":"command: setSupportedInputSourcesValue(supportedInputSources*)","name":"setSupportedInputSourcesValue","parameters":[{"name":"supportedInputSources*","type":"ENUM"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"supportedInputSources","capability":"mediaInputSource","label":"attribute: supportedInputSources.*","properties":{"value":{"items":{"enum":["AM","CD","FM","HDMI","HDMI1","HDMI2","HDMI3","HDMI4","HDMI5","HDMI6","digitalTv","USB","YouTube","aux","bluetooth","digital","melon","wifi"],"title":"MediaSource","type":"string"},"type":"array"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setSupportedInputSourcesMapValue(supportedInputSourcesMap*)","name":"setSupportedInputSourcesMapValue","parameters":[{"name":"supportedInputSourcesMap*","type":"ENUM"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"supportedInputSourcesMap","capability":"samsungvd.mediaInputSource","label":"attribute: supportedInputSourcesMap.*","properties":{"value":{"items":{"properties":{"id":{"type":"string"},"name":{"type":"string"}},"type":"object"},"required":[],"type":"array"}},"required":[],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setSupportedPictureModesValue(supportedPictureModes*)","name":"setSupportedPictureModesValue","parameters":[{"name":"supportedPictureModes*","type":"STRING"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"supportedPictureModes","capability":"custom.picturemode","label":"attribute: supportedPictureModes.*","properties":{"value":{"type":"array"}},"required":[],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setPictureModeValue(pictureMode*)","name":"setPictureModeValue","parameters":[{"name":"pictureMode*","type":"STRING"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"pictureMode","capability":"custom.picturemode","label":"attribute: pictureMode.*","properties":{"value":{"type":"string"}},"required":[],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setSoundModeValue(soundMode*)","name":"setSoundModeValue","parameters":[{"name":"soundMode*","type":"STRING"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"soundMode","capability":"custom.soundmode","label":"attribute: soundMode.*","properties":{"value":{"type":"string"}},"required":[],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setSupportedSoundModesValue(supportedSoundModes*)","name":"setSupportedSoundModesValue","parameters":[{"name":"supportedSoundModes*","type":"STRING"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"supportedSoundModes","capability":"custom.soundmode","label":"attribute: supportedSoundModes.*","properties":{"value":{"items":{"type":"string"},"type":"array"}},"required":[],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setTvChannelValue(tvChannel*)","name":"setTvChannelValue","parameters":[{"name":"tvChannel*","type":"STRING"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"tvChannel","capability":"tvChannel","label":"attribute: tvChannel.*","properties":{"value":{"maxLength":255,"title":"String","type":"string"}},"required":[],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setTvChannelNameValue(tvChannelName*)","name":"setTvChannelNameValue","parameters":[{"name":"tvChannelName*","type":"STRING"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"tvChannelName","capability":"tvChannel","label":"attribute: tvChannelName.*","properties":{"value":{"maxLength":255,"title":"String","type":"string"}},"required":[],"type":"attribute"},"type":"smartTrigger"},{"command":{"capability":"tvChannel","label":"command: channelUp()","name":"channelUp","type":"command"},"trigger":{"label":"command: channelUp()","name":"channelUp","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"tvChannel","label":"command: channelDown()","name":"channelDown","type":"command"},"trigger":{"label":"command: channelDown()","name":"channelDown","type":"command"},"type":"hubitatTrigger"},{"command":{"arguments":[{"name":"tvChannel","optional":false,"schema":{"maxLength":255,"title":"String","type":"string"}}],"capability":"tvChannel","label":"command: setTvChannel(tvChannel*)","name":"setTvChannel","type":"command"},"trigger":{"label":"command: setChannel(channel*)","name":"setChannel","parameters":[{"name":"channel*","type":"NUMBER"}],"type":"command"},"type":"hubitatTrigger"},{"command":{"label":"command: setMediaInputSourceValue(mediaInputSource*)","name":"setMediaInputSourceValue","parameters":[{"name":"mediaInputSource*","type":"JSON_OBJECT"}],"type":"command"},"trigger":{"additionalProperties":false,"attribute":"inputSource","capability":"samsungvd.mediaInputSource","label":"attribute: inputSource.*","properties":{"value":{"type":"string"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"label":"command: setMediaInputSourceValue(mediaInputSource*)","name":"setMediaInputSourceValue","parameters":[{"name":"mediaInputSource*","type":"JSON_OBJECT"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"inputSource","capability":"mediaInputSource","label":"attribute: mediaInputSource:inputSource.*","properties":{"value":{"title":"MediaSource","type":"string"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"arguments":[{"name":"keyValue","optional":false,"schema":{"enum":["UP","DOWN","LEFT","RIGHT","OK","BACK","MENU","HOME"],"type":"string"}},{"name":"keyState","optional":true,"schema":{"enum":["PRESSED","RELEASED","PRESS_AND_RELEASED"],"type":"string"}}],"capability":"samsungvd.remoteControl","label":"command: send(keyValue*, keyState)","name":"send","type":"command"},"trigger":{"label":"command: send(keyValue*, keyState)","name":"send","parameters":[{"name":"keyValue*","type":"ENUM"},{"data":"keyState","name":"keyState","type":"ENUM"}],"type":"command"},"type":"hubitatTrigger"},{"command":{"label":"command: setSupportsPowerOnByOcf(supportsPowerOnByOcf*)","name":"setSupportsPowerOnByOcf","parameters":[{"name":"supportsPowerOnByOcf*","type":"ENUM"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"supportsPowerOnByOcf","capability":"samsungvd.supportsPowerOnByOcf","label":"attribute: supportsPowerOnByOcf.*","properties":{"value":{"type":"string"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"command":{"arguments":[{"name":"mode","optional":false,"schema":{"type":"string"}}],"capability":"custom.picturemode","label":"command: setPictureMode(mode*)","name":"setPictureMode","type":"command"},"trigger":{"label":"command: setPictureMode(mode*)","name":"setPictureMode","parameters":[{"name":"mode*","type":"STRING"}],"type":"command"},"type":"hubitatTrigger"},{"command":{"arguments":[{"name":"mode","optional":false,"schema":{"type":"string"}}],"capability":"custom.soundmode","label":"command: setSoundMode(mode*)","name":"setSoundMode","type":"command"},"trigger":{"label":"command: setSoundMode(mode*)","name":"setSoundMode","parameters":[{"name":"mode*","type":"STRING"}],"type":"command"},"type":"hubitatTrigger"},{"command":{"arguments":[{"name":"appId","optional":true,"schema":{"type":"string"}},{"name":"appName","optional":true,"schema":{"type":"string"}}],"capability":"custom.launchapp","label":"command: launchApp(appId, appName)","name":"launchApp","type":"command"},"trigger":{"label":"command: launchApp(appId*)","name":"launchApp","parameters":[{"name":"appId*","type":"STRING"}],"type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"mediaPlayback","label":"command: stop()","name":"stop","type":"command"},"trigger":{"label":"command: stop()","name":"stop","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"mediaPlayback","label":"command: rewind()","name":"rewind","type":"command"},"trigger":{"label":"command: rewind()","name":"rewind","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"mediaPlayback","label":"command: fastForward()","name":"fastForward","type":"command"},"trigger":{"label":"command: fastForward()","name":"fastForward","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"mediaPlayback","label":"command: pause()","name":"pause","type":"command"},"trigger":{"label":"command: pause()","name":"pause","type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"mediaPlayback","label":"command: play()","name":"play","type":"command"},"trigger":{"label":"command: play()","name":"play","type":"command"},"type":"hubitatTrigger"},{"command":{"arguments":[{"name":"id","optional":false,"schema":{"type":"string"}}],"capability":"samsungvd.mediaInputSource","label":"command: setInputSource(id*)","name":"setInputSource","type":"command"},"trigger":{"label":"command: setInputSourceId(id*)","name":"setInputSourceId","parameters":[{"name":"id*","type":"STRING"}],"type":"command"},"type":"hubitatTrigger"},{"command":{"arguments":[{"name":"mode","optional":false,"schema":{"enum":["AM","CD","FM","HDMI","HDMI1","HDMI2","HDMI3","HDMI4","HDMI5","HDMI6","digitalTv","USB","YouTube","aux","bluetooth","digital","melon","wifi","network","optical","coaxial","analog1","analog2","analog3","phono"],"title":"MediaSource","type":"string"}}],"capability":"mediaInputSource","label":"command: setInputSource(mode*)","name":"setInputSource","type":"command"},"trigger":{"label":"command: setInputSourceMode(mode*)","name":"setInputSourceMode","parameters":[{"name":"mode*","type":"STRING"}],"type":"command"},"type":"hubitatTrigger"},{"command":{"capability":"audioVolume","label":"command: volumeUp()","name":"volumeUp","type":"command"},"mute":true,"trigger":{"label":"command: volumeUp()","name":"volumeUp","type":"command"},"type":"hubitatTrigger"},{"command":{"label":"command: setDataValue(data*)","name":"setDataValue","parameters":[{"name":"data*","type":"JSON_OBJECT"}],"type":"command"},"mute":true,"trigger":{"additionalProperties":false,"attribute":"data","capability":"execute","label":"attribute: data.*","properties":{"data":{"additionalProperties":true,"required":[],"type":"object"},"value":{"title":"JsonObject","type":"object"}},"required":["value"],"type":"attribute"},"type":"smartTrigger"},{"trigger":{"name":"execute","label":"command: execute(command*, args)","type":"command","parameters":[{"name":"command*","type":"STRING"},{"data":"args","name":"args","type":"JSON_OBJECT"}]},"command":{"arguments":[{"name":"command","optional":false,"schema":{"maxLength":255,"title":"String","type":"string"}},{"name":"args","optional":true,"schema":{"title":"JsonObject","type":"object"}}],"capability":"execute","label":"command: execute(command*, args)","name":"execute","type":"command"},"type":"hubitatTrigger"}]}"""
+}
+
+Boolean validIp(String ip) {
+    return (ip && ip ==~ /\b(?:\d{1,3}\.){3}\d{1,3}\b/)
+}
+
+String escapeXmlForLog(String input) {
+    return input.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;")
 }
     
 private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
