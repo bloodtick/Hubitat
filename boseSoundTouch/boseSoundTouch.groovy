@@ -1,5 +1,5 @@
 /**
-*  Copyright 2024 Bloodtick
+*  Copyright 2025 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -22,6 +22,7 @@
 *  1.1.01 2020-10-24 Ignore exception error on xml only when using parseLanMessage() in parse function.
 *  1.1.02 2024-03-15 Remove a lot of the SmartThings nonsense. Improve webSocket. Added HDMI and home automation buttons. Rename back to just Bose SoundTouch.
 *  1.1.03 2024-09-24 Updated socket logic to restart if nothing in an hour. Sometimes was in a weird state. Added healthStatus attribute and Initialize capability
+*  1.1.04 2025-03-24 Added volume and volumePattern matcher
 */
 
 import groovy.json.*
@@ -93,6 +94,7 @@ def installed() {
     settings.deviceDebugEnable = false
     settings.deviceTraceEnable = false
     sendEvent(name: "level", value: "0", unit: "%")
+    sendEvent(name: "volume", value: "0", unit: "%")
     sendEvent(name: "switch", value:"off", displayed: false)
     logInfo "${device.displayName} executing 'installed()' with settings: ${settings}"
     initialize()
@@ -488,7 +490,8 @@ def boseParseVolume(xmlData) {
 
     if( device.currentValue("level").toString() != level ) {
         sendEvent(name:"level", value: level, unit: "%")
-        logInfo "${device.displayName} level is ${level}%"
+        sendEvent(name:"volume", value: level, unit: "%")
+        logInfo "${device.displayName} volume is ${level}%"
     }
     if( device.currentValue("mute") != mute ) {
         sendEvent(name:"mute", value: mute)
