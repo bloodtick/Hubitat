@@ -564,10 +564,10 @@ void pollVolume(Boolean initialize=false) {
         path: "/upnp/control/AVTransport1",
         body: pollData.body,
         headers: pollData.headers
-    ], null, [callback: pollVolumeCallback])
+    ], null, [timeout: 2, callback: pollVolumeCallback])
     // There is no error try/catch with sendHubCommand. So use a watchdog to restart if callback doesn't happen.
+    runInMillis((VOLUME_POLL_INACTIVITY_DELAY + 3000) as Integer, "pollVolumeWatchdog")
     sendHubCommand(hubAction)
-    runInMillis((VOLUME_POLL_INACTIVITY_DELAY + 2000) as Integer, "pollVolumeWatchdog")    
 }
 
 void pollVolumeWatchdog(String descriptionText="watchdog timer expired") {
