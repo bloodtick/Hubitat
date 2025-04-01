@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.13 2024-02-17 Updated refresh support to allow for device (Location Knob) execution
 *  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger()
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. (no Replica changes)
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
@@ -27,9 +26,10 @@
 *  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead
 *  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events.
 *  1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications
+*  1.5.05 2025-04-01 SmartThings fixed API to allow for virtual device creation using the OAuth token.
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.5.04" }
+public static String version() { return "1.5.05" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -2024,7 +2024,7 @@ Map createVirtualDevice(String locationId, String roomId, String name, String pr
         path: ((prototype=="VIRTUAL_CUSTOM") ? "/virtualdevices" : "/virtualdevices/prototypes"),
         contentType: "application/json",
         requestContentType: "application/json",
-        headers: [ Authorization: "Bearer ${getOAuthToken("createVirtualDevice", locationId, true)}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("createVirtualDevice", locationId)}" ]        
     ]
     try {
         httpPost(params) { resp ->
