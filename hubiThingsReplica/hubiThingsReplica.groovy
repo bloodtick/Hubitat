@@ -2762,7 +2762,6 @@ void deviceTriggerHandler(def replicaDevice, Map event) {
         if(deviceId) getSmartDeviceStatus(deviceId)
     }
     else if(event?.name == "refresh") {
-        if(event?.data?.status) 
         replicaDeviceRefresh(replicaDevice)
     }
     else if(!result) {
