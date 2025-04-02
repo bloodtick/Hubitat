@@ -2744,7 +2744,7 @@ void deviceTriggerHandler(def event) {
 
 void deviceTriggerHandler(def replicaDevice, Map event) {
     if(g_mSmartDeviceListCache[app.getId()]==null) {
-        if(scheduleAllSmartDeviceRefresh()) logWarn "${app.getLabel()} rejecting '${replicaDevice?.getLabel()}' command '${event?.name}' until 'allSmartDeviceRefresh' completes"
+        if(scheduleAllSmartDeviceRefresh()) logWarn "${app.getLabel()} rejecting '${replicaDevice?.getDisplayName()}' command '${event?.name}' until 'allSmartDeviceRefresh' completes"
         return
     }
 
