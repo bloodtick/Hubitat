@@ -286,7 +286,7 @@ def setMuteValue(value) {
 }
 
 def setVolumeValue(value) {
-    if(value==device.currentValue("volume")) return
+   if(value==device.currentValue("volume")) return
     
     String descriptionText = "${device.displayName} volume is $value%"
     sendEvent(name: "volume", value: value, unit:"%", descriptionText: descriptionText)
@@ -509,9 +509,9 @@ void update() {
         if(device.currentValue("switch")=="on") runIn(300, update)
      } else {
         g_mSecondUpdateRequired[device.getId()] = true
-        runIn(4, update)
+        runIn(5, update)
     }    
-    sendCommand("update") 
+    sendCommand("refresh", null, null, [update:true]) 
     logDebug "${device.displayName} completed 'update()' second update:${g_mSecondUpdateRequired[device.getId()]}"
 }
 
@@ -607,7 +607,7 @@ void pollVolumeCallback(hubResponse) {
         Integer lastVolume = pollData.lastVolume
 
         if(newVolume != lastVolume) {
-            setVolumeValue(newVolume)
+            setVolume(newVolume)
             sendEvent(name: "localPoll", value: "enabled")
             if(state.containsKey('localPollDelay')) state.remove("localPollDelay")
             // speed up the check for while
