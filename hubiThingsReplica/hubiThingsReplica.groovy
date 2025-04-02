@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger()
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. (no Replica changes)
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
@@ -27,9 +26,10 @@
 *  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events.
 *  1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications
 *  1.5.05 2025-04-01 SmartThings fixed API to allow for virtual device creation using the OAuth token.
+*  1.5.06 2025-04-01 More fixes to improve hub startup performance. Added 'update' to deviceTriggerHandler for use with drivers.
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.5.05" }
+public static String version() { return "1.5.06" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -2742,7 +2742,11 @@ void deviceTriggerHandler(def event) {
     deviceTriggerHandlerPrivate(event?.getDevice(), event?.name, event?.value.toString(), event?.unit, event?.getJsonData())
 }
 
-void deviceTriggerHandler(def replicaDevice, Map event) {    
+void deviceTriggerHandler(def replicaDevice, Map event) {
+    if(g_mSmartDeviceListCache[app.getId()]==null) {
+        if(scheduleAllSmartDeviceRefresh()) logWarn "${app.getLabel()} rejecting '${replicaDevice?.getLabel()}' command '${event?.name}' until 'allSmartDeviceRefresh' completes"
+        return
+    }
 
     // called from replica HE drivers. value might not be a string, converting it to normalize with events above.
     Boolean result = deviceTriggerHandlerPrivate(replicaDevice, event?.name, event?.value.toString(), event?.unit, event?.data, event?.now)    
@@ -2751,11 +2755,15 @@ void deviceTriggerHandler(def replicaDevice, Map event) {
     }    
     else if(event?.name == "configure") {
         clearReplicaDataCache(replicaDevice)
-        replicaDeviceRefresh(replicaDevice,5)       
+        replicaDeviceRefresh(replicaDevice,5)
     }
     else if(event?.name == "refresh") {
         replicaDeviceRefresh(replicaDevice)
     }
+    else if(event?.name == "update") {
+        String deviceId = getReplicaDeviceId(replicaDevice)
+        if(deviceId) getSmartDeviceStatus(deviceId)
+    }        
     else if(!result) {
         logInfo "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' event:'${event?.name}' is not rule configured"
     }
