@@ -11,11 +11,11 @@
 *  for the specific language governing permissions and limitations under the License.
 *
 */
-public static String version() {return "1.3.3"}
+public static String version() {return "1.3.4"}
 
 import groovy.transform.CompileStatic
 import groovy.transform.Field
-@Field volatile static Map<String,Boolean> g_mSecondRefreshRequired = [:]
+@Field volatile static Map<String,Boolean> g_mSecondUpdateRequired = [:]
 
 metadata 
 {
@@ -108,7 +108,7 @@ def initialize() {
         // blow away all attribute information. not sure if this 'is the way' but it worked.
         device.currentStates?.collect{ ((new groovy.json.JsonSlurper().parseText( groovy.json.JsonOutput.toJson(it) ))?.name) }?.each{ device.deleteCurrentState(it) }        
         runIn(1, configure)
-   } else runIn(1, refresh)
+   } else runIn(4, update)
     autoLogsOff()
     sendEvent(name:"numberOfButtons", value: (settings?.numberOfButtons)?:50)
     // Special localPoll for more-realtime volume changes. I understand this is how Home Assistant works too.
@@ -133,9 +133,9 @@ static Map getReplicaCommands() {
 }
 
 def setTvChannelValue(value) {
-    logDebug "${device.displayName} executing 'setTvChannelValue($value)' second refresh:${g_mSecondRefreshRequired[device.getId()]}"
+    logDebug "${device.displayName} executing 'setTvChannelValue($value)' second update:${g_mSecondUpdateRequired[device.getId()]}"
     value = (device.currentValue("switch")=="off") ? 0 : (value ? value?.toInteger() : 0)
-    if(g_mSecondRefreshRequired[device.getId()] || value==device.currentValue("channel")) return
+    if(g_mSecondUpdateRequired[device.getId()] || value==device.currentValue("channel")) return
     
     String descriptionText = "${device.displayName} channel is $value"
     sendEvent(name: "channel", value: value, descriptionText: descriptionText)
@@ -143,9 +143,9 @@ def setTvChannelValue(value) {
 }
 
 def setTvChannelNameValue(value) {
-    logDebug "${device.displayName} executing 'setTvChannelNameValue($value)' second refresh:${g_mSecondRefreshRequired[device.getId()]}"
+    logDebug "${device.displayName} executing 'setTvChannelNameValue($value)' second update:${g_mSecondUpdateRequired[device.getId()]}"
     value = getAppName( value ?: (device.currentValue("mediaInputSourceName")) ?: "not available" )
-    if(g_mSecondRefreshRequired[device.getId()] || value==device.currentValue("channelName")) return    
+    if(g_mSecondUpdateRequired[device.getId()] || value==device.currentValue("channelName")) return    
     
     String descriptionText = "${device.displayName} channel name is $value"
     sendEvent(name: "channelName", value: value, descriptionText: descriptionText)
@@ -201,7 +201,7 @@ def setSupportedSoundModesValue(value) {
 }
 
 def setSoundModeValue(value) {
-    if(g_mSecondRefreshRequired[device.getId()] || value==device.currentValue("sound")) return
+    if(g_mSecondUpdateRequired[device.getId()] || value==device.currentValue("sound")) return
     
     String descriptionText = "${device.displayName} sound is $value"
     sendEvent(name: "sound", value: value, descriptionText: descriptionText)
@@ -224,7 +224,7 @@ def setSupportedPictureModesValue(value) {
 }
 
 def setPictureModeValue(value) {
-    if(g_mSecondRefreshRequired[device.getId()] || value==device.currentValue("picture")) return
+    if(g_mSecondUpdateRequired[device.getId()] || value==device.currentValue("picture")) return
     
     String descriptionText = "${device.displayName} picture mode is $value"
     sendEvent(name: "picture", value: value, descriptionText: descriptionText)
@@ -238,7 +238,7 @@ def togglePictureMode() {
 }    
 
 def setSupportedInputSourcesMapValue(value) {
-    logDebug "${device.displayName} executing 'setSupportedInputSourcesMapValue($value)' second refresh:${g_mSecondRefreshRequired[device.getId()]}"
+    logDebug "${device.displayName} executing 'setSupportedInputSourcesMapValue($value)' second update:${g_mSecondUpdateRequired[device.getId()]}"
     List supportedInputSourcesMap = state?.supportedInputSourcesMap ? (new groovy.json.JsonSlurper().parseText(state.supportedInputSourcesMap)) : []
     if(value==null || value.sort()==supportedInputSourcesMap.sort()) return 
     
@@ -295,13 +295,13 @@ def setVolumeValue(value) {
 }
 
 def setSwitchValue(value) {
-    logDebug "${device.displayName} executing 'setSwitchValue($value)' second refresh:${g_mSecondRefreshRequired[device.getId()]}"
+    logDebug "${device.displayName} executing 'setSwitchValue($value)' second update:${g_mSecondUpdateRequired[device.getId()]}"
     if(value==device.currentValue("switch")) return    
     
     String descriptionText = "${device.displayName} was turned $value"
     sendEvent(name: "switch", value: value, descriptionText: descriptionText)   
     logInfo descriptionText    
-    runIn(1, refresh)
+    runIn(1, update)
     // will turn on when set on & proper ip is set, turn off when set is off.
     runIn(value=="off" ? 1 : 5, "initPollVolume")
 }
@@ -346,7 +346,7 @@ private def sendCommand(String name, def value=null, String unit=null, data=[:])
     data.version=version()
     parent?.deviceTriggerHandler(device, [name:name, value:value, unit:unit, data:data, now:now()])
     
-    if(!(name ==~ /^(off|on|refresh)$/)) runIn(2, refresh) // if "on/off" we will start the refresh on the callback from smartthings
+    if(!(name ==~ /^(off|on|refresh|update)$/)) runIn(2, update) // if "on/off" we will start the refresh on the callback from smartthings
 }
 
 //capability "execute"
@@ -497,17 +497,26 @@ def remoteControl(String keyValue, String keyState="PRESS_AND_RELEASED") {
 }
 
 void refresh() {
-    if(g_mSecondRefreshRequired[device.getId()]) {
-        g_mSecondRefreshRequired[device.getId()] = false
-        if(device.currentValue("switch")=="on") runIn(300, refresh)
-     } else {
-        g_mSecondRefreshRequired[device.getId()] = true
-        runIn(4, refresh)
-    }    
-    sendCommand("refresh") 
-    logDebug "${device.displayName} completed 'refresh()' second refresh:${g_mSecondRefreshRequired[device.getId()]}"
+    sendCommand("refresh")
+    runIn(4, update)
 }
 
+// Most of the TV updates do not move to the cloud API automatically until you send a refresh (or lessor 'replica only' update), then you need to delay and read again.
+// So we are sending for the refresh, then waiting 4 seconds and refreshing again. Not sure why Samsung does this, must not want all that traffic or just lazy?
+void update() {
+    if(g_mSecondUpdateRequired[device.getId()]) {
+        g_mSecondUpdateRequired[device.getId()] = false
+        if(device.currentValue("switch")=="on") runIn(300, update)
+     } else {
+        g_mSecondUpdateRequired[device.getId()] = true
+        runIn(4, update)
+    }    
+    sendCommand("update") 
+    logDebug "${device.displayName} completed 'update()' second update:${g_mSecondUpdateRequired[device.getId()]}"
+}
+
+// This is a very high speed poll to track volume in a more real time manner. There is no event on the websocket for this. So use only when needed.
+// Otherwise volume changes are tracked on a per five minute resolution in the update function ^^.
 def initPollVolume() {
     unschedule("pollVolume")
     unschedule("pollVolumeWatchdog")
