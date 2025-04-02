@@ -2757,13 +2757,14 @@ void deviceTriggerHandler(def replicaDevice, Map event) {
         clearReplicaDataCache(replicaDevice)
         replicaDeviceRefresh(replicaDevice,5)
     }
-    else if(event?.name == "refresh") {
-        replicaDeviceRefresh(replicaDevice)
-    }
-    else if(event?.name == "update") {
+    else if(event?.name == "update" || (event?.name == "refresh" && event?.data?.update)) {
         String deviceId = getReplicaDeviceId(replicaDevice)
         if(deviceId) getSmartDeviceStatus(deviceId)
-    }        
+    }
+    else if(event?.name == "refresh") {
+        if(event?.data?.status) 
+        replicaDeviceRefresh(replicaDevice)
+    }
     else if(!result) {
         logInfo "${app.getLabel()} executing 'deviceTriggerHandler()' replicaDevice:'${replicaDevice.getDisplayName()}' event:'${event?.name}' is not rule configured"
     }
