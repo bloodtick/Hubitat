@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.3.14 2024-03-08 Bug fix for capability check before attribute match in smartTriggerHandler(), checkCommand() && checkTrigger() (no OAuth changes) 
 *  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name.
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
@@ -27,9 +26,10 @@
 *  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events. (no OAuth changes)
 *  1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications
 *  1.5.05 2025-04-01 SmartThings fixed API to allow for virtual device creation using the OAuth token. (no OAuth changes)
+*  1.5.06 2025-04-01 More fixes to improve hub startup performance. Added 'update' to deviceTriggerHandler for use with drivers. (no OAuth changes)
 *  LINE 30 MAX */  
 
-public static String version() { return "1.5.05" }
+public static String version() { return "1.5.06" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
