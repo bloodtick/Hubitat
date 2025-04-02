@@ -509,7 +509,7 @@ void update() {
         if(device.currentValue("switch")=="on") runIn(300, update)
      } else {
         g_mSecondUpdateRequired[device.getId()] = true
-        runIn(5, update)
+        runIn(4, update)
     }    
     sendCommand("refresh", null, null, [update:true]) 
     logDebug "${device.displayName} completed 'update()' second update:${g_mSecondUpdateRequired[device.getId()]}"
