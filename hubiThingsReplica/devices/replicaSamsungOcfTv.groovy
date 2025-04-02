@@ -607,7 +607,6 @@ void pollVolumeCallback(hubResponse) {
         Integer lastVolume = pollData.lastVolume
 
         if(newVolume != lastVolume) {
-            setVolume(newVolume)
             sendEvent(name: "localPoll", value: "enabled")
             if(state.containsKey('localPollDelay')) state.remove("localPollDelay")
             // speed up the check for while
@@ -617,7 +616,7 @@ void pollVolumeCallback(hubResponse) {
             String direction = (newVolume > lastVolume) ? "+" : "-"
             pollData.lastVolume = newVolume
             state.volumePattern = (state?.volumePattern ?: "") + direction
-            runInMillis(VOLUME_POLL_DELAY * 1.5 as Integer, volumePattern)
+            runInMillis(VOLUME_POLL_DELAY * 1.5 as Integer, volumePattern) // this will update SmartThings with the new volume level
         } else if(now() > pollData.lastChangeTimestamp + 10*60*1000) { // slow down after 10 min of no activity
             pollData.runInMillis = VOLUME_POLL_INACTIVITY_DELAY
         } else if(now() > pollData.lastChangeTimestamp + 10*1000) { // go normal after 10 seconds
@@ -637,6 +636,7 @@ void pollVolumeCallback(hubResponse) {
 void volumePattern() {
     if(state?.volumePattern?.size()>3) sendEvent(name: "volumePattern", value: state.volumePattern, isStateChange: true)
     state.remove('volumePattern')
+    update() // this will update SmartThings with the new volume level
 }
 
 static String getReplicaRules() {
