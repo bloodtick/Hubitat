@@ -10,7 +10,7 @@
         "Tools & Utilities"
     ],
     "dateReleased": "2023-01-13",
-    "releaseNotes": "1.5.06 2025-04-01 More fixes to improve hub startup performance. Added 'update' to deviceTriggerHandler for use with drivers.\n1.5.05 2025-04-01 SmartThings fixed API to allow for virtual device creation using the OAuth token.\n1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications.\n1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events.\n1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead.\n",
+    "releaseNotes": "1.5.07 2025-04-13 Allow user to directly set attributes and function parameters in rules.\n1.5.06 2025-04-01 More fixes to improve hub startup performance. Added 'update' to deviceTriggerHandler for use with drivers.\n1.5.05 2025-04-01 SmartThings fixed API to allow for virtual device creation using the OAuth token.\n1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications.\n1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events.\n1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead.\n",
     "apps": [
         {
             "id": "a2084852-9f6b-45b0-93e7-e575be7ac216",
@@ -20,7 +20,7 @@
             "required": true,
             "oauth": false,
             "primary": true,
-            "version": "1.5.06"
+            "version": "1.5.07"
         },
         {
             "id": "9bb9eacb-c243-43d6-9dc4-520f0e476016",
@@ -29,7 +29,7 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
             "required": true,
             "oauth": true,
-            "version": "1.5.06"
+            "version": "1.5.07"
         }
     ],
     "drivers": [
