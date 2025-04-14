@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.3.15 2024-03-23 Update to OAuth to give easier callback identification. This will only take effect on new APIs, so old ones will still have generic name. (no Replica changes)
 *  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
 *  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
@@ -27,9 +26,10 @@
 *  1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications
 *  1.5.05 2025-04-01 SmartThings fixed API to allow for virtual device creation using the OAuth token.
 *  1.5.06 2025-04-01 More fixes to improve hub startup performance. Added 'update' to deviceTriggerHandler for use with drivers.
+*  1.5.07 2025-04-13 Allow user to directly set attributes and function parameters in rules. Updates have #tagRuleOverride. 
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.5.06" }
+public static String version() { return "1.5.07" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -2041,8 +2041,11 @@ Map createVirtualDevice(String locationId, String roomId, String name, String pr
 
 Map getVirtualDeviceList() {
     Map response = [statusCode:iHttpSuccess, data:[items:[]]]
-    getChildApps()?.each { 
-        Map singleResponse = getVirtualDeviceList(it.getLocationId())
+    getChildApps()        
+    	?.groupBy { it.getLocationId() }   // group by locationId #tagRuleOverride
+        ?.collect { k, v -> v[0] }         // take only the first child per group
+        ?.each { child ->
+        Map singleResponse = getVirtualDeviceList(child.getLocationId())
         response.statusCode = singleResponse.statusCode!=iHttpSuccess ? singleResponse.statusCode : response.statusCode
         response.data.items.addAll( singleResponse.data?.items )
     }
@@ -2334,13 +2337,15 @@ def checkFirmwareVersion(versionString) {
 
 Boolean checkTrigger(replicaDevice, type, ruleTrigger) {
     Map trigger = type=='hubitatTrigger' ? getHubitatAttributeOptions(replicaDevice) : getSmartAttributeOptions(replicaDevice)
-    return (type=='hubitatTrigger' ? !!trigger?.get(ruleTrigger?.label) : !!trigger?.find{ k,v -> v?.capability==ruleTrigger?.capability && v?.attribute==ruleTrigger?.attribute })
+    // #tagRuleOverride added the !!trigger?.find when hubitatTrigger
+    return (type=='hubitatTrigger' ? trigger?.get(ruleTrigger?.label) || !!trigger?.find{ k,v -> v?.capability==ruleTrigger?.capability && v?.attribute==ruleTrigger?.attribute } : !!trigger?.find{ k,v -> v?.capability==ruleTrigger?.capability && v?.attribute==ruleTrigger?.attribute })
     //return trigger?.get(ruleTrigger?.label)
 }
 
 Boolean checkCommand(replicaDevice, type, ruleCommand) {
     Map commands = type!='hubitatTrigger' ? getHubitatCommandOptions(replicaDevice) : getSmartCommandOptions(replicaDevice)
-    return (type=='hubitatTrigger' ? !!commands?.get(ruleCommand?.label) : !!commands?.find{ k,v -> v?.capability==ruleCommand?.capability && v?.name==ruleCommand?.name })
+    // #tagRuleOverride added the !!commands?.find when hubitatTrigger
+    return (type=='hubitatTrigger' ? commands?.get(ruleCommand?.label) || !!commands?.find{ k,v -> v?.capability==ruleCommand?.capability && v?.name==ruleCommand?.name } : !!commands?.find{ k,v -> v?.capability==ruleCommand?.capability && v?.name==ruleCommand?.name })
     //return commands?.get(ruleCommand?.label)
 }       
 
@@ -2363,13 +2368,34 @@ def pageConfigureDevice() {
                 deviceTitle = "<a href='${deviceUrl}' target='_blank' rel='noopener noreferrer'>${deviceTitle}</a>"
             }
             input(name: "pageConfigureDeviceReplicaDevice", type: "enum", title: deviceTitle, description: "Choose a HubiThings device", options: replicaDevicesSelect, multiple: false, submitOnChange: true, width: 8, newLineAfter:true)
+            
+            // #tagRuleOverride
+            Boolean hubitatAttributeOverrideFlag = pageConfigureDeviceShowDetail && hubitatAttribute?.endsWith('*') && g_mAppDeviceSettings['pageConfigureDeviceReplicaDevice']==pageConfigureDeviceReplicaDevice
+            Boolean smartCommandOverideFlag = pageConfigureDeviceShowDetail && smartCommand?.endsWith(')') && !smartCommand?.endsWith('()') && g_mAppDeviceSettings['pageConfigureDeviceReplicaDevice']==pageConfigureDeviceReplicaDevice
+            Boolean smartAttributeOverrideFlag = pageConfigureDeviceShowDetail && smartAttribute?.endsWith('*') && g_mAppDeviceSettings['pageConfigureDeviceReplicaDevice']==pageConfigureDeviceReplicaDevice
+            Boolean hubitatCommandOverideFlag = pageConfigureDeviceShowDetail && hubitatCommand?.endsWith(')') && !hubitatCommand?.endsWith('()') && g_mAppDeviceSettings['pageConfigureDeviceReplicaDevice']==pageConfigureDeviceReplicaDevice      
+                        
             if(g_mAppDeviceSettings['pageConfigureDeviceReplicaDevice']!=pageConfigureDeviceReplicaDevice) {
                 g_mAppDeviceSettings['pageConfigureDeviceReplicaDevice']=pageConfigureDeviceReplicaDevice
                 g_mAppDeviceSettings['replicaDevicesRuleSectionSelect']?.clear()                
                 app.updateSetting("pageConfigureDeviceAllowDuplicateAttribute", false)
                 app.updateSetting("pageConfigureDeviceMuteTriggerRuleInfo", false)
                 app.updateSetting("pageConfigureDeviceDisableStatusUpdate", (replicaDevice && replicaDevice?.device?.deviceType?.namespace!=sSTNamespace))
-                //logWarn JsonOutput.toJson(app)       
+                
+                app.removeSetting("hubitatAttribute")
+                app.removeSetting("smartCommand")
+                app.removeSetting("smartAttribute")
+                app.removeSetting("hubitatCommand")
+                
+                app.removeSetting("hubitatAttributeValueOverride")
+                app.removeSetting("smartCommandValueOverride")
+                app.removeSetting("smartAttributeValueOverride")
+                app.removeSetting("hubitatCommandValueOverride")  
+            } else {
+                app.updateSetting("hubitatAttributeValueOverride", [type: "string", value: hubitatAttributeOverrideFlag ? hubitatAttributeValueOverride?.trim()?:"" : ""])
+                app.updateSetting("smartCommandValueOverride", [type: "string", value: smartCommandOverideFlag ? smartCommandValueOverride?.trim()?:"" : ""])
+                app.updateSetting("smartAttributeValueOverride", [type: "string", value: smartAttributeOverrideFlag ? smartAttributeValueOverride?.trim()?:"" : ""])
+                app.updateSetting("hubitatCommandValueOverride", [type: "string", value: hubitatCommandOverideFlag ? hubitatCommandValueOverride?.trim()?:"" : ""])
             }
      
             if(pageConfigureDeviceShowDetail && replicaDevice) {
@@ -2383,24 +2409,36 @@ def pageConfigureDevice() {
             paragraph( getFormat("line") )
             
             Map hubitatAttributeOptions = getHubitatAttributeOptions(replicaDevice)                      
-            Map smartCommandOptions = getSmartCommandOptions(replicaDevice)
+            Map smartCommandOptions = getSmartCommandOptions(replicaDevice)           
             
             input(name: "hubitatAttribute", type: "enum", title: "&ensp;$sHubitatIcon If Hubitat Attribute <b>TRIGGER</b> changes:", description: "Choose a Hubitat Attribute", options: hubitatAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4)
-            List schemaOneOfType = smartCommandOptions?.get(smartCommand)?.arguments?.getAt(0)?.schema?.oneOf?.collect{ it?.type } ?: [] 
-            input(name: "smartCommand", type: "enum", title: "&ensp;$sSamsungIcon Then <b>ACTION</b> SmartThings Command:", description: "Choose a SmartThings Command", options: smartCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter: schemaOneOfType.isEmpty())        
+            // #tagRuleOverride
+            if(hubitatAttributeOverrideFlag) input(name: "hubitatAttributeValueOverride", type: "text", title:"$sHubitatIcon Attribute Override:", description: "Not Set", width: 2, submitOnChange: true, newLineAfter:false) 
+            
+            List schemaOneOfType = smartCommandOptions?.get(smartCommand)?.arguments?.getAt(0)?.schema?.oneOf?.collect{ it?.type } ?: []
+            input(name: "smartCommand", type: "enum", title: "&ensp;$sSamsungIcon Then <b>ACTION</b> SmartThings Command:", description: "Choose a SmartThings Command", options: smartCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter: !smartCommandOverideFlag && schemaOneOfType.isEmpty() )  
+            
             if(!schemaOneOfType.isEmpty()) {
-                input(name: "smartCommandSchemaOneOf", type: "enum", title: "&ensp;$sSamsungIcon Argument Type:", description: "Choose an Argument Type", options: schemaOneOfType.sort(), required: true, submitOnChange:true, width: 4, newLineAfter:true)
+                input(name: "smartCommandSchemaOneOf", type: "enum", title: "&ensp;$sSamsungIcon Argument Type:", description: "Choose an Argument Type", options: schemaOneOfType.sort(), required: true, submitOnChange:true, width: 4, newLineAfter:!pageConfigureDeviceShowDetail)
             } else {
                 app.removeSetting("smartCommandSchemaOneOf")
-            }            
+            }
+            // #tagRuleOverride
+            if(smartCommandOverideFlag) input(name: "smartCommandValueOverride", type: "text", title:"$sSamsungIcon Argument Override:", description: "Not Set", width: 2, submitOnChange: true, newLineAfter:true)
             input(name: "pageConfigureDevice::hubitatAttributeStore",  type: "button", title: "Store Rule", width: 2, style:"width:75%;")
             input(name: "pageConfigureDevice::hubitatAttributeDelete",  type: "button", title: "Delete Rule", width: 2, style:"width:75%;")
             
             g_mAppDeviceSettings['hubitatAttribute']?.clear()            
             g_mAppDeviceSettings['hubitatAttribute'] = hubitatAttributeOptions?.get(hubitatAttribute) ?: [:]
+            // #tagRuleOverride
+            if(hubitatAttributeOverrideFlag && hubitatAttributeValueOverride) 
+            { g_mAppDeviceSettings['hubitatAttribute'].value = hubitatAttributeValueOverride; g_mAppDeviceSettings['hubitatAttribute'].label = "${g_mAppDeviceSettings['hubitatAttribute']?.label?.replaceAll('\\.\\*', '')}.$hubitatAttributeValueOverride" }
             g_mAppDeviceSettings['smartCommand']?.clear()
             g_mAppDeviceSettings['smartCommand'] = smartCommandOptions?.get(smartCommand) ?: [:]
-            if(smartCommandSchemaOneOf) g_mAppDeviceSettings['smartCommand'].schemaOneOfType = smartCommandSchemaOneOf
+            // #tagRuleOverride
+            if(smartCommandOverideFlag && smartCommandValueOverride) 
+            { g_mAppDeviceSettings['smartCommand'].value = smartCommandValueOverride; g_mAppDeviceSettings['smartCommand'].label = "${g_mAppDeviceSettings['smartCommand']?.label?.replaceFirst(/(\().*$/, '')}('$smartCommandValueOverride')"}
+      		if(smartCommandSchemaOneOf) g_mAppDeviceSettings['smartCommand'].schemaOneOfType = smartCommandSchemaOneOf
 
             if(pageConfigureDeviceShowDetail) {
                 String comments =  hubitatAttribute&&!g_mAppDeviceSettings['hubitatAttribute'].isEmpty() ? "$sHubitatIcon $hubitatAttribute : ${JsonOutput.toJson(g_mAppDeviceSettings['hubitatAttribute'])}" : "$sHubitatIcon No Selection"
@@ -2412,15 +2450,27 @@ def pageConfigureDevice() {
             Map smartAttributeOptions = getSmartAttributeOptions(replicaDevice)         
             Map hubitatCommandOptions = getHubitatCommandOptions(replicaDevice)
             
-            input(name: "smartAttribute", type: "enum", title: "&ensp;$sSamsungIcon If SmartThings Attribute <b>TRIGGER</b> changes:", description: "Choose a SmartThings Attribute", options: smartAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4)
-            input(name: "hubitatCommand", type: "enum", title: "&ensp;$sHubitatIcon Then <b>ACTION</b> Hubitat Command${pageConfigureDeviceAllowActionAttribute?'/Attribute':''}:", description: "Choose a Hubitat Command", options: hubitatCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter:true)
+
+            input(name: "smartAttribute", type: "enum", title: "&ensp;$sSamsungIcon If SmartThings Attribute <b>TRIGGER</b> changes:", description: "Choose a SmartThings Attribute", options: smartAttributeOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter:false)
+            // #tagRuleOverride
+            if(smartAttributeOverrideFlag) input(name: "smartAttributeValueOverride", type: "text", title:"$sSamsungIcon Attribute Override:", description: "Not Set", width: 2, submitOnChange: true, newLineAfter:false)
+            input(name: "hubitatCommand", type: "enum", title: "&ensp;$sHubitatIcon Then <b>ACTION</b> Hubitat Command${pageConfigureDeviceAllowActionAttribute?'/Attribute':''}:", description: "Choose a Hubitat Command", options: hubitatCommandOptions.keySet().sort(), required: false, submitOnChange:true, width: 4, newLineAfter:!hubitatCommandOverideFlag)
+ 			// #tagRuleOverride
+            if(hubitatCommandOverideFlag) input(name: "hubitatCommandValueOverride", type: "text", title:"$sHubitatIcon Argument Override:", description: "Not Set", width: 2, submitOnChange: true, newLineAfter:true)
+            
             input(name: "pageConfigureDevice::smartAttributeStore",  type: "button", title: "Store Rule", width: 2, style:"width:75%;")
             input(name: "pageConfigureDevice::smartAttributeDelete",  type: "button", title: "Delete Rule", width: 2, style:"width:75%;")
             
             g_mAppDeviceSettings['smartAttribute']?.clear()
             g_mAppDeviceSettings['smartAttribute'] = smartAttributeOptions?.get(smartAttribute) ?: [:]
+            // #tagRuleOverride
+            if(smartAttributeOverrideFlag && smartAttributeValueOverride) 
+            { g_mAppDeviceSettings['smartAttribute'].value = smartAttributeValueOverride; g_mAppDeviceSettings['smartAttribute'].label = "${g_mAppDeviceSettings['smartAttribute']?.label?.replaceAll('\\.\\*', '')}.$smartAttributeValueOverride" }
             g_mAppDeviceSettings['hubitatCommand']?.clear()
             g_mAppDeviceSettings['hubitatCommand'] = hubitatCommandOptions?.get(hubitatCommand) ?: [:]
+            // #tagRuleOverride
+            if(hubitatCommandOverideFlag && hubitatCommandValueOverride) 
+            { g_mAppDeviceSettings['hubitatCommand'].value = hubitatCommandValueOverride; g_mAppDeviceSettings['hubitatCommand'].label = "${g_mAppDeviceSettings['hubitatCommand']?.label?.replaceFirst(/(\().*$/, '')}('$hubitatCommandValueOverride')" }
             
             if(pageConfigureDeviceShowDetail) {
                 String comments =  smartAttribute&&!g_mAppDeviceSettings['smartAttribute'].isEmpty() ? "$sSamsungIcon $smartAttribute : ${JsonOutput.toJson(g_mAppDeviceSettings['smartAttribute'])}" : "$sSamsungIcon No Selection" 
@@ -2429,15 +2479,15 @@ def pageConfigureDevice() {
             }
             paragraph( getFormat("line") )
             
-            String comments  = "Allowing duplicate attribute triggers enables setting more than one command per triggering event. "
-                   comments += "Disabling the periodic refresh will stop HubiThings Replica from regular confidence updates which could be problematic with devices that send update events regardless of their current state. "
+            String comments  = "Allowing duplicate attribute triggers enables setting more than one command per triggering event.\n"
+                   comments += "Disabling the <b>periodic refresh</b> $sPeriodicIcon will stop HubiThings Replica from regular confidence updates which could be problematic with devices that send update events regardless of their current state. "
             paragraphComment(comments)
             
             input(name: "pageConfigureDeviceAllowDuplicateAttribute", type: "bool", title: "Allow duplicate Attribute <b>TRIGGER</b>", defaultValue: false, submitOnChange: true, width: 3)
             input(name: "pageConfigureDeviceMuteTriggerRuleInfo", type: "bool", title: "Disable <b>TRIGGER</b> $sInfoLogsIcon rule logs", defaultValue: false, submitOnChange: true, width: 3)
             input(name: "pageConfigureDeviceDisableStatusUpdate", type: "bool", title: "Disable $sPeriodicIcon periodic device refresh", defaultValue: false, submitOnChange: true, width: 3)
             app.updateSetting("pageConfigureDeviceAllowActionAttribute", false)
-            input(name: "pageConfigureDeviceShowDetail", type: "bool", title: "Show attribute and command detail", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
+            input(name: "pageConfigureDeviceShowDetail", type: "bool", title: "Show attribute, command, override details", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
         }        
         replicaDevicesRuleSection()
     }
@@ -2777,6 +2827,9 @@ private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName,
     getReplicaDataJsonValue(replicaDevice, "rules")?.components?.findAll{ it?.type=="hubitatTrigger" && it?.trigger?.name==eventName && (!it?.trigger?.value || it?.trigger?.value==eventValue) }?.each { rule ->            
         Map trigger = rule?.trigger
         Map command = rule?.command        
+
+        // #tagRuleOverride
+        eventValue = command?.value ?: eventValue  
         
         // commands are always passed. // this allows for cross setting switch.off->contact.closed  // attempt to block sending anything duplicate and store for reflections
         if(trigger?.type=="command" || command?.attribute&&command?.attribute!=eventName || !deviceTriggerHandlerCache(replicaDevice, eventName, eventValue)) {
@@ -2893,12 +2946,12 @@ Map smartTriggerHandler(replicaDevice, Map event, String type, Long eventPostTim
             replicaDeviceRules?.components?.findAll{ it?.type == "smartTrigger" }?.each { rule -> 
                 Map trigger = rule?.trigger
                 Map command = rule?.command
-
                 // simple enum case
-                if(capability==trigger?.capability && attribute==trigger?.attribute && value?.value==trigger?.value) {                   
+                if(capability==trigger?.capability && attribute==trigger?.attribute && value?.value?.toString()==trigger?.value?.toString()) { // #tagRuleOverride added .toString()
+                    logTrace "smartTrigger: Event value:'${value?.value}' Trigger value:'${trigger?.value}' Command value:'${command?.value}'"
                     smartTriggerHandlerCache(replicaDevice, attribute, value?.value)
                     
-                    List args = []
+                    List args = command?.value ? [ command.value ] : [] // #tagRuleOverride added command.value stuff
                     String method = command?.name
                     if(hasCommand(replicaDevice, method) && !(type=="status" && rule?.disableStatus)) {
                         replicaDevice."$method"(*args)
