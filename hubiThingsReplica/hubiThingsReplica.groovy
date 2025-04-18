@@ -17,19 +17,19 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
-*  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
+*  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid.
 *  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
-*  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead
+*  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead.
 *  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events.
-*  1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications
+*  1.5.04 2025-03-09 More fixes to improve hub startup performance and excessive message traffic notifications.
 *  1.5.05 2025-04-01 SmartThings fixed API to allow for virtual device creation using the OAuth token.
 *  1.5.06 2025-04-01 More fixes to improve hub startup performance. Added 'update' to deviceTriggerHandler for use with drivers.
-*  1.5.07 2025-04-13 Allow user to directly set attributes and function parameters in rules. Updates have #tagRuleOverride. 
+*  1.5.07 2025-04-13 Allow user to directly set attributes and function parameters in rules. Updates have #tagRuleOverride.
+*  1.5.08 2025-04-18 Updates to virtual device configurations and use locationId finding OAuth and not PAT.
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.5.07" }
+public static String version() { return "1.5.08" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -498,9 +498,19 @@ Map getSmartLocations() {
     return g_mSmartLocationListCache[app.getId()] ?: (g_mSmartLocationListCache[app.getId()]=getSmartLocationList()?.data) ?: [:] //blocking http
 }
 
+void clearSmartLocationsCache() {
+    g_mSmartLocationListCache[app.getId()]?.clear()
+    g_mSmartLocationListCache[app.getId()]=null
+}
+
 Map getSmartRooms(String locationId) {
     if(!g_mSmartRoomListCache[app.getId()]) g_mSmartRoomListCache[app.getId()] = [:]
     return g_mSmartRoomListCache[app.getId()]?."$locationId" ?: (g_mSmartRoomListCache[app.getId()]."$locationId"=getSmartRoomList(locationId)?.data) ?: [:] //blocking http
+}
+
+void clearSmartRoomsCache() {
+    g_mSmartRoomListCache[app.getId()]?.clear()
+    g_mSmartRoomListCache[app.getId()]=null
 }
 
 Map getSmartScenes(String locationId) {
@@ -510,6 +520,11 @@ Map getSmartScenes(String locationId) {
 
 Map getVirtualDevices() {
     return g_mVirtualDeviceListCache[app.getId()] ?: (g_mVirtualDeviceListCache[app.getId()]=getVirtualDeviceList()?.data) ?: [:] //blocking http
+}
+
+void clearVirtualDevicesCache() {
+    g_mVirtualDeviceListCache[app.getId()]?.clear()
+    g_mVirtualDeviceListCache[app.getId()]=null
 }
 
 String getSmartLocationName(String locationId) {
@@ -1296,13 +1311,14 @@ void getReplicaDeviceRefresh(replicaDevice) {
         //pauseExecution(250) // no need to hammer HA. moved to sendMessage
     } else {
         String deviceId = getReplicaDeviceId(replicaDevice)
+        String locationId = getReplicaDataJsonValue(replicaDevice, "description")?.locationId
         if(deviceId) {
             replicaDeviceSubscribe(replicaDevice)
-            getSmartDeviceStatus(deviceId)
+            getSmartDeviceStatus(deviceId,locationId)
             pauseExecution(250) // no need to hammer ST
-            getSmartDeviceHealth(deviceId)
+            getSmartDeviceHealth(deviceId,locationId)
             pauseExecution(250) // no need to hammer ST
-            getSmartDeviceDescription(deviceId)
+            getSmartDeviceDescription(deviceId,locationId)
             pauseExecution(250) // no need to hammer ST
         } else if(replicaDevice) {
             unsubscribe(replicaDevice)
@@ -1411,7 +1427,7 @@ String createMirrorDevice(String deviceId, String componentId, String deviceNetw
         clearReplicaDataCache(replicaDevice, "description", true)
         clearReplicaDataCache(replicaDevice, "health", true)
         clearReplicaDataCache(replicaDevice, "status", true)
-        replicaDeviceRefresh(replicaDevice)            
+        replicaDeviceRefresh(replicaDevice,5)            
     
         logInfo "${app.getLabel()} mirrored device'${replicaDevice.getDisplayName()}' with deviceId: $deviceId and deviceNetworkId: $replicaDevice.deviceNetworkId"
         app.updateSetting( "pageSupportNewDeviceReplicaDevice", [type:"enum", value: replicaDevice.deviceNetworkId] )
@@ -1602,11 +1618,11 @@ void pageVirtualDeviceCreateButton() {
     else {
         Map response = createVirtualDevice(pageVirtualDeviceLocation, pageVirtualDeviceRoom, virtualDeviceType?.name, virtualDeviceType?.typeId)
         if(response?.statusCode==200) {
-            g_mVirtualDeviceListCache[app.getId()]=null
+            clearVirtualDevicesCache() // reload it next fetch
             app.updateSetting( "pageVirtualDeviceModify", [type:"enum", value: response?.data?.deviceId] )
             g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = statusMsg("'${virtualDeviceType?.name}' was created with deviceId: ${response?.data?.deviceId}")
             
-            setVirtualDeviceDefaults(response?.data?.deviceId, virtualDeviceType?.typeId)
+            rsetVirtualDeviceDefaults(pageVirtualDeviceLocation, response?.data?.deviceId, virtualDeviceType?.typeId, 5)
             
             if(pageVirtualDeviceOauth) {
                 getChildAppById(pageVirtualDeviceOauth.toLong())?.createSmartDevice(pageVirtualDeviceLocation, response?.data?.deviceId, true)
@@ -1617,8 +1633,9 @@ void pageVirtualDeviceCreateButton() {
                 if(pageVirtualDeviceEnableMirrorHubitatDevice) {
                     if(getVirtualDeviceRules(virtualDeviceType?.typeId)) setReplicaDataValue(getDevice(pageVirtualDeviceHubitatDevice), "rules", getVirtualDeviceRules(virtualDeviceType?.typeId))
                     g_mAppDeviceSettings['pageVirtualDeviceCreateButton'] = createMirrorDevice(deviceId, componentId, pageVirtualDeviceHubitatDevice)
-                    if(renameVirtualDevice(deviceId, getDevice(pageVirtualDeviceHubitatDevice)?.getDisplayName())?.statusCode==200)
-                        getSmartDeviceDescription(deviceId)
+                    if(renameVirtualDevice(deviceId, getDevice(pageVirtualDeviceHubitatDevice)?.getDisplayName(), pageVirtualDeviceLocation)?.statusCode==200) {
+                        getSmartDeviceDescription(deviceId, pageVirtualDeviceLocation)
+                    }
                 }
                 else {
                     Map deviceType = getDeviceHandlers()?.items?.find{ it?.id==pageVirtualDeviceHubitatType } 
@@ -1652,7 +1669,7 @@ void pageVirtualDeviceRemoveButton() {
         Map allVirtualDevices = getVirtualDevices()
         String label = allVirtualDevices?.items?.find{ it?.deviceId==pageVirtualDeviceModify }?.label ?: "unknown device"
         if(deleteSmartDevice(pageVirtualDeviceModify)?.statusCode==200) {
-            g_mVirtualDeviceListCache[app.getId()]=null
+            clearVirtualDevicesCache()
             g_mAppDeviceSettings['pageVirtualDeviceModifyButtons'] = statusMsg("'$label' was removed with deviceId: $pageVirtualDeviceModify")
             getReplicaDevices(pageVirtualDeviceModify)?.each{ replicaDevice->
                 deleteChildDevice( replicaDevice?.deviceNetworkId )
@@ -1671,7 +1688,7 @@ void pageVirtualDeviceRenameButton() {
         String label = allVirtualDevices?.items?.find{ it?.deviceId==pageVirtualDeviceModify }?.label
         if(renameVirtualDevice(pageVirtualDeviceModify, pageVirtualDeviceLabel)?.statusCode==200) {
             getSmartDeviceDescription(pageVirtualDeviceModify)
-            g_mVirtualDeviceListCache[app.getId()]=null
+            clearVirtualDevicesCache()
             g_mAppDeviceSettings['pageVirtualDeviceModifyButtons'] = statusMsg("'$label' was renamed to '$pageVirtualDeviceLabel'")
             getReplicaDevices(pageVirtualDeviceModify)?.each{ replicaDevice->
                 if(replicaDevice?.getLabel()==label) replicaDevice?.setLabel( pageVirtualDeviceLabel )
@@ -1684,9 +1701,9 @@ void pageVirtualDeviceRenameButton() {
 
 void pageVirtualDeviceButtonRefresh() {
     logDebug "${app.getLabel()} executing 'pageVirtualDeviceButtonRefresh()'"
-    g_mVirtualDeviceListCache[app.getId()] = null
-    g_mSmartLocationListCache[app.getId()] = null
-    g_mSmartRoomListCache[app.getId()] = null
+    clearVirtualDevicesCache()
+    clearSmartLocationsCache()
+    clearSmartRoomsCache()
     g_mSmartSceneListCache[app.getId()] = null
 }
 
@@ -1805,25 +1822,45 @@ def virtualDeviceCustomSection() {
     if(!components.isEmpty()) {
         g_mAppDeviceSettings['pageVirtualDeviceCustomComponents'] = [ components:components, metadata:metadata ]
         g_mAppDeviceSettings['pageVirtualDeviceCustomComponentDefaults'] = defaultEvents
-        if(pageConfigureDeviceShowDetail)
+        //if(pageConfigureDeviceShowDetail) {
+            if(g_mAppDeviceSettings['pageVirtualDeviceCustomComponents']!=g_mAppDeviceSettings['pageVirtualDeviceCustomComponentsPrevious']) {
+                app.removeSetting("pageVirtualDeviceCustomComponentDefaults")
+                g_mAppDeviceSettings['pageVirtualDeviceCustomComponentsPrevious']?.clear()
+                g_mAppDeviceSettings['pageVirtualDeviceCustomComponentsPrevious'] = g_mAppDeviceSettings['pageVirtualDeviceCustomComponents']?.clone()
+            }
+        	
+            String deviceDefaultsJson = groovy.json.JsonOutput.toJson(g_mAppDeviceSettings['pageVirtualDeviceCustomComponentDefaults'])
+    		input(defaultValue: deviceDefaultsJson, name: "pageVirtualDeviceCustomComponentDefaults", type: "textarea", title: getFormat("hyperlink","$sSamsungIcon Virtual deviceDefaults Editor:","https://developer.smartthings.com/docs/devices/capabilities/capabilities-reference"), submitOnChange: true, rows:5, width:8)
+            if(deviceDefaultsJson && !pageVirtualDeviceCustomComponentDefaults) app.updateSetting("pageVirtualDeviceCustomComponentDefaults", [type: "text", value: deviceDefaultsJson]) // basically force the defaultValue
+
+            try {
+    			List parsedJson = new groovy.json.JsonSlurper().parseText(pageVirtualDeviceCustomComponentDefaults)
+    			g_mAppDeviceSettings['pageVirtualDeviceCustomComponentDefaults'] = parsedJson
+			} catch (Exception e) {
+                paragraph(errorMsg("Invalid user entered JSON in $sSamsungIcon Virtual Device Default."))
+			}
+            
             paragraphComment("deviceProfile=${g_mAppDeviceSettings['pageVirtualDeviceCustomComponents']?.toString()}</br>deviceDefaults=${g_mAppDeviceSettings['pageVirtualDeviceCustomComponentDefaults']?.toString()}")
-    }
+        //}        
+     }
 }
 
+// seems to be a good reference: https://github.com/hongtat/smartthings-capabilities/tree/master && https://developer.smartthings.com/docs/devices/capabilities/capabilities-reference
 static final List getVirtualDeviceComponents() {
     return [
         [ id:0,  label:"Component ID", capability:[id: "a", version: 1], ], // 'a' to sort to top. otherwise not used.
         [ id:1,  label:"Switch", capability:[id: "switch", version: 1], defaults:[ [componentId:"main", capability:"switch", attribute:"switch", value:"off"] ], rules:[] ],
-        [ id:2,  label:"Switch Level", capability:[id: "switchLevel", version: 1], defaults:[ [componentId:"main", capability:"switchLevel", attribute:"level", value:50] ], rules:[] ],
+        [ id:2,  label:"Switch Level", capability:[id: "switchLevel", version: 1], defaults:[ [componentId:"main", capability:"switchLevel", attribute:"levelRange", value:[ minimum:0, maximum:100, step:1]], [componentId:"main", capability:"switchLevel", attribute:"level", value:0, unit:"%"] ], rules:[] ],
         [ id:3,  label:"Lock", capability:[id: "lock", version: 1], defaults:[ [componentId:"main", capability:"lock", attribute:"lock", value:"unknown"] ], rules:[] ],
         [ id:4,  label:"Contact Sensor", capability:[id: "contactSensor", version: 1], defaults:[ [componentId:"main", capability:"contactSensor", attribute:"contact", value:"closed"] ], rules:[] ],
-        [ id:5,  label:"Temperature", capability:[id: "temperatureMeasurement", version: 1, config:"temperature.value"], defaults:[ [componentId:"main", capability:"temperatureMeasurement", attribute:"temperature", value:70, unit:"F"] ], rules:[] ],
-        [ id:6,  label:"Humidity", capability:[id: "relativeHumidityMeasurement", version: 1], defaults:[ [componentId:"main", capability:"relativeHumidityMeasurement", attribute:"humidity", value:50, unit:"%"] ], rules:[] ],
+        [ id:5,  label:"Temperature", capability:[id: "temperatureMeasurement", version: 1], defaults:[ [componentId:"main", capability:"temperatureMeasurement", attribute:"temperatureRange", value:[ minimum:50.0, maximum:90.0, step:1.0 ], unit:"F"],
+                                                                                                        [componentId:"main", capability:"temperatureMeasurement", attribute:"temperature", value:70.0, unit:"F"] ], rules:[] ],
+        [ id:6,  label:"Humidity", capability:[id: "relativeHumidityMeasurement", version: 1], defaults:[ [componentId:"main", capability:"relativeHumidityMeasurement", attribute:"humidity", value:30.0, unit:"%"] ], rules:[] ],
         [ id:7,  label:"Battery", capability:[id: "battery", version: 1], defaults:[ [componentId:"main", capability:"battery", attribute:"battery", value:100, unit:"%"] ], rules:[] ],
         [ id:8,  label:"Motion Sensor", capability:[id: "motionSensor", version: 1], defaults:[ [componentId:"main", capability:"motionSensor", attribute:"motion", value:"inactive"] ], rules:[] ],
         [ id:9,  label:"Alarm", capability:[id: "alarm", version: 1], defaults:[ [componentId:"main", capability:"alarm", attribute:"alarm", value:"off"] ], rules:[] ],
         [ id:10, label:"Acceleration Sensor", capability:[id: "accelerationSensor", version: 1], defaults:[ [componentId:"main", capability:"accelerationSensor", attribute:"acceleration", value:"inactive"] ], rules:[] ],
-        [ id:11, label:"Audio Volume", capability:[id: "audioVolume", version: 1], defaults:[ [componentId:"main", capability:"audioVolume", attribute:"volume", value:50] ], rules:[] ],
+        [ id:11, label:"Audio Volume", capability:[id: "audioVolume", version: 1], defaults:[ [componentId:"main", capability:"audioVolume", attribute:"volume", value:50, unit:"%"] ], rules:[] ],
         [ id:12, label:"Presence Sensor", capability:[id: "presenceSensor", version: 1], defaults:[ [componentId:"main", capability:"presenceSensor", attribute:"presence", value:"not present"] ], rules:[] ],
         [ id:13, label:"Smoke Detector", capability:[id: "smokeDetector", version: 1], defaults:[ [componentId:"main", capability:"smokeDetector", attribute:"smoke", value:"clear"] ], rules:[] ],
         [ id:14, label:"Power Source", capability:[id: "powerSource", version: 1], defaults:[ [componentId:"main", capability:"powerSource", attribute:"powerSource", value:"unknown"] ], rules:[] ],
@@ -1831,22 +1868,36 @@ static final List getVirtualDeviceComponents() {
         [ id:16, label:"Button", capability:[id: "button", version: 1], defaults:[ [componentId:"main", capability:"button", attribute:"numberOfButtons", value:1], [componentId:"main", capability:"button", attribute:"supportedButtonValues", value:["pushed","held","double","down"]] ], rules:[] ],
         [ id:17, label:"Audio Mute", capability:[id: "audioMute", version: 1], defaults:[ [componentId:"main", capability:"audioMute", attribute:"mute", value:"unmuted"] ], rules:[] ],
         [ id:18, label:"Door Control", capability:[id: "doorControl", version: 1], defaults:[ [componentId:"main", capability:"doorControl", attribute:"door", value:"unknown"] ], rules:[] ],
-        [ id:19, label:"Energy Meter", capability:[id: "energyMeter", version: 1], defaults:[ [componentId:"main", capability:"energyMeter", attribute:"energy", value:0] ], rules:[] ],
+        [ id:19, label:"Energy Meter", capability:[id: "energyMeter", version: 1], defaults:[ [componentId:"main", capability:"energyMeter", attribute:"energy", value:0, unit:"kWh"] ], rules:[] ],
         [ id:20, label:"Fan Speed", capability:[id: "fanSpeed", version: 1], defaults:[ [componentId:"main", capability:"fanSpeed", attribute:"fanSpeed", value:0] ], rules:[] ],
         [ id:21, label:"Illuminance", capability:[id: "illuminanceMeasurement", version: 1], defaults:[ [componentId:"main", capability:"illuminanceMeasurement", attribute:"illuminance", value:0] ], rules:[] ],
         // doesn't show [ id:22, label:"Location Mode", capability:[id: "locationMode", version: 1], defaults:[ [componentId:"main", capability:"locationMode", attribute:"mode", value:"unknown"] ], rules:[] ],
         [ id:23, label:"Occupancy Sensor", capability:[id: "occupancySensor", version: 1], defaults:[ [componentId:"main", capability:"occupancySensor", attribute:"occupancy", value:"unoccupied"] ], rules:[] ],
         // doesn't show [ id:24, label:"Samsung TV", capability:[id: "samsungTV", version: 1], defaults:[], rules:[] ],
-        [ id:25, label:"Security System", capability:[id: "securitySystem", version: 1], defaults:[ [componentId:"main", capability:"securitySystem", attribute:"alarm", value:"unknown"], [componentId:"main", capability:"securitySystem", attribute:"securitySystemStatus", value:"disarmed"] ], rules:[] ],
+        [ id:25, label:"Security System", capability:[id: "securitySystem", version: 1], defaults:[ [componentId:"main", capability:"securitySystem", attribute:"supportedSecuritySystemStatuses", value:["armedAway","armedStay","disarmed"]],
+                                                                                                    [componentId:"main", capability:"securitySystem", attribute:"supportedSecuritySystemCommands", value:["armedAway","armedStay","disarmed"]],
+                                                                                                    [componentId:"main", capability:"securitySystem", attribute:"sensorStatus", value:"ready"], [componentId:"main", capability:"securitySystem", attribute:"securitySystemStatus", value:"disarmed"] ], rules:[] ],
         [ id:26, label:"Ultraviolet Index", capability:[id: "ultravioletIndex", version: 1], defaults:[ [componentId:"main", capability:"ultravioletIndex", attribute:"ultravioletIndex", value:0] ], rules:[] ],
         [ id:27, label:"Valve", capability:[id: "valve", version: 1], defaults:[ [componentId:"main", capability:"valve", attribute:"valve", value:"closed"] ], rules:[] ],
-        [ id:28, label:"Voltage", capability:[id: "voltageMeasurement", version: 1], defaults:[ [componentId:"main", capability:"voltageMeasurement", attribute:"voltage", value:0] ], rules:[] ],
+        [ id:28, label:"Voltage", capability:[id: "voltageMeasurement", version: 1], defaults:[ [componentId:"main", capability:"voltageMeasurement", attribute:"voltage", value:0, unit:"V"] ], rules:[] ],
         [ id:29, label:"Water Sensor", capability:[id: "waterSensor", version: 1], defaults:[ [componentId:"main", capability:"waterSensor", attribute:"water", value:"dry"] ], rules:[] ],       
         // doesnt show [ id:30, label:"Lock Codes", capability:[id: "lockCodes", version: 1], defaults:[], rules:[] ],   
         [ id:31, error: "Problem using UI to control", label:"Momentary", capability:[id: "momentary", version: 1], defaults:[], rules:[] ],
-        [ id:32, error: "Problem changing setpoint from UI", label:"Thermostat Heating Setpoint", capability:[id: "thermostatHeatingSetpoint", version: 1, config:"heatingSetpoint.value"], defaults:[ [componentId:"main", capability:"thermostatHeatingSetpoint", attribute:"heatingSetpoint", value:70, unit:"F"] ], rules:[] ],
-        [ id:33, error: "Problem changing setpoint from UI", label:"Thermostat Cooling Setpoint", capability:[id: "thermostatCoolingSetpoint", version: 1, config:"coolingSetpoint.value"], defaults:[ [componentId:"main", capability:"thermostatCoolingSetpoint", attribute:"coolingSetpoint", value:75, unit:"F"] ], rules:[] ],
+        [ id:32, error: "Problem changing setpoint from UI", label:"Thermostat Heating Setpoint", capability:[id: "thermostatHeatingSetpoint", version: 1], defaults:[ [componentId:"main", capability:"thermostatHeatingSetpoint", attribute:"heatingSetpointRange", value:[ minimum:50.0, maximum:90.0, step:1.0 ], unit:"F"],
+            [componentId:"main", capability:"thermostatHeatingSetpoint", attribute:"heatingSetpoint", value:72.0, unit:"F"] ], rules:[] ],
+        [ id:33, error: "Problem changing setpoint from UI", label:"Thermostat Cooling Setpoint", capability:[id: "thermostatCoolingSetpoint", version: 1], defaults:[ [componentId:"main", capability:"thermostatCoolingSetpoint", attribute:"coolingSetpointRange", value:[ minimum:50.0, maximum:90.0, step:1.0 ], unit:"F"],
+            [componentId:"main", capability:"thermostatCoolingSetpoint", attribute:"coolingSetpoint", value:75.0, unit:"F"] ], rules:[] ],
         [ id:34, error: "AQI scale stops at 100 on UI", label:"Air Quality Sensor", capability:[id: "airQualitySensor", version: 1, config:"airQuality.value"], defaults:[ [componentId:"main", capability:"airQualitySensor", attribute:"airQuality", value:0] ], rules:[] ],
+        
+        [ id:35, label:"Fan Speed Percent", capability:[id: "fanSpeedPercent", version: 1], defaults:[ [componentId:"main", capability:"fanSpeedPercent", attribute:"percent", value:0, unit:"%"] ], rules:[] ],
+        [ id:36, label:"Fan Mode", capability:[id: "fanMode", version: 1], defaults:[ [componentId:"main", capability:"fanMode", attribute:"fanMode", value:"off"], [componentId:"main", capability:"fanMode", attribute:"supportedFanModes", value:["off","low","medium","high","auto"]] ], rules:[] ],
+        [ id:37, label:"Fan Oscillation Mode", capability:[id: "fanOscillationMode", version: 1], defaults:[ [componentId:"main", capability:"fanOscillationMode", attribute:"fanOscillationMode", value:"off"], 
+            [componentId:"main", capability:"fanOscillationMode", attribute:"supportedFanOscillationModes", value:[ "off","individual","fixed","vertical", "horizontal","all","indirect","direct","fixedCenter","fixedLeft","fixedRight","far","wide","mid","spot","swing"]],
+        	[componentId:"main", capability:"fanOscillationMode", attribute:"availableFanOscillationModes", value:[ "off","individual","fixed","vertical", "horizontal","all","indirect","direct","fixedCenter","fixedLeft","fixedRight","far","wide","mid","spot","swing"]] ], rules:[] ],
+        [ id:38, label:"Chime", capability:[id: "chime", version: 1], defaults:[ [componentId:"main", capability:"chime", attribute:"chime", value:"off"] ], rules:[] ],
+        [ id:39, label:"Filter State", capability:[id: "filterState", version: 1], defaults:[ [componentId:"main", capability:"filterState", attribute:"filterLifeRemaining", value:100, unit:"%"], [componentId:"main", capability:"filterState", attribute:"supportedFilterCommands", value:["resetFilter"]] ], rules:[] ],
+        [ id:40, error: "Problem changing setpoint from UI", label:"Temperature Setpoint", capability:[id: "temperatureSetpoint", version: 1], defaults:[ [componentId:"main", capability:"temperatureSetpoint", attribute:"temperatureSetpointRange", value:[ minimum:50.0, maximum:90.0, step:1.0 ], unit:"F"],
+            [componentId:"main", capability:"temperatureSetpoint", attribute:"temperatureSetpoint", value:72.0, unit:"F"] ], rules:[] ],
     ]
 }
 
@@ -1912,12 +1963,14 @@ static final String getVirtualDeviceRules(String typeId) {
 
 static final List getVirtualDeviceDefaults(String typeId) {
     switch(typeId) {
+        case 'VIRTUAL_CUSTOM':
+            return (g_mAppDeviceSettings['pageVirtualDeviceCustomComponentDefaults'])?:[] 
         case 'VIRTUAL_SWITCH':
             return [ [componentId:"main", capability:"switch", attribute:"switch", value:"off"] ]
         case 'VIRTUAL_DIMMER':
-            return [ [componentId:"main", capability:"switchLevel", attribute:"level", value:100] ]
+            return [ [componentId:"main", capability:"switchLevel", attribute:"level", value:0], [componentId:"main", capability:"switchLevel", attribute:"levelRange", value:[ minimum:0, maximum:100, step:1]] ]
         case 'VIRTUAL_DIMMER_SWITCH':
-            return [ [componentId:"main", capability:"switch", attribute:"switch", value:"off"], [componentId:"main", capability:"switchLevel", attribute:"level", value:100] ]
+            return [ [componentId:"main", capability:"switch", attribute:"switch", value:"off"], [componentId:"main", capability:"switchLevel", attribute:"level", value:0], [componentId:"main", capability:"switchLevel", attribute:"levelRange", value:[ minimum:0, maximum:100, step:1]] ]
         case 'VIRTUAL_BUTTON':
             return [ [componentId:"main", capability:"button", attribute:"numberOfButtons", value:1] ]            
         case 'VIRTUAL_CONTACT_SENSOR': 
@@ -1942,8 +1995,6 @@ static final List getVirtualDeviceDefaults(String typeId) {
                      [componentId:"main", capability:"battery", attribute:"battery", value:100, unit:"%"] ]        
         case 'VIRTUAL_SIREN':
             return [ [componentId:"main", capability:"alarm", attribute:"alarm", value:"off"] ]
-        case 'VIRTUAL_CUSTOM':
-            return (g_mAppDeviceSettings['pageVirtualDeviceCustomComponentDefaults'])?:[] 
          default:
             return null
     }
@@ -1971,7 +2022,7 @@ static final List getVirtualDeviceTypes() {
         //[id:15, name: "Virtual RGBW Bulb", typeId: "VIRTUAL_RGBW_BULB" ],
         [id:16, name: "Virtual Siren", typeId: "VIRTUAL_SIREN", replicaName: "Replica Alarm", attributes:["rw:alarm"] ],
         //[id:17, name: "Virtual Thermostat", typeId: "VIRTUAL_THERMOSTAT", attributes:["r:battery","rw:coolingSetpoint","rw:heatingSetpoint","r:supportedThermostatFanModes","r:supportedThermostatModes","r:temperature","rw:thermostatFanMode","rw:thermostatFanMode","rw:thermostatMode","r:thermostatOperatingState"] ],
-        [id:18, name: "Virtual Custom Device", typeId: "VIRTUAL_CUSTOM", replicaType: "custom" ],
+        [id:0,  name: "Virtual Custom Device", typeId: "VIRTUAL_CUSTOM", replicaType: "custom" ],
         [id:19, name: "Location Mode Knob", typeId: "VIRTUAL_SWITCH", replicaName: "Replica Location Knob", replicaType: "location" ],
         [id:20, name: "Scene Knob", typeId: "VIRTUAL_SWITCH", replicaName: "Replica Scene Knob", replicaType: "scene" ]
     ]
@@ -1990,20 +2041,20 @@ static final Map getVirtualDeviceTypeConfig(String replicaType) {
      }
 }
 
-void setVirtualDeviceDefaults(String deviceId, String prototype) {
-    logDebug "${app.getLabel()} executing 'setVirtualDeviceDefaults($deviceId, $prototype)'"
-    runIn(5, setVirtualDeviceDefaultsHelper, [data: [deviceId:deviceId, prototype:prototype]])    
+void rsetVirtualDeviceDefaults(String locationId, String deviceId, String prototype, Integer delay=1) {
+    logDebug "${app.getLabel()} executing 'rsetVirtualDeviceDefaults(locationId:$locationId, deviceId:$deviceId, prototype:$prototype, delay:$delay)'"
+    runIn(delay, setVirtualDeviceDefaultsHelper, [data: [locationId:locationId, deviceId:deviceId, prototype:prototype]])    
 }
 
 void setVirtualDeviceDefaultsHelper(data) {
-    setVirtualDeviceDefaultsPrivate(data.deviceId, data.prototype)    
+    setVirtualDeviceDefaultsPrivate(data.locationId, data.deviceId, data.prototype)    
 }
 
-private void setVirtualDeviceDefaultsPrivate(String deviceId, String prototype) {
-    logDebug "${app.getLabel()} executing 'setVirtualDeviceDefaultsPrivate($deviceId, $prototype)'"
+private void setVirtualDeviceDefaultsPrivate(String locationId, String deviceId, String prototype) {
+    logDebug "${app.getLabel()} executing 'setVirtualDeviceDefaultsPrivate(locationId:$locationId, deviceId:$deviceId, prototype:$prototype)'"
     getVirtualDeviceDefaults(prototype)?.each{ 
         logInfo "${app.getLabel()} sending $prototype default:$it"
-        setVirtualDeviceAttribute(deviceId, it.componentId, it.capability, it.attribute, it.value, it?.unit?:null, it?.data?:null)
+        setVirtualDeviceAttribute(locationId, deviceId, it.componentId, it.capability, it.attribute, it.value, it?.unit?:null, it?.data?:null)
     }
 }
 
@@ -2073,8 +2124,9 @@ Map getVirtualDeviceList(String locationId) {
     return response
 }
 
-Map renameVirtualDevice(String deviceId, String label) {
-    logDebug "${app.getLabel()} executing 'renameVirtualDevice()'"
+Map renameVirtualDevice(String deviceId, String label, String locationId=null) {
+    logDebug "${app.getLabel()} executing 'renameVirtualDevice($deviceId, $label, $locationId)'"
+    Map response = [statusCode:iHttpError]
     
     Map params = [
         uri: sURI,
@@ -2082,7 +2134,7 @@ Map renameVirtualDevice(String deviceId, String label) {
         path: "/devices/$deviceId",
         contentType: "application/json",
         requestContentType: "application/json",
-        headers: [ Authorization: "Bearer ${getOAuthToken("renameVirtualDevice", deviceId)}" ]        
+        headers: [ Authorization: "Bearer ${getOAuthToken("renameVirtualDevice", locationId?:deviceId)}" ]        
     ]
     try {
         httpPut(params) { resp ->
@@ -2097,7 +2149,7 @@ Map renameVirtualDevice(String deviceId, String label) {
     return response
 }
 
-Map deleteSmartDevice(String deviceId) {
+Map deleteSmartDevice(String deviceId, String locationId=null) {
     logDebug "${app.getLabel()} executing 'deleteSmartDevice()'"
     Map response = [statusCode:iHttpError]
     
@@ -2228,7 +2280,7 @@ void updateRuleList(action, type) {
     if(type=='hubitatTrigger') replicaDeviceSubscribe(replicaDevice)
 }
 
-void replicaDevicesRuleSection(){
+Boolean replicaDevicesRuleSection(){
     def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
     if(!replicaDevice) return
     Map replicaDeviceRules = getReplicaDataJsonValue(replicaDevice, "rules")
@@ -2259,7 +2311,9 @@ void replicaDevicesRuleSection(){
             paragraph(rawHtml: true, """<style>th,td{border-bottom:3px solid #ddd;} table{ table-layout: fixed;width: 100%;}</style>""")
             paragraph(rawHtml: true, """<style>@media screen and (max-width:800px) { table th:nth-of-type(1),td:nth-of-type(1),th:nth-of-type(4),td:nth-of-type(4) { display: none; } }</style>""")
         }
-    }    
+        return true
+    }
+    return false
 }
 
 String buttonLink(String btnName, String linkText) {
@@ -2352,7 +2406,7 @@ Boolean checkCommand(replicaDevice, type, ruleCommand) {
 def pageConfigureDevice() {
     List replicaDevicesSelect = []
     getAllSTReplicaDevices()?.sort{ a,b -> naturalSort(a.getDisplayName(),b.getDisplayName()) }.each {    
-        Map device = [ "${it.deviceNetworkId}" : "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
+        Map device = [ ("${it.deviceNetworkId}" as String): "${it.getDisplayName()} &ensp; (deviceNetworkId: ${it.deviceNetworkId})" ]
         replicaDevicesSelect.add(device)   
     }
    
@@ -2489,7 +2543,13 @@ def pageConfigureDevice() {
             app.updateSetting("pageConfigureDeviceAllowActionAttribute", false)
             input(name: "pageConfigureDeviceShowDetail", type: "bool", title: "Show attribute, command, override details", defaultValue: false, submitOnChange: true, width: 3, newLineAfter:true)
         }        
-        replicaDevicesRuleSection()
+        if(!replicaDevicesRuleSection() && pageConfigureDeviceReplicaDevice) {
+            section(menuHeader("Clone HubiThings Rules")) {
+                List replicaDevicesSelectClone = replicaDevicesSelect?.findAll{ !it.containsKey( pageConfigureDeviceReplicaDevice as String ) }
+            	input(name: "pageConfigureDeviceReplicaDeviceClone", type: "enum", title: deviceTitle, description: "Choose a HubiThings device to Rule clone", options: replicaDevicesSelectClone, multiple: false, submitOnChange: true, width: 8, newLineAfter:true)
+                input(name: "pageConfigureDevice::cloneDeviceRules", type: "button", title: "Clone", width: 2, style:"width:75%;")
+            }
+        } else app.removeSetting("pageConfigureDeviceReplicaDeviceClone")
     }
 }
 
@@ -2701,6 +2761,13 @@ void appButtonHandler(String btn) {
                             def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
                             replicaDeviceRefresh(replicaDevice)
                             break
+                        case "cloneDeviceRules":
+                        	if(pageConfigureDeviceReplicaDevice && pageConfigureDeviceReplicaDeviceClone && pageConfigureDeviceReplicaDevice!=pageConfigureDeviceReplicaDeviceClone) {
+                        		def replicaDevice = getDevice(pageConfigureDeviceReplicaDevice)
+                        		def replicaDeviceClone = getDevice(pageConfigureDeviceReplicaDeviceClone)
+                                setReplicaDataJsonValue(replicaDevice, "rules", getReplicaDataJsonValue(replicaDeviceClone, "rules"))                            
+                            }
+                        	break
                     }
                     break
                 case "dynamic":
@@ -2891,7 +2958,7 @@ private Boolean deviceTriggerHandlerPrivate(def replicaDevice, String eventName,
                 eventJsonData?.remove("version")                
                 if( command?.required?.contains("unit") && !command?.properties?.unit?.enum?.contains(eventUnit) ) logWarn "${app.getLabel()} deviceTriggerHandlerPrivate() requires unit value defined as ${command?.properties?.unit?.enum?:""} but found $eventUnit"
                 
-                response = setVirtualDeviceAttribute(deviceId, componentId, command?.capability, command?.attribute, arguments?.getAt(0), eventUnit, eventJsonData)?.statusCode==iHttpSuccess
+                response = setVirtualDeviceAttribute(null, deviceId, componentId, command?.capability, command?.attribute, arguments?.getAt(0), eventUnit, eventJsonData)?.statusCode==iHttpSuccess
                 if(!rule?.mute) logInfo "${app.getLabel()} sending '${replicaDevice?.getDisplayName()}' ${type?:""} ○ trigger:${trigger?.type=="command"?"command":"event"}:${eventName} ➣ command:${command?.attribute}:${arguments?.getAt(0)?.toString()} ● delay:${now() - eventPostTime}ms"
             }
         }
@@ -3125,7 +3192,8 @@ Map smartDescriptionHandler(replicaDevice, Map descriptionEvent){
 
     setReplicaDataJsonValue(replicaDevice, "description", descriptionEvent)
     try {
-        getReplicaCapabilities(replicaDevice) // This should probably be threaded since it could be a large amount of calls.
+        //getReplicaCapabilities(replicaDevice) // This should probably be threaded since it could be a large amount of calls.
+        rgetReplicaCapabilities(replicaDevice)
         response.statusCode = iHttpSuccess       
     } catch (e) {
         logWarn "${app.getLabel()} smartDescriptionHandler() error: $e : $descriptionEvent"
@@ -3171,17 +3239,17 @@ Map replicaHasSmartCapability(replicaDevice, String capabilityId, Integer capabi
     return response
 }
 
-void getAllReplicaCapabilities(replicaDevice, Integer delay=1) {
+void rgetReplicaCapabilities(replicaDevice, Integer delay=1) {
     logInfo "${app.getLabel()} refreshing all '$replicaDevice' device capabilities"
-    runIn(delay?:1, getAllReplicaCapabilitiesHelper, [data: [deviceNetworkId:(replicaDevice.deviceNetworkId)]])
+    runIn(delay, getReplicaCapabilitiesHelper, [data: [deviceNetworkId:(replicaDevice.deviceNetworkId)]])
 }
 
-void getAllReplicaCapabilitiesHelper(Map data) {
+void getReplicaCapabilitiesHelper(Map data) {
     def replicaDevice = getDevice(data?.deviceNetworkId)
-    getReplicaCapabilities(replicaDevice)    
+    getReplicaCapabilitiesPrivate(replicaDevice)    
 }
 
-void getReplicaCapabilities(replicaDevice) {
+private void getReplicaCapabilitiesPrivate(replicaDevice) {
     logDebug "${app.getLabel()} executing 'getReplicaCapabilities($replicaDevice)'"
 
     String deviceId = getReplicaDeviceId(replicaDevice)
@@ -3190,17 +3258,17 @@ void getReplicaCapabilities(replicaDevice) {
     description?.components.each { components ->
         components?.capabilities.each { capabilities ->
             if (replicaHasSmartCapability(replicaDevice, capabilities.id, capabilities.version) == [:]) {                
-                getSmartDeviceCapability(deviceId, capabilities.id, capabilities.version)
+                getSmartDeviceCapability(deviceId, capabilities.id, capabilities.version, description?.locationId)
                 pauseExecution(250) // no need to hammer ST
             }
         }
     }
 }
 
-Map getSmartDeviceCapability(String deviceId, String capabilityId, Integer capabilityVersion=1) {
+Map getSmartDeviceCapability(String deviceId, String capabilityId, Integer capabilityVersion=1, String locationId=null) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceCapability()'"
     Map response = [statusCode:iHttpError]    
-	Map data = [ uri: sURI, path: "/capabilities/${capabilityId}/${capabilityVersion}", deviceId: deviceId, method: "getSmartDeviceCapability"	]
+	Map data = [ uri: sURI, path: "/capabilities/${capabilityId}/${capabilityVersion}", deviceId: deviceId, locationId:locationId, method: "getSmartDeviceCapability"	]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -3229,10 +3297,10 @@ void setAllSmartDeviceHealthOffline() {
     }
 }
 
-Map getSmartDeviceHealth(String deviceId) {
+Map getSmartDeviceHealth(String deviceId, String locationId=null) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceHealth($deviceId)'"
     Map response = [statusCode:iHttpError]
-	Map data = [ uri: sURI, path: "/devices/${deviceId}/health", deviceId: deviceId, method: "getSmartDeviceHealth" ]
+	Map data = [ uri: sURI, path: "/devices/${deviceId}/health", deviceId: deviceId, locationId: locationId, method: "getSmartDeviceHealth" ]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -3250,10 +3318,10 @@ void getAllDeviceDescription() {
     }
 }
 
-Map getSmartDeviceDescription(String deviceId) {
+Map getSmartDeviceDescription(String deviceId, String locationId=null) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceDescription($deviceId)'"
     Map response = [statusCode:iHttpError]
-	Map data = [ uri: sURI, path: "/devices/${deviceId}", deviceId: deviceId, method: "getSmartDeviceDescription" ]
+	Map data = [ uri: sURI, path: "/devices/${deviceId}", deviceId: deviceId, locationId: locationId, method: "getSmartDeviceDescription" ]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -3271,10 +3339,10 @@ void getAllSmartDeviceStatus() {
     }
 }
 
-Map getSmartDeviceStatus(String deviceId) {
+Map getSmartDeviceStatus(String deviceId, String locationId=null) {
     logDebug "${app.getLabel()} executing 'getSmartDeviceStatus($deviceId)'"
     Map response = [statusCode:iHttpError]
-	Map data = [ uri: sURI, path: "/devices/${deviceId}/status", deviceId: deviceId, method: "getSmartDeviceStatus" ]
+	Map data = [ uri: sURI, path: "/devices/${deviceId}/status", deviceId: deviceId, locationId: locationId, method: "getSmartDeviceStatus" ]
 	response.statusCode = asyncHttpGet("asyncHttpGetCallback", data).statusCode
     return response
 }
@@ -3286,7 +3354,7 @@ private Map asyncHttpGet(String callbackMethod, Map data) {
     Map params = [
 	    uri: data.uri,
 	    path: data.path,
-        headers: [ Authorization: "Bearer ${getOAuthToken("asyncHttpGet:$data.method", data?.deviceId ?: data?.locationId)}" ]
+        headers: [ Authorization: "Bearer ${getOAuthToken("asyncHttpGet:$data.method", data?.locationId ?: data?.deviceId)}" ]
     ]
 	try {
 	    asynchttpGet(callbackMethod, params, data)
@@ -3356,7 +3424,7 @@ Map setSmartDeviceCommand(String deviceId, String component, String capability, 
     return response
 }
 
-Map setVirtualDeviceAttribute(String deviceId, String component, String capability, String attribute, def value, String unit=null, Map data=[:]) {
+Map setVirtualDeviceAttribute(String locationId, String deviceId, String component, String capability, String attribute, def value, String unit=null, Map data=[:]) {
     logDebug "${app.getLabel()} executing 'setVirtualDeviceAttribute()'"
     Map response = [statusCode:iHttpError]
 
@@ -3366,7 +3434,8 @@ Map setVirtualDeviceAttribute(String deviceId, String component, String capabili
         path: "/virtualdevices/$deviceId/events",
         body: JsonOutput.toJson(deviceEvents),
         method: "setVirtualDeviceAttribute",
-        deviceId: deviceId        
+        deviceId: deviceId,
+        locationId: locationId
     ]
     if(appLogEventEnable && (!appLogEventEnableDevice || appLogEventEnableDevice==deviceId)) {
         log.info "Device:${getReplicaDevices(deviceId)?.each{ it?.label }} deviceEvents:<b>${JsonOutput.toJson(deviceEvents)}</b>"
@@ -3385,7 +3454,7 @@ private Map asyncHttpPostJson(String callbackMethod, Map data) {
         body: data.body,
         contentType: "application/json",
         requestContentType: "application/json",
-		headers: [ Authorization: "Bearer ${getOAuthToken("asyncHttpPostJson:$data.method", data?.deviceId ?: data?.locationId)}" ]
+		headers: [ Authorization: "Bearer ${getOAuthToken("asyncHttpPostJson:$data.method", data?.locationId ?: data?.deviceId)}" ]
     ]
 	try {
 	    asynchttpPost(callbackMethod, params, data)
