@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.4.00 2024-07-25 Intial support for Home Assistant replica devices. Requires replica.hass drivers to enable (release pending).
 *  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid
 *  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
@@ -27,9 +26,10 @@
 *  1.5.05 2025-04-01 SmartThings fixed API to allow for virtual device creation using the OAuth token. (no OAuth changes)
 *  1.5.06 2025-04-01 More fixes to improve hub startup performance. Added 'update' to deviceTriggerHandler for use with drivers. (no OAuth changes)
 *  1.5.07 2025-04-13 Allow user to directly set attributes and function parameters in rules. Updates have #tagRuleOverride. (no OAuth changes)
+*  1.5.08 2025-04-18 Updates to virtual device configurations and use locationId finding OAuth and not PAT. (no OAuth changes)
 *  LINE 30 MAX */  
 
-public static String version() { return "1.5.07" }
+public static String version() { return "1.5.08" }
 public static String copyright() { return "&copy; 2025 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
