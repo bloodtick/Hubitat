@@ -70,6 +70,7 @@ def poll() {
     } catch (Exception e) {
         log.error "${device.displayName} async error polling Matter API: ${e.message}"
         sendEvent(name: "healthStatus", value: "offline")
+        sendEvent(name: "contact", value: "open")
     }
 }
 
@@ -91,7 +92,7 @@ def handlePollResponse(resp, data) {
         sendEvent(name: "devicesOnline", value: onlineCount)
         sendEvent(name: "devicesOffline", value: total-onlineCount)
         sendEvent(name: "contact", value: (total>0 && total-onlineCount==0) ? "closed" : "open")
-        sendEvent(name: "healthStatus", value: resp.json?.installed && resp.json?.enabled ? "online" : "offline")
+        sendEvent(name: "healthStatus", value: (resp.json?.installed && resp.json?.enabled) ? "online" : "offline")
 
         if (logEnable) log.debug "${device.displayName} async updated with $total devices and $onlineCount online"
 
