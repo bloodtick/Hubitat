@@ -18,7 +18,7 @@
 public static String version() {return "1.0.00"}
 
 metadata {
-    definition(name: "Matter Device Monitor", namespace: "bloodtick", author: "Hubitat", importUrl:"")
+    definition(name: "Matter Device Monitor", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/matterDeviceMonitor/matterDeviceMonitor.groovy")
     {
         capability "Actuator"
         capability "Polling"
