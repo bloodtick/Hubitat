@@ -33,9 +33,9 @@ metadata {
     }
 
     preferences {
-        input name: "hubIp", type: "text", title: "Hubitat Hub IP", defaultValue: "127.0.0.1", required: true
-        input name: "pollInterval", type: "number", title: "Poll Interval (minutes)", range: "1...", defaultValue: 2, required: true
-        input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
+        input(name: "hubIp", type: "text", title: "Hubitat Hub IP", defaultValue: "127.0.0.1", required: true)
+        input(name: "pollInterval", type: "number", title: "Poll Interval (minutes)", range: "1...", defaultValue: 2, required: true)
+        input(name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false)
     }
 }
 
