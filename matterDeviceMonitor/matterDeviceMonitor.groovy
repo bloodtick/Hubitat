@@ -41,18 +41,18 @@ metadata {
 }
 
 def installed() {
-    initialize()
+    updated()
 }
 
 def updated() {
-    unschedule()
     initialize()
+    runIn(1, poll)
 }
 
 def initialize() {
     logInfo "scheduling poll every $devicePollInterval minutes"
+    unschedule()
     schedule("0 */${devicePollInterval} * * * ?", poll)
-    runIn(1, poll)
 }
 
 def poll() {
