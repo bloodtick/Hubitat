@@ -13,7 +13,7 @@
  *  Matter Device Monitor
  *
  *  Author: bloodtick
- *  Date: 2025-05-10
+ *  Date: 2025-05-20
  */
 public static String version() {return "1.0.00"}
 
@@ -33,9 +33,10 @@ metadata {
     }
 
     preferences {
-        input(name: "hubIp", type: "text", title: "Hubitat Hub IP", defaultValue: "127.0.0.1", required: true)
-        input(name: "pollInterval", type: "number", title: "Poll Interval (minutes)", range: "1...", defaultValue: 2, required: true)
-        input(name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false)
+        input(name:"hubIp", type: "text", title: "Hubitat Hub IP:", defaultValue: "127.0.0.1", required: true)
+        input(name:"pollInterval", type: "number", title: "Poll Interval (minutes):", range: "1...", defaultValue: 2, required: true)
+        input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false)
+    	input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false)
     }
 }
 
@@ -49,7 +50,7 @@ def updated() {
 }
 
 def initialize() {
-    if (logEnable) log.debug "${device.displayName} scheduling poll every ${pollInterval} minutes"
+    logInfo "scheduling poll every ${pollInterval} minutes"
     schedule("0 */${pollInterval} * * * ?", poll)
     runIn(1, poll)
 }
@@ -63,12 +64,12 @@ def poll() {
         timeout: 10
     ]
 
-    if (logEnable) log.debug "${device.displayName} async polling matter device status from ${url}"
+    logDebug "async polling matter device status from ${url}"
     
     try {
         asynchttpGet("handlePollResponse", params)
     } catch (Exception e) {
-        log.error "${device.displayName} async error polling Matter API: ${e.message}"
+        logError "async error polling Matter API: ${e.message}"
         sendEvent(name: "healthStatus", value: "offline")
         sendEvent(name: "contact", value: "open")
     }
@@ -94,11 +95,17 @@ def handlePollResponse(resp, data) {
         sendEvent(name: "contact", value: (total>0 && total-onlineCount==0) ? "closed" : "open")
         sendEvent(name: "healthStatus", value: (resp.json?.installed && resp.json?.enabled) ? "online" : "offline")
 
-        if (logEnable) log.debug "${device.displayName} async updated with $total devices and $onlineCount online"
+        logDebug "async updated with $total devices and $onlineCount online"
 
     } else {
-        log.warn "${device.displayName} Matter API async unexpected status: ${resp?.status} installed:${resp.json?.installed} enabled:${resp.json?.enabled}"
+        logWarn "Matter API async unexpected status: ${resp?.status} installed:${resp.json?.installed} enabled:${resp.json?.enabled}"
         sendEvent(name: "healthStatus", value: "offline")
         sendEvent(name: "contact", value: "open")
     }
 }
+
+private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${device.displayName} ${msg}" } }
+private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${device.displayName} ${msg}" } }
+private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${device.displayName} ${msg}" } }
+private logWarn(msg)  { log.warn   "${device.displayName} ${msg}" }
+private logError(msg) { log.error  "${device.displayName} ${msg}" }
