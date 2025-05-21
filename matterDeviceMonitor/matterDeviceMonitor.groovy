@@ -17,6 +17,8 @@
  */
 public static String version() {return "1.0.00"}
 
+import java.text.SimpleDateFormat
+
 metadata {
     definition(name: "Matter Device Monitor", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/matterDeviceMonitor/matterDeviceMonitor.groovy")
     {
@@ -28,13 +30,15 @@ metadata {
         attribute "offlineSummary", "string"
         attribute "devicesOnline", "number"
         attribute "devicesOffline", "number"
-        attribute "devices", "JSON_OBJECT"   
+        attribute "devices", "JSON_OBJECT"
+        attribute "contactDate", "string"
         attribute "healthStatus", "enum", ["offline", "online"]
     }
 
     preferences {
         input(name:"deviceIp", type: "text", title: "Hubitat Hub IP:", defaultValue: "127.0.0.1", required: true)
         input(name:"devicePollInterval", type: "number", title: "Poll Interval (minutes):", range: "1...", defaultValue: 2, required: true)
+        input(name:"deviceFormat", type:"string", title: "Date format (default: 'yyyy-MM-dd h:mm:ss a'):", description: "<a href='https://en.wikipedia.org/wiki/ISO_8601' target='_blank'>ISO 8601 date/time string legal format</a>", defaultValue: "yyyy-MM-dd h:mm:ss a")
         input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false)
     	input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false)
     }
@@ -53,6 +57,8 @@ def initialize() {
     logInfo "scheduling poll every $devicePollInterval minutes"
     unschedule()
     schedule("0 */${devicePollInterval} * * * ?", poll)
+    if(devicePollInterval.toInteger()>1) runIn(90, poll) // when the hub first boots the stack isn't ready. If just an update this will get overwritten. 
+    sendContactEvent("initialize")
 }
 
 def poll() {
@@ -71,7 +77,6 @@ def poll() {
     } catch (Exception e) {
         logError "async error polling Matter API: ${e.message}"
         sendEvent(name: "healthStatus", value: "offline")
-        sendEvent(name: "contact", value: "open")
     }
 }
 
@@ -92,15 +97,29 @@ def handlePollResponse(resp, data) {
         sendEvent(name: "offlineSummary", value: offlineSummary)
         sendEvent(name: "devicesOnline", value: onlineCount)
         sendEvent(name: "devicesOffline", value: total-onlineCount)
-        sendEvent(name: "contact", value: (total>0 && total-onlineCount==0) ? "closed" : "open")
-        sendEvent(name: "healthStatus", value: (resp.json?.installed && resp.json?.enabled) ? "online" : "offline")
-
+        sendEvent(name: "healthStatus", value: "online")
+        sendContactEvent((total>0 && total-onlineCount==0) ? "closed" : "open")
         logDebug "async updated with $total devices and $onlineCount online"
-
+        
     } else {
-        logWarn "Matter API async unexpected status: ${resp?.status} installed:${resp.json?.installed} enabled:${resp.json?.enabled}"
+        logWarn "Matter API async unexpected status:${resp?.status} ${resp?.status==200 ? "device count:${resp?.json?.devices?.size()}" : ""}"
         sendEvent(name: "healthStatus", value: "offline")
-        sendEvent(name: "contact", value: "open")
+    }
+}
+
+def sendContactEvent(String contact) {   
+    if(device.currentValue("contact")!=contact) {
+	    sendEvent(name: "contact", value: contact)
+        logInfo "contact is $contact"
+        
+        String formattedDate = "Date Format Invalid"
+        try {
+        	SimpleDateFormat sdf = new SimpleDateFormat(settings?.deviceFormat)
+    		formattedDate = sdf.format((new Date()))
+        } catch(e) {
+            logWarn "${settings?.deviceFormat} format invalid"
+        }
+        sendEvent(name: "contactDate", value: formattedDate)        
     }
 }
 
