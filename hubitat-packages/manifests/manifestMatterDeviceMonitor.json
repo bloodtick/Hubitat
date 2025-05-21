@@ -1,0 +1,25 @@
+{
+    "packageName": "Matter Device Monitor",
+    "author": "Bloodtick Jones",
+    "communityLink": "https://community.hubitat.com/t/determine-device-matter-status/153638",
+    "minimumHEVersion": "2.4.1",
+    "category": "Integrations",
+    "tags": [
+        "Device Monitoring",
+        "Matter",
+        "Diagnostics",
+        "Integrations"
+    ],
+    "dateReleased": "2025-05-20",
+    "releaseNotes": "1.0.00 Initial Release.",
+    "version": "1.0.00",
+    "drivers": [
+        {
+            "id": "c9c427c6-f575-4df8-b8cd-e07f6f51dbea",
+            "name": "Matter Device Monitor",
+            "namespace": "bloodtick",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/matterDeviceMonitor/matterDeviceMonitor.groovy",
+            "required": true
+        }
+    ]
+}
