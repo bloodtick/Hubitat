@@ -33,8 +33,8 @@ metadata {
     }
 
     preferences {
-        input(name:"hubIp", type: "text", title: "Hubitat Hub IP:", defaultValue: "127.0.0.1", required: true)
-        input(name:"pollInterval", type: "number", title: "Poll Interval (minutes):", range: "1...", defaultValue: 2, required: true)
+        input(name:"deviceIp", type: "text", title: "Hubitat Hub IP:", defaultValue: "127.0.0.1", required: true)
+        input(name:"devicePollInterval", type: "number", title: "Poll Interval (minutes):", range: "1...", defaultValue: 2, required: true)
         input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false)
     	input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false)
     }
@@ -50,13 +50,13 @@ def updated() {
 }
 
 def initialize() {
-    logInfo "scheduling poll every ${pollInterval} minutes"
-    schedule("0 */${pollInterval} * * * ?", poll)
+    logInfo "scheduling poll every $devicePollInterval minutes"
+    schedule("0 */${devicePollInterval} * * * ?", poll)
     runIn(1, poll)
 }
 
 def poll() {
-    String url = "http://${hubIp}:8080/hub/matterDetails/json"
+    String url = "http://${deviceIp}:8080/hub/matterDetails/json"
     Map params = [
         uri: url,
         contentType: "application/json",
