@@ -112,7 +112,7 @@ def handlePollResponse(resp, data) {
 
         logDebug "async updated with $total devices and $onlineCount online"
     } else {
-        logWarn "Matter API async unexpected status:${resp?.status} ${resp?.status == 200 ? "device count:${resp?.json?.devices?.size()}" : ""}"
+        logWarn "Matter API async unexpected status:${resp?.status} ${resp?.status == 200 ? "enabled:${resp?.json?.enabled} networkState:${resp?.json?.networkState} devices:${resp?.json?.devices?.size() ?: 0}" : ""}"
         sendEvent(name: "healthStatus", value: "offline")
     }
 }
