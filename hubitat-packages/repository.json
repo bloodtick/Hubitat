@@ -21,8 +21,7 @@
             "description": "Hubitat Driver to integrate with Roborock Robot Vacuums. Requires user account and password from mobile application to enable.",
             "tags": [
                 "Automations & Groups",
-                "Cloud",
-                "Tools & Utilities"
+                "Cloud"
             ],
             "id": "af491546-4b6f-41e4-9f19-cd10cef142ca"
         },
@@ -32,7 +31,9 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubitat-packages/manifests/manifestCudyRouterR700.json",
             "description": "Hubitat Driver to integrate with Cudy Router R700. Runs local but will query internet for external IPv4",
             "tags": [
-                "Device Monitoring",
+                "Monitoring",
+                "LAN",
+                "Notifications",
                 "Tools & Utilities"
             ],
             "id": "ce86d253-f10a-4d12-b430-778e6768c2bf"
@@ -43,10 +44,10 @@
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubitat-packages/manifests/manifestMatterDeviceMonitor.json",
             "description": "Hubitat Driver to provide event updates for Matter devices. Runs local and queries the native Hubitat REST API for updates",
             "tags": [
-                "Device Monitoring",
+                "Monitoring",
                 "Matter",
-                "Diagnostics",
-                "Integrations"
+                "Notifications",
+                "Tools & Utilities"
             ],
             "id": "53555efe-4333-4072-8128-f322ec43b407"
         }
