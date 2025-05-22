@@ -5,7 +5,9 @@
     "minimumHEVersion": "2.3.9",
     "category": "Integrations",
     "tags": [
-        "Device Monitoring",
+        "Monitoring",
+        "LAN",
+        "Notifications",
         "Tools & Utilities"
     ],
     "dateReleased": "2025-02-09",
