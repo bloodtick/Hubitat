@@ -5,10 +5,10 @@
     "minimumHEVersion": "2.4.1",
     "category": "Integrations",
     "tags": [
-        "Device Monitoring",
+        "Monitoring",
         "Matter",
-        "Diagnostics",
-        "Integrations"
+        "Notifications",
+        "Tools & Utilities"
     ],
     "dateReleased": "2025-05-20",
     "releaseNotes": "1.0.00 Initial Release.",
