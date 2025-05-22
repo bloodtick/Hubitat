@@ -28,6 +28,7 @@ metadata {
         capability "ContactSensor"
 
         attribute "offlineSummary", "string"
+        attribute "offlineDni", "JSON_OBJECT"
         attribute "devicesOnline", "number"
         attribute "devicesOffline", "number"
         attribute "devices", "JSON_OBJECT"
@@ -39,6 +40,7 @@ metadata {
         input(name:"deviceIp", type: "text", title: "Hubitat Hub IP:", defaultValue: "127.0.0.1", required: true)
         input(name:"devicePollInterval", type: "number", title: "Poll Interval (minutes):", range: "1...", defaultValue: 2, required: true)
         input(name:"deviceFormat", type:"string", title: "Date format (default: 'yyyy-MM-dd h:mm:ss a'):", description: "<a href='https://en.wikipedia.org/wiki/ISO_8601' target='_blank'>ISO 8601 date/time string legal format</a>", defaultValue: "yyyy-MM-dd h:mm:ss a")
+        input(name:"deviceShowDevices", type:"bool", title: "Enable 'devices' Attribute:", defaultValue: true)
         input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false)
     	input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false)
     }
@@ -85,24 +87,32 @@ def handlePollResponse(resp, data) {
         List report = resp.json.devices.collect {
             [name: it.name, dni: it.dni, online: it.online]
         }.sort { it.name }
-        String jsonString = groovy.json.JsonOutput.toJson(report)
-        sendEvent(name: "devices", value: jsonString)
+        if(deviceShowDevices) {
+        	String jsonString = groovy.json.JsonOutput.toJson(report)
+        	sendEvent(name: "devices", value: jsonString)
+        }
+        else device.deleteCurrentState("devices")
 
         Integer total = report?.size() ?: 0
         Integer onlineCount = report?.count { it.online } ?: 0
         
-        List offlineDevices = report.findAll { !it.online }*.name
-        String offlineSummary = offlineDevices?.join(', ') ?: "none"
+        List offlineDevices = report.findAll { !it.online }
+        List offlineNames = offlineDevices*.name
+        List offlineDni = offlineDevices*.dni
+
+        String offlineSummary = offlineNames?.join(', ') ?: "none"
+        String offlineDniJson = groovy.json.JsonOutput.toJson(offlineDni)
 
         sendEvent(name: "offlineSummary", value: offlineSummary)
+        sendEvent(name: "offlineDni", value: offlineDniJson)
         sendEvent(name: "devicesOnline", value: onlineCount)
-        sendEvent(name: "devicesOffline", value: total-onlineCount)
+        sendEvent(name: "devicesOffline", value: total - onlineCount)
         sendEvent(name: "healthStatus", value: "online")
-        sendContactEvent((total>0 && total-onlineCount==0) ? "closed" : "open")
+        sendContactEvent((total > 0 && total - onlineCount == 0) ? "closed" : "open")
+
         logDebug "async updated with $total devices and $onlineCount online"
-        
     } else {
-        logWarn "Matter API async unexpected status:${resp?.status} ${resp?.status==200 ? "device count:${resp?.json?.devices?.size()}" : ""}"
+        logWarn "Matter API async unexpected status:${resp?.status} ${resp?.status == 200 ? "device count:${resp?.json?.devices?.size()}" : ""}"
         sendEvent(name: "healthStatus", value: "offline")
     }
 }
