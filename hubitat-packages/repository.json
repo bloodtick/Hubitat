@@ -33,7 +33,6 @@
             "description": "Hubitat Driver to integrate with Cudy Router R700. Runs local but will query internet for external IPv4",
             "tags": [
                 "Automations & Groups",
-                "Cloud",
                 "Tools & Utilities"
             ],
             "id": "ce86d253-f10a-4d12-b430-778e6768c2bf"
