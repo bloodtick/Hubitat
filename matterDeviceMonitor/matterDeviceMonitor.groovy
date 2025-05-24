@@ -86,8 +86,7 @@ def poll() {
 
 def handlePollResponse(resp, data) {    
     try { // sometimes on start up we get a bad resp before the system is ready. 
-        def ignored = resp?.json
-        
+        def ignored = resp?.json        
         isInitialized[device.getId()] = true
     } catch(e) {
         if(isInitialized[device.getId()]) { // lets wait one time before yelling about bad JSON.
