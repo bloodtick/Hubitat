@@ -18,6 +18,9 @@
 public static String version() {return "1.0.00"}
 
 import java.text.SimpleDateFormat
+import groovy.transform.Field
+
+@Field volatile static Map<String,Boolean> isInitialized = [:]
 
 metadata {
     definition(name: "Matter Device Monitor", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/matterDeviceMonitor/matterDeviceMonitor.groovy")
@@ -33,13 +36,13 @@ metadata {
         attribute "devicesOffline", "number"
         attribute "devices", "JSON_OBJECT"
         attribute "contactDate", "string"
-        attribute "healthStatus", "enum", ["offline", "online"]
+        attribute "healthStatus", "enum", ["offline","online","initialize","starting"]
     }
 
     preferences {
         input(name:"deviceIp", type: "text", title: "Hubitat Hub IP:", defaultValue: "127.0.0.1", required: true)
         input(name:"devicePollInterval", type: "number", title: "Poll Interval (minutes):", range: "1...", defaultValue: 2, required: true)
-        input(name:"deviceFormat", type:"string", title: "Date format (default: 'yyyy-MM-dd h:mm:ss a'):", description: "<a href='https://en.wikipedia.org/wiki/ISO_8601' target='_blank'>ISO 8601 date/time string legal format</a>", defaultValue: "yyyy-MM-dd h:mm:ss a")
+        input(name:"deviceDateFormat", type:"string", title: "Date format (default: 'yyyy-MM-dd h:mm:ss a'):", description: "<a href='https://en.wikipedia.org/wiki/ISO_8601' target='_blank'>ISO 8601 date/time string legal format</a>", defaultValue: "yyyy-MM-dd h:mm:ss a")
         input(name:"deviceShowDevices", type:"bool", title: "Enable 'devices' Attribute:", defaultValue: true)
         input(name:"deviceInfoDisable", type:"bool", title: "Disable Info logging:", defaultValue: false)
     	input(name:"deviceDebugEnable", type:"bool", title: "Enable Debug logging:", defaultValue: false)
@@ -59,21 +62,20 @@ def initialize() {
     logInfo "scheduling poll every $devicePollInterval minutes"
     unschedule()
     schedule("0 */${devicePollInterval} * * * ?", poll)
-    if(devicePollInterval.toInteger()>1) runIn(90, poll) // when the hub first boots the stack isn't ready. If just an update this will get overwritten. 
-    sendContactEvent("initialize")
+    runIn(30, poll) // when the hub first boots the stack isn't ready. If just an update this will get overwritten. 
+    sendEvent(name: "healthStatus", value: "initialize")
 }
 
 def poll() {
-    String url = "http://${deviceIp}:8080/hub/matterDetails/json"
+    String uri = "http://${deviceIp}:8080/hub/matterDetails/json"
     Map params = [
-        uri: url,
+        uri: uri,
         contentType: "application/json",
         requestContentType: "application/json",
         timeout: 10
     ]
 
-    logDebug "async polling matter device status from ${url}"
-    
+    logDebug "async polling matter device status from $uri"    
     try {
         asynchttpGet("handlePollResponse", params)
     } catch (Exception e) {
@@ -82,8 +84,21 @@ def poll() {
     }
 }
 
-def handlePollResponse(resp, data) {
-    if (resp?.status == 200 && resp?.json?.devices) {
+def handlePollResponse(resp, data) {    
+    try { // sometimes on start up we get a bad resp before the system is ready. 
+        def ignored = resp?.json
+        
+        isInitialized[device.getId()] = true
+    } catch(e) {
+        if(isInitialized[device.getId()]) { // lets wait one time before yelling about bad JSON.
+            logError "Matter API at $deviceIp did not return valid JSON with status:${resp?.status}"
+            sendEvent(name: "healthStatus", value: "offline")
+        }
+        isInitialized[device.getId()] = true        
+        return
+    }    
+    
+    if(resp?.status==200 && resp?.json?.devices) {
         List report = resp.json.devices.collect {
             [name: it.name, dni: it.dni, online: it.online]
         }.sort { it.name }
@@ -103,31 +118,36 @@ def handlePollResponse(resp, data) {
         String offlineSummary = offlineNames?.join(', ') ?: "none"
         String offlineDniJson = groovy.json.JsonOutput.toJson(offlineDni)
 
+        sendContactEvent((total > 0 && total - onlineCount == 0) ? "closed" : "open", offlineSummary)
         sendEvent(name: "offlineSummary", value: offlineSummary)
         sendEvent(name: "offlineDni", value: offlineDniJson)
         sendEvent(name: "devicesOnline", value: onlineCount)
         sendEvent(name: "devicesOffline", value: total - onlineCount)
-        sendEvent(name: "healthStatus", value: "online")
-        sendContactEvent((total > 0 && total - onlineCount == 0) ? "closed" : "open")
-
-        logDebug "async updated with $total devices and $onlineCount online"
+        sendEvent(name: "healthStatus", value: "online")        
+        logDebug "async updated with $total devices and $onlineCount online"        
     } else {
-        logWarn "Matter API async unexpected status:${resp?.status} ${resp?.status == 200 ? "enabled:${resp?.json?.enabled} networkState:${resp?.json?.networkState} devices:${resp?.json?.devices?.size() ?: 0}" : ""}"
-        sendEvent(name: "healthStatus", value: "offline")
+        if(resp?.status==200 && resp?.json?.networkState?.toString().toLowerCase()=="starting") {
+            runIn(30, poll)
+            sendEvent(name: "healthStatus", value: "starting")
+        } else {
+            logWarn "Matter API at $deviceIp returned status:${resp?.status} enabled:${resp?.json?.enabled} networkState:${resp?.json?.networkState} devices:${resp?.json?.devices?.size()}"
+            sendEvent(name: "healthStatus", value: (resp?.json?.enabled) ? "online" : "offline")
+        }
     }
 }
 
-def sendContactEvent(String contact) {   
-    if(device.currentValue("contact")!=contact) {
+def sendContactEvent(String contact, String offlineSummary=null) {   
+    if(device.currentValue("contact")!=contact || device.currentValue("offlineSummary")!=offlineSummary || state.dateFormat != deviceDateFormat) {
+        state.dateFormat = deviceDateFormat
 	    sendEvent(name: "contact", value: contact)
-        logInfo "contact is $contact"
+        logInfo "contact is $contact${(contact=="open" && offlineSummary!=null) ? " with '$offlineSummary' offline" : ""}"
         
         String formattedDate = "Date Format Invalid"
         try {
-        	SimpleDateFormat sdf = new SimpleDateFormat(settings?.deviceFormat)
+        	SimpleDateFormat sdf = new SimpleDateFormat(settings?.deviceDateFormat)
     		formattedDate = sdf.format((new Date()))
         } catch(e) {
-            logWarn "${settings?.deviceFormat} format invalid"
+            logWarn "${settings?.deviceDateFormat} format invalid"
         }
         sendEvent(name: "contactDate", value: formattedDate)        
     }
