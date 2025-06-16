@@ -108,9 +108,6 @@ metadata {
         attribute "last_known_tire_pressure_rear_right", "number"
         attribute "outside_temperature", "number"
         attribute "passengerSetpoint", "number"
-        attribute "lastTokenUpdate", "string"
-        attribute "lastTokenUpdateInt", "number"
-        attribute "nextTokenUpdate", "string"
         attribute "altPresent", "string"
         attribute "front_drivers_door", "string"
         attribute "front_pass_door", "string"
@@ -187,7 +184,6 @@ metadata {
         command "closeWindows"
         command "setChargeLimit", ["number"] /* integer percent */
         command "setChargeAmps", ["number"] /* integer amperage */
-        command "setRefreshTime", ["string"]
         command "startDefrost"
         command "stopDefrost"
         command "remoteStart"
@@ -201,9 +197,6 @@ metadata {
     preferences
     {
        input "refreshTime", "enum", title: "How often to refresh?",options: ["Disabled","1-Hour", "30-Minutes", "15-Minutes", "10-Minutes", "5-Minutes","1-Minute"],  required: true, defaultValue: "15-Minutes"
-       input "AllowSleep", "bool", title: "Schedule a time to disable/reenable to allow the car to sleep?", required: true, defaultValue: false
-       input "fromTime", "time", title: "From", required:false, width: 6, submitOnChange:true
-       input "toTime", "time", title: "To", required:false, width: 6 
        input "tempScale", "enum", title: "Display temperature in F or C ?", options: ["F", "C"], required: true, defaultValue: "F" 
        input "mileageScale", "enum", title: "Display mileage/speed in Miles or Kilometers ?", options: ["M", "K"], required: true, defaultValue: "M"  
        input "debugLevel", "enum", title: "Set Debug/Logging Level (Full will automatically change to Info after an hour)?", options: ["Full","Info","None"], required:true,defaultValue: "Info"
@@ -212,9 +205,6 @@ metadata {
        input "homeLatitude", "Double", title: "Home latitude value?", required: false
        input "enableAddress", "bool", title: "Enable an extra query on every refresh to fill in current address?", required:false, defaultValue:false
        input "boundryCircleDistance", "Double", title: "Distance in KM from home to be considered as Present?", required: false, defaultValue: 1.0
-       input "outerBoundryCircleDistance", "Double", title: "Outer distance in KM from home where refresh time is reduced?", required: false, defaultValue: 5.0     
-       input "outerRefreshTime", "Number", title: "Reduced refresh time when location hit outer boundry (in seconds)?",  required: false, defaultValue: 30
-       input "refreshOverrideTime", "enum", title: "How long to allow reduced refresh before giving up and go back to default (Also resets when you arrive)?",options: ["30-Minutes", "15-Minutes", "10-Minutes", "5-Minutes"],  required: false, defaultValue: "5-Minutes"     
        input "numberOfSecsToConsiderCarAsleep", "Number", title: "After how many seconds have elapsed since last Tesla update should we check to see if the car is Asleep (default 300)?",resuired:true, defaultValue:300
        input "enableBatteryHealth", "enum", title: "Enable an extra query on every refresh to get battery health?", options: ["disabled", "on-every-refresh", "only-on-reenable"], required: false, defaultValue: "disabled" 
     }
@@ -245,10 +235,6 @@ def initialize() {
     state.currentVehicleState = "awake"
     sendEvent(name: "currentVehicleState", value: "awake")
      
-    state.reducedRefresh = false
-    state.reducedRefreshDisabled = false    
-    state.tempReducedRefresh = false
-    state.tempReducedRefreshTime = 0
     
     if (refreshTime == "1-Hour")
       runEvery1Hour(refresh)
@@ -271,13 +257,6 @@ def initialize() {
           log.warn "Unknown refresh time specified.. defaulting to 15 Minutes"
           runEvery15Minutes(refresh)
       }
-    // now handle scheduling to turn on and off to allow sleep
-    if ((AllowSleep == true) && (fromTime != null) && (toTime != null))
-    {
-       log.info "Scheduling disable and re-enable times to allow sleep!" 
-       schedule(fromTime, disable)
-       schedule(toTime, reenable)       
-    }
    
      if (debugLevel == "Full")
     {
@@ -288,30 +267,6 @@ def initialize() {
     webSocketInit()   
 }
 
-def disable()
-{
-    if (debugLevel != "None") log.info "Disabling to allow sleep!"
-    unschedule()
-    // schedule reenable time
-    if (toTime != null)
-      schedule(toTime, reenable)
-}
-
-def reenable()
-{
-    if (debugLevel != "None") log.info "Waking up app in re-enable!"
-    // now schedule the sleep again
-    // pause for 3 secs so when we reschedule it wont run again immediately
-    pauseExecution(3000)
-    initialize() 
-    wake()
-    
-    if (enableBatteryHealth == "only-on-reenable")
-       {
-          if (debugLevel != "None") log.info "Getting Battery Health Status"
-            getBatteryHealth()
-       }    
-}
 
 // parse events into attributes
 def parse(String description) {
@@ -336,7 +291,7 @@ private processVehicleState(data)
     
 private processData(data) {
 	if (data) {
-    	if (debugLevel != "None") log.info "processData: ${data}"
+    	if (debugLevel == "Full") log.debug "processData: ${data}"
         
         if (data.state != "online")
         {
@@ -385,7 +340,7 @@ private processData(data) {
             if (mileageScale == "M")
               {
                 def theRange = Math.round(data.chargeState.batteryRange)
-                if (debugLevel == "full") log.debug "rounded range = $theRange"
+                if (debugLevel == "Full") log.debug "rounded range = $theRange"
                 sendEvent(name: "batteryRange", value: theRange)
               }   
             else
@@ -459,96 +414,6 @@ private processData(data) {
         
             updateIFrame()
             
-            if (useAltPresence == true)
-              {
-                  
-               if (homeLongitude == null || homeLatitude == null)
-                  {
-                      log.error "Error: Home longitude or latitude is null and Alternate Presence method selected, Boundry Checking disabled!"
-                  }
-                else
-                {
-
-               if (debugLevel == "Full") log.debug "Using Alternate presence detection, requested distance: $boundryCircleDistance"
-                  
-               def Double vehlog = data.driveState.longitude.toDouble()
-               def Double vehlat = data.driveState.latitude.toDouble()   
-               def Double homelog =  homeLongitude.toDouble() //-71.5996 
-               def Double homelat = homeLatitude.toDouble() // 42.908368 
-                  
-               if (debugLevel == "Full")    
-                {
-                 log.debug "current vehicle longitude,latitude = [ $vehlog, $vehlat ]"                 
-                 log.debug "User set home longitude,latitude =   [ $homelog, $homelat ]"
-                }
-                  
-                def Double dist = calculateDistanceBetweenTwoLatLongsInKm(vehlog, vehlat, homelog, homelat)
-                if (debugLevel == "Full") log.debug "Calculated distance from home: $dist"
-                  
-                if (dist <= boundryCircleDistance.toDouble())
-                { 
-                    if (debugLevel == "Full") log.debug "Vehicle in range... setting presence to true"
-                    sendEvent(name: "altPresent", value: "present")
-                    sendEvent(name: "presence", value: "present")
-                    state.reducedRefresh = false
-                    state.reducedRefreshDisabled = false
-                    unschedule(reducedRefreshKill)
-                    unschedule(reducedRefresh)
-                }
-                else 
-                {
-                    if (debugLevel == "Full") log.debug "Vehicle outside range... setting presence to false"
-                    sendEvent(name: "altPresent", value: "not present")
-                    sendEvent(name: "presence", value: "not present")
-                    
-                    // dont reenable or check outter boundry and change times if already did it and currently disabled.
-                    
-                    if (state.reducedRefreshDisabled != true)
-                    {
-                        
-                    // not in range so try outter boundry
-                    if (debugLevel == "Full") log.debug "Checking outer boundry range..."
-                    if (debugLevel == "Full") log.debug "outer refresh time: $outerRefreshTime , outer boundry distance: $outerBoundryCircleDistance, refresh override time:  $refreshOverrideTime, boundry circle dist $boundryCircleDistance"
-                    
-                   if ((outerBoundryCircleDistance == null) || (outerRefreshTime == null) || (refreshOverrideTime == null) || (outerBoundryCircleDistance.toDouble() < boundryCircleDistance.toDouble()))
-                     {
-                      log.error "Error: OuterRefreshTime, OuterBoundryDistance, refreshOverrideTime are blank, or OuterBoundryDistance is less than inner. Outer bounder check disabled!"
-                     }
-                    else
-                    {
-                        if (debugLevel == "Full") log.debug "Using Alternate presence detection, requested outer distance: $outerBoundryCircleDistance"
-                        if (dist <= outerBoundryCircleDistance.toDouble())
-                        {
-                           if (debugLevel == "Full") log.debug "We are inside outer boundry range..."
-                           // now just schedule reduced refresh time,, leave other time in place so no unschedule necessary as one extra fresh will not hurt
-                                                      
-                            runIn(outerRefreshTime, reducedRefresh)
-                            if (debugLevel == "Full") log.debug "Temporary reduced refresh time set to $outerRefreshTime seconds!"
-                            
-                            // only schedule reduced refresh kill first time
-                            if (state.reducedRefresh == false)
-                              {  
-                                  if (debugLevel == "Full") log.debug "Scheduling reduced refresh override/kill to run in $refreshOverrideTime!"
-                                  
-                                  if (refreshOverrideTime == "30-Minutes")
-                                    runIn(30*60,reducedRefreshKill)
-                                  else if (refreshOverrideTime == "15-Minutes")
-                                    runIn(15*60,reducedRefreshKill)
-                                  else if (refreshOverrideTime == "10-Minutes")
-                                   runIn(10*60,reducedRefreshKill)
-                                  else if (refreshOverrideTime == "5-Minutes")  
-                                   runIn(5*60,reducedRefreshKill)    
-                              }
-                            
-                            state.reducedRefresh = true
-                          
-                        } // in outter boundry
-                    } // outer boundry check                                 
-                } // not in inner boundry
-               
-                } // inner boundry check
-                } // not already done and disabled
-              } // do alt presence check
             
         } // driver state processing
         
@@ -561,14 +426,8 @@ private processData(data) {
                 sendEvent(name: "presence", value: data.vehicleState.presence)
                 sendEvent(name: "altPresent", value: data.vehicleState.presence)
                 
-                state.reducedRefresh = false
             }
             
-            if (data.vehicleState.presence == present)
-            {
-                  unschedule(reducedRefreshKill)
-                  unschedule(reducedRefresh)
-            }
             
             sendEvent(name: "lock", value: data.vehicleState.lock)
            
@@ -720,86 +579,6 @@ def refresh() {
     }
 }
 
-def reducedRefresh() {
-	 if (debugLevel != "None") log.info "Executing 'reducedRefresh'"
-     def now = new Date().format('MM/dd/yyyy h:mm a',location.timeZone)
-     sendEvent(name: "lastUpdate", value: now, descriptionText: "Last Update: $now")
-   
- // lgk if vehicle asleep just do state instead of normal refresh
-    if (state.currentVehicleState == "awake")
-    {      
-         def data = parent.refresh(device.currentValue('vin'))
-	   processData(data)
-    
-       if (enableAddress)
-        {
-          if (debugLevel != "None") log.info "Getting current Address"
-          def adata = parent.currentAddress(device.currentValue('vin'))
-          if (debugLevel == "Full") log.debug "address data = $adata"
-          if (adata?.status)
-              {
-                sendEvent(name: "currentAddress", value: adata.address, descriptionText: "Current Address: ${adata.address}")
-                sendEvent(name: "savedLocation", value: adata.savedLocation, descriptionText: "Location: ${adata.savedLocation}")
-              }
-          else 
-              {
-                sendEvent(name: "currentAddress", value: "Unknown", descriptionText: "Current Address: Unknown")
-                sendEvent(name: "savedLocation", value: "N/A", descriptionText: "Location: N/A")   
-              }   
-        }
-    }
-    else
-    {
-      def data = parent.sleepStatus(device.currentValue('vin'))
-      processVehicleState(data)
-    }      
-}
-
-def tempReducedRefresh()
-{
-     // this is called when we use the method to change the refresh temporarily to 30 20 or 10 seconds
-     // it reschedules the temp refresh until cancelled.
-    
-     if (debugLevel != "None") log.debug "Executing 'tempReducedRefresh'"
-     def now = new Date().format('MM/dd/yyyy h:mm a',location.timeZone)
-     sendEvent(name: "lastUpdate", value: now, descriptionText: "Last Update: $now")
- 
-    // lgk if vehicle asleep just do state instead of normal refresh
-    if (state.currentVehicleState == "awake")
-    {      
-      def data = parent.refresh(device.currentValue('vin'))
-	  processData(data)
-  
-     if (enableAddress)
-      {
-        if (debugLevel != "None") log.info "Getting current Address"
-        def adata = parent.currentAddress(device.currentValue('vin'))
-        if (debugLevel == "full") log.debug "address data = $adata"
-        if (adata?.status)
-          {
-            sendEvent(name: "currentAddress", value: adata.address, descriptionText: "Current Address: ${adata.address}")
-            sendEvent(name: "savedLocation", value: adata.savedLocation, descriptionText: "Location: ${adata.savedLocation}")
-          }
-         else 
-          {
-            sendEvent(name: "currentAddress", value: "Unknown", descriptionText: "Current Address: Unknown")
-            sendEvent(name: "savedLocation", value: "N/A", descriptionText: "Location: N/A")   
-          }
-      }
-    }
-      else
-    {
-      def data = parent.sleepStatus(device.currentValue('vin'))
-      processVehicleState(data)
-    } 
-    
-    // reschedule if still true
-
-    if (state.tempReducedRefresh)
-    {
-       if (state.tempReducedRefreshTime > 0) runIn(state.tempReducedRefreshTime,tempReducedRefresh)
-    }    
-}
 
 def wake() {
     def vin1= device.currentValue('vin')
@@ -1061,13 +840,6 @@ private farenhietToCelcius(dF) {
 	return (dF - 32) * 5/9
 }
 
-def setLastokenUpdateTime()
-{
-    def now1 = new Date().format('MM/dd/yyyy h:mm a',location.timeZone)
-    Long nowint = now() / 1000
-    sendEvent(name: "lastTokenUpdate", value: now1, descriptionText: "Last Token Update: $now1")
-    sendEvent(name: "lastTokenUpdateInt", value: nowint)
-}
     
 /**
  * Calculate distance between two points in latitude and longitude taking
@@ -1109,33 +881,8 @@ def double calculateDistanceBetweenTwoLatLongsInKm(double lat1, double lon1, dou
   return 12742 * Math.asin(Math.sqrt(a));
 }
 
-def tempReducedRefreshKill()
-{
-    if (debugLevel != "None") log.info "Disabled Temp reduced refresh!"
-    state.tempReducedRefresh = false
-    state.tempReducedRefreshTime = 0
-    unschedule(tempReducedRefresh)
-}
 
-def reducedRefreshKill()
-{
- if (state.reducedRefresh == true)
-    {
-        isPresent = device.currentValue("presence")
-         if (debugLevel == "Full") log.debug "Presence = $isPresent"
-        // only set override if not still present
-        if (isPresent != "present")
-        {
-             state.reducedRefreshDisabled = true
-        }
-        if (debugLevel == "Full") log.info "Disabling reduced refresh time."
-        unschedule(reducedRefresh)
-        state.reducedRefresh = false 
-       
-    }
-}
-
- def updateIFrame() {
+def updateIFrame() {
      
         def lon = device.currentValue('longitude')
         def lat = device.currentValue('latitude')
@@ -1147,101 +894,6 @@ def reducedRefreshKill()
  }   
 
 
-def setRefreshTime(String newRefreshTime)
-{  
-    if (debugLevel != "None") log.info "Refresh time currently set to: $refreshTime, overriding manually with $newRefreshTime"
- 
-    sendEvent(name: "lastUpdate", value: now, descriptionText: "Last Update: $now")
-    sendEvent(name: "refreshTime", value: newrefreshTime)
-    
-    if (newRefreshTime == "1-Hour")
-    {
-      unschedule(refresh)
-      runEvery1Hour(refresh)
-      device.updateSetting("refreshTime",[value:"1-Hour",type:"enum"])
-    }
-      else if (newRefreshTime == "30-Minutes")
-      {
-       unschedule(refresh)
-       runEvery30Minutes(refresh)
-       device.updateSetting("refreshTime",[value:"30-Minutes",type:"enum"]) 
-      }
-     else if (newRefreshTime == "15-Minutes")        
-     {
-       unschedule(refresh)
-       runEvery15Minutes(refresh)
-       device.updateSetting("refreshTime",[value:"15-Minutes",type:"enum"])
-     }
-     else if (newRefreshTime == "10-Minutes")
-     {
-       unschedule(refresh)
-       runEvery10Minutes(refresh)
-       device.updateSetting("refreshTime",[value:"10-Minutes",type:"enum"]) 
-     }
-     else if (newRefreshTime == "5-Minutes")
-     {
-       unschedule(refresh)         
-       runEvery5Minutes(refresh)
-       device.updateSetting("refreshTime",[value:"5-Minutes",type:"enum"])
-     }
-     else if (newRefreshTime == "1-Minute")
-     {
-       unschedule(refresh)
-       runEvery1Minute(refresh)
-       device.updateSetting("refreshTime",[value:"1-Minute",type:"enum"])
-     }
-    else if (newRefreshTime == "Disabled")
-    {
-        if (debugLevel != "None") log.info "Disabling..."
-        unschedule(refresh)
-        device.updateSetting("refreshTime",[value:"Disabled",type:"enum"])
-    }
-    
-    // can set less than one minute but will revert in 3 minutes back to normal automatically
-    // existing refresh is left in place.. just extra ones 30 20 or 10 secs
-    // also add wake or this doesnt really do anything if car asleep
-    
-    else if (newRefreshTime == "30-Seconds")
-    {
-        if (debugLevel != "None") log.info "Setting temp refresh to 30 seconds for 3 minutes!"
-        unschedule(tempReducedRefresh)
-        unschedule(tempReducedRefreshKill)
-        state.tempReducedRefresh = true
-        state.tempReducedRefreshTime = 30
-        wake()
-        runIn(180,tempReducedRefreshKill)
-        runIn(30,tempReducedRefresh)
-    }
-    else if (newRefreshTime == "20-Seconds")
-    {
-        if (debugLevel != "None") log.info "Setting temp refresh to 20 seconds for 3 minutes!"
-        unschedule(tempReducedRefresh)
-        unschedule(tempReducedRefreshKill)
-        state.tempReducedRefresh = true
-        state.tempReducedRefreshTime = 20
-        wake()
-        runIn(180,tempReducedRefreshKill)
-        runIn(20,tempReducedRefresh)
-    }
-    else if (newRefreshTime == "10-Seconds")
-    {
-        if (debugLevel != "None") log.info "Setting temp refresh to 10 seconds for 3 minutes!"
-        unschedule(tempReducedRefresh)
-        unschedule(tempReducedRefreshKill)
-        state.tempReducedRefresh = true
-        state.tempReducedRefreshTime = 10
-        wake()
-        runIn(180,tempReducedRefreshKill)
-        runIn(10,tempReducedRefresh)
-    }
-   
-    else 
-      { 
-          log.warn "Unknown refresh time specified.. defaulting to 15 Minutes"
-          runEvery15Minutes(refresh)
-          device.updateSetting("refreshTime",[value:"15-Minutes",type:"enum"])
-      }
-}
 
 def getBatteryHealth()
 {
@@ -1296,6 +948,38 @@ private processBatteryHealth(data) {
 // need to add 'capability "Initialize"' line ~74
 // need to add 'webSocketInit()' to end of 'def initialize()' function line ~288
 // need to add 'webSocketParse(description)' to 'def parse(String description)' function line ~319
+
+def checkHomePresence(it) {
+    if (homeLongitude != null && homeLatitude != null) {
+        def Float vehlat = it.value?.locationValue?.latitude?.toFloat()
+		def Float vehlong = it.value?.locationValue?.longitude?.toFloat()
+		def Float homelong =  homeLongitude.toFloat() //-71.5996 
+    	def Float homelat = homeLatitude.toFloat() // 42.908368 
+		
+        if (debugLevel == "Full")    
+        	{
+            log.debug "current vehicle longitude,latitude = [ $vehlong, $vehlat ]"                 
+            //log.debug "User set home longitude,latitude =   [ $homelong, $homelat ]"
+            }
+        def Double dist = calculateDistanceBetweenTwoLatLongsInKm(vehlong, vehlat, homelong, homelat)
+        if (debugLevel == "Full") log.debug "Calculated distance from home: $dist"
+         
+        if (dist <= boundryCircleDistance.toDouble())
+        	{ 
+                if (device.currentValue('presence') == 'not present') {
+                    if (debugLevel == "Full") log.debug "Vehicle in range... setting presence to true"
+                    sendEvent(name: "presence", value: "present")
+                }
+            }
+            else 
+            {
+            	if (device.currentValue('presence') == 'present') {
+                	if (debugLevel == "Full") log.debug "Vehicle outside range... setting presence to false"
+                    sendEvent(name: "presence", value: "not present")
+        		}
+			}
+	}
+}
 
 def webSocketInit() {
     state.remove('webSocketOpenDelay')
@@ -1352,7 +1036,7 @@ def webSocketParse(String message) {
         	webSocketProcess(data.data)
         }
         else {
-            if(debugLevel != "None") log.info("${device.displayName} webSocketParse() message: $data")
+            if(debugLevel == "Full") log.debug("${device.displayName} webSocketParse() message: $data")
             if(state?.currentVehicleState=="asleep") runIn(2,refresh) 
         }
     }
@@ -1393,7 +1077,7 @@ void webSocketProcess(data) {
         "RpWindow": { it -> sendEventX(name: "rear_pass_window", value: it.value?.stringValue) },
         "SoftwareUpdateScheduledStartTime": { it -> /* Handle SoftwareUpdateScheduledStartTime */ },
         "VehicleSpeed": { it -> Integer speed = Math.round(getValueMile(it?.value)); sendEventX(name: "speed", value: speed, unit: (mileageScale == "M") ? "mph" : "kph" ); sendEventX(name: "motion", value: speed>0 ? "active" : "inactive") }, // [value:[invalid:true], key:VehicleSpeed]
-        "ExpectedEnergyPercentAtTripArrival": { it -> /* Handle ExpectedEnergyPercentAtTripArrival */ },
+        "ExpectedEnergyPercentAtTripArrival": { it -> sendEventX(name: "active_route_energy_at_arrival", value: getValueInt(it?.value)) },
         "MilesToArrival": { it -> sendEventX(name: "active_route_miles_to_arrival", value: getValueMile(it?.value).round(1), unit: mileageScale ) }, // [value:[doubleValue:1.4336150427289294], key:MilesToArrival] 
         "MinutesToArrival": { it -> sendEventX(name: "active_route_minutes_to_arrival", value: getValueFloat(it?.value).round(2), unit: "min" ) }, // [value:[doubleValue:7], key:MinutesToArrival] 
         "Gear": { it -> /* Handle Gear */ }, //  [value:[shiftStateValue:ShiftStateP], key:Gear],  [value:[shiftStateValue:ShiftStateD], key:Gear], [value:[shiftStateValue:ShiftStateR], key:Gear]
@@ -1436,7 +1120,7 @@ void webSocketProcess(data) {
         "GpsHeading": { it -> sendEventX(name: "heading", value: getValueInt(it?.value), unit: "°") }, // [value:[stringValue:63.3255034690718], key:GpsHeading]
         "LifetimeEnergyUsed": { it -> /* Handle LifetimeEnergyUsed */ },
         "DCChargingPower": { it -> /* Handle DCChargingPower */ },
-        "Location": { it -> sendEventX(name: "latitude", value: it.value?.locationValue?.latitude?.toFloat(), unit: "°");  sendEventX(name: "longitude", value: it.value?.locationValue?.longitude?.toFloat(), unit: "°"); }, //  [value:[locationValue:[latitude:41.040694, longitude:-73.540426]], key:Location]
+        "Location": { it -> checkHomePresence(it); sendEventX(name: "latitude", value: it.value?.locationValue?.latitude?.toFloat(), unit: "°");  sendEventX(name: "longitude", value: it.value?.locationValue?.longitude?.toFloat(), unit: "°"); }, //  [value:[locationValue:[latitude:41.040694, longitude:-73.540426]], key:Location]
         
         "Soc": { it -> /* Handle Soc */ },
         "Version": { it -> /* Handle Version */ },
@@ -1445,8 +1129,8 @@ void webSocketProcess(data) {
         "ModuleTempMax": { it -> /* Handle ModuleTempMax */ }, // [value:[stringValue:5], key:ModuleTempMax]
         "SoftwareUpdateDownloadPercentComplete": { it -> /* Handle SoftwareUpdateDownloadPercentComplete */ }, // [value:[intValue:0], key:SoftwareUpdateDownloadPercentComplete]
         "HomelinkNearby": { it -> /* Handle HomelinkNearby */ }, // [value:[booleanValue:false], key:HomelinkNearby]
-        "ChargeAmps": { it -> /* Handle ChargeAmps */ },
-        "ChargeLimitSoc": { it -> /* Handle ChargeLimitSoc */ },
+        "ChargeAmps": { it -> sendEventX(name: "current_charge_amps", value: getValueInt(it?.value)) },
+        "ChargeLimitSoc": { it -> sendEventX(name: "current_charge_limit", value: getValueInt(it?.value)) },
         "ChargeCurrentRequestMax": { it -> /* Handle ChargeCurrentRequestMax */ },
         "ChargeCurrentRequest": { it -> /* Handle ChargeCurrentRequest */ },
         "ChargePortLatch": { it -> /* Handle ChargePortLatch */ },
@@ -1457,7 +1141,7 @@ void webSocketProcess(data) {
         "TimeToFullCharge": { it -> /* Handle TimeToFullCharge */ },
         "PinToDriveEnabled": { it -> /* Handle PinToDriveEnabled */ }, // [value:[stringValue:false], key:PinToDriveEnabled]
         "DriverSeatOccupied": { it -> sendEventX(name: "user_present", value: getValueBool(it?.value)) }, //  [value:[booleanValue:false], key:DriverSeatOccupied] 
-        "DestinationName": { it -> /* Handle DestinationName */ }, //  [value:[stringValue:Home], key:DestinationName]
+        "DestinationName": { it -> sendEventX(name: "active_route_destination", value: it?.value?.stringValue) }, //  [value:[stringValue:Home], key:DestinationName]
         "ChargerPhases": { it -> /* Handle ChargerPhases */ }, // [value:[intValue:1], key:ChargerPhases]
         "DoorState": { it -> // [value:[doorValue:[DriverRear:false, PassengerFront:false, TrunkFront:false, PassengerRear:false, TrunkRear:false, DriverFront:false]], key:DoorState] was [value:[stringValue:DriverFront|PassengerFront|DriverRear|PassengerRear|TrunkFront|TrunkRear], key:DoorState] or [value:[stringValue:], key:DoorState]
             sendEventX(name: "front_drivers_door", value: it.value?.doorValue?.DriverFront?.toBoolean() ? "Open" : "Closed")
@@ -1482,10 +1166,17 @@ void webSocketProcess(data) {
 }
 
 Boolean sendEventX(Map x) {
+//    log.debug(x?.name)
+//    log.debug(x?.value)
+//    log.debug("was " + device.currentValue(x?.name).toString().toLowerCase())
     if(x?.value!=null && device.currentValue(x?.name).toString().toLowerCase() != x?.value.toString().toLowerCase() && !x?.eventDisable) {
+//        log.debug("event will be sent")
     	x.descriptionText = x.descriptionText ?: "${device.displayName} ${x.name.replace('_', ' ')} is $x.value${x?.unit?:""}"
-        if(x?.logLevel=="warn") log.warn (x?.descriptionText); else if (debugLevel != "None") log.info (x?.descriptionText)
+        if(x?.logLevel=="warn") log.warn (x?.descriptionText); else if (debugLevel == "Full") log.info (x?.descriptionText)
         sendEvent(name: x?.name, value: x?.value, unit: x?.unit, descriptionText: x?.descriptionText, isStateChange: (x?.isStateChange ?: false))
+        
     }
+        // sendEvent(name: "lastUpdate", value: now, descriptionText: "Last Update: $now")
+
     return true
 }
