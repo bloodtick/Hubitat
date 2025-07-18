@@ -376,15 +376,19 @@ void asyncHttpCallback(resp, data) {
 }
 
 String uptimeToTimestamp(String uptime) {
-    if(uptime==null) return null
+    if (uptime == null) return null
     String time = (uptime.contains("day") ? uptime.replaceAll("\\s*days?\\s*", ":") : "0:$uptime").replaceAll(" ", "")
     def (days, h, m, s) = time.tokenize(":")*.toInteger()
-    Long timestamp = ((now() / 1000).toLong() - (days * 86400 + h * 3600 + m * 60 + s)) * 1000
-    
-    if(!state?.dateFormatInvalid && settings?.deviceFormat) {
+    long uptimeSeconds = days * 86400 + h * 3600 + m * 60 + s
+    long rawTimestamp = ((now() / 1000).toLong() - uptimeSeconds) * 1000
+
+    // Round timestamp to nearest 5 seconds (5000 ms)
+    long roundedTimestamp = Math.round(rawTimestamp / 5000.0) * 5000
+
+    if (!state?.dateFormatInvalid && settings?.deviceFormat) {
         SimpleDateFormat sdf = new SimpleDateFormat(settings?.deviceFormat)
-        return sdf.format(new Date(timestamp))
-    } else return timestamp.toString()
+        return sdf.format(new Date(roundedTimestamp))
+    } else return roundedTimestamp.toString()
 }
 
 String normalizeKey(String key) {
