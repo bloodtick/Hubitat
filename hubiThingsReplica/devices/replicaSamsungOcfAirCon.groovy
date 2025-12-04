@@ -1,5 +1,5 @@
 /**
-*  Copyright 2023 Bloodtick
+*  Copyright 2025 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -10,8 +10,15 @@
 *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
 *  for the specific language governing permissions and limitations under the License.
 *
+* Changes by amithalp
+* Added ThermostatFanMode integration for Hubitat Thermostat tile:
+* - Implemented setThermostatFanMode() to map tile commands into Samsung setFanMode().
+* - Added thermostatFanMode attribute updates to mirror fanMode for proper Dashboard display.
+* - Ensures Thermostat tile control works correctly while preserving Samsung behavior
+*   (fan mode changes are accepted only when the AC unit is ON).
 */
-public static String version() {return "1.3.3"}
+
+public static String version() {return "1.3.4"}
 
 metadata 
 {
@@ -25,9 +32,14 @@ metadata
         capability "TemperatureMeasurement"
         capability "ThermostatCoolingSetpoint"
         capability "Refresh"
+        // Add Hubitat thermostat capabilities
+        capability "Thermostat"
+        capability "ThermostatFanMode"
         // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
         // Use Hubitat 'Button Controller' built in app to set commands to run.
         capability "PushableButton"
+        
+        
         
         attribute "airConditionerMode", "string" //capability "airConditionerMode" in SmartThings
         attribute "supportedAcModes", "JSON_OBJECT" //capability "airConditionerMode" in SmartThings
@@ -71,6 +83,14 @@ metadata
         attribute "modelClassificationCode", "string" //capability "samsungce.deviceIdentification" in SmartThings
         attribute "description", "string" //capability "samsungce.deviceIdentification" in SmartThings        
         attribute "healthStatus", "enum", ["offline", "online"]
+        // Thermostat attributes
+        attribute "thermostatMode", "string"
+        attribute "thermostatOperatingState", "string"
+        attribute "supportedThermostatModes", "JSON_OBJECT"
+        attribute "thermostatFanMode", "string"
+        attribute "supportedThermostatFanModes", "JSON_OBJECT"
+        attribute "heatingSetpoint", "number"
+        attribute "thermostatSetpoint", "number"
         
         command "setAirConditionerMode", [[name: "mode*", type: "STRING", description: "Set the air conditioner mode"]] //capability "airConditionerMode" in SmartThings
         command "setFanMode", [[name: "fanMode*", type: "STRING", description: "Set the fan mode"]] //capability "airConditionerFanMode" in SmartThings
@@ -153,6 +173,15 @@ def setSwitchValue(value) {
     String descriptionText = "${device.displayName} was turned $value"
     sendEvent(name: "switch", value: value, descriptionText: descriptionText)
     logInfo descriptionText
+
+    if (value == "off") {
+        sendEvent(name: "thermostatMode", value: "off")
+        sendEvent(name: "thermostatOperatingState", value: "idle")
+    } else {
+        String acMode = (device.currentValue("airConditionerMode") ?: "cool") as String
+        String opState = (acMode == "heat") ? "heating" : "cooling"
+        sendEvent(name: "thermostatOperatingState", value: opState)
+    }
 }
 
 def setSwitchOff() {
@@ -168,26 +197,128 @@ def setAirConditionerModeValue(value) {
     String descriptionText = "${device.displayName} Air Conditioner mode is $value"
     sendEvent(name: "airConditionerMode", value: value, descriptionText: descriptionText)
     logInfo descriptionText
+
+    // Map Samsung AC mode → Thermostat mode/operating state
+    String tMode
+    switch (value) {
+        case "off":
+            tMode = "off"
+            break
+        case "heat":
+            tMode = "heat"
+            break
+        case "cool":
+        case "dry":
+        case "wind":
+        case "auto":
+            tMode = "cool"   // treat Samsung cool/auto/dry/wind as "cool" thermostat mode
+            break
+        default:
+            tMode = "auto"
+    }
+
+    sendEvent(name: "thermostatMode", value: tMode)
+
+    // operating state based on switch + mode
+    String sw = (device.currentValue("switch") ?: "off") as String
+    String opState
+    if (sw == "off" || tMode == "off") {
+        opState = "idle"
+    } else if (tMode == "heat") {
+        opState = "heating"
+    } else {
+        opState = "cooling"
+    }
+    sendEvent(name: "thermostatOperatingState", value: opState)
 }
+
 
 def setSupportedAcModesValue(value) {
     String descriptionText = "${device.displayName} supported Air Conditioner modes are $value"
     sendEvent(name: "supportedAcModes", value: value, descriptionText: descriptionText)
     logInfo descriptionText
+
+    try {
+        def raw = value
+        if (raw instanceof Map && raw.value != null) {
+            raw = raw.value      // → [auto, cool, dry, wind, heat]
+        }
+
+        def thermo = (raw instanceof Collection ? raw : [raw]).collect { m ->
+            switch (m) {
+                case "off":  return "off"
+                case "cool": return "cool"
+                case "heat": return "heat"
+                case "auto": return "auto"
+                case "dry":  return "cool"   // map to cool or drop if you prefer
+                case "wind": return "cool"
+                default:     return null
+            }
+        }.findAll { it }
+
+        // Always add "off" as a Hubitat thermostat mode
+        thermo << "off"
+
+        if (thermo) {
+            sendEvent(
+                name: "supportedThermostatModes",
+                value: groovy.json.JsonOutput.toJson(thermo.unique())
+            )
+        }
+    } catch (e) {
+        logWarn "setSupportedAcModesValue: unable to map supported modes: $e"
+    }
 }
+
 
 //capability "airConditionerFanMode"
 def setFanModeValue(value) {
     String descriptionText = "${device.displayName} fan mode is $value"
     sendEvent(name: "fanMode", value: value, descriptionText: descriptionText)
     logInfo descriptionText
+
+    // Mirror to ThermostatFanMode so the tile reflects wall-panel / cloud changes
+    sendEvent(name: "thermostatFanMode", value: value)
 }
+
+// Hubitat ThermostatFanMode entry point – called by the Thermostat tile
+def setThermostatFanMode(String mode) {
+    logInfo "${device.displayName} setThermostatFanMode($mode)"
+
+    // DO NOT power on here – you explicitly asked to leave power state unchanged.
+    // Just send the fan mode to Samsung and update our local state.
+
+    // 1) Send to Samsung via Replica
+    setFanMode(mode)
+
+    // 2) Optimistic local update so the tile changes immediately.
+    //    It will be confirmed (or corrected) when Samsung reports back
+    //    and setFanModeValue(...) is called.
+    sendEvent(name: "thermostatFanMode", value: mode)
+}
+
 
 def setSupportedAcFanModesValue(value) {
     String descriptionText = "${device.displayName} supported fan modes are $value"
     sendEvent(name: "supportedAcFanModes", value: value, descriptionText: descriptionText)
     logInfo descriptionText
+
+    try {
+        def raw = value
+        if (raw instanceof Map && raw.value != null) {
+            raw = raw.value      // → [auto, low, medium, high]
+        }
+        def list = (raw instanceof Collection ? raw : [raw])
+
+        sendEvent(
+            name: "supportedThermostatFanModes",
+            value: groovy.json.JsonOutput.toJson(list.unique())
+        )
+    } catch (e) {
+        logWarn "setSupportedAcFanModesValue: unable to map supported fan modes: $e"
+    }
 }
+
 
 //capability "fanOscillationMode"
 def setFanOscillationModeValue(value) {
@@ -223,7 +354,12 @@ def setCoolingSetpointValue(value) {
     String descriptionText = "${device.displayName} cooling set point is $value $unit"
     sendEvent(name: "coolingSetpoint", value: value, unit: unit, descriptionText: descriptionText)
     logInfo descriptionText
+
+    // mirror to thermostatSetpoint + heatingSetpoint (cool-only VRF)
+    sendEvent(name: "thermostatSetpoint", value: value, unit: unit)
+    sendEvent(name: "heatingSetpoint",    value: value, unit: unit)
 }
+
 
 //capability "RelativeHumidityMeasurement"
 def setHumidityValue(value) {
@@ -295,7 +431,9 @@ def setVolumeValue(value) {
 //capability "execute"
 def setDataValue(value) {
     String descriptionText = "${device.displayName} execute command data is $value"
-    executeDataParse(value)  
+    if (value) {
+        executeDataParse(value)
+    }
     sendEvent(name: "data", value: value, descriptionText: descriptionText)
     logInfo descriptionText
 }
@@ -639,6 +777,79 @@ void refresh() {
 static String getReplicaRules() {
     return """{"version":1,"components":[{"trigger":{"name":"off","label":"command: off()","type":"command"},"command":{"name":"off","type":"command","capability":"switch","label":"command: off()"},"type":"hubitatTrigger"},{"trigger":{"name":"on","label":"command: on()","type":"command"},"command":{"name":"on","type":"command","capability":"switch","label":"command: on()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"HealthState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"healthCheck","attribute":"healthStatus","label":"attribute: healthStatus.*"},"command":{"name":"setHealthStatusValue","label":"command: setHealthStatusValue(healthStatus*)","type":"command","parameters":[{"name":"healthStatus*","type":"ENUM"}]},"type":"smartTrigger","mute":true},{"trigger":{"name":"setAirConditionerMode","label":"command: setAirConditionerMode(mode*)","type":"command","parameters":[{"name":"mode*","type":"STRING"}]},"command":{"name":"setAirConditionerMode","arguments":[{"name":"mode","optional":false,"schema":{"maxLength":255,"title":"String","type":"string"}}],"type":"command","capability":"airConditionerMode","label":"command: setAirConditionerMode(mode*)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"maxLength":255,"title":"String","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"airConditionerMode","attribute":"airConditionerMode","label":"attribute: airConditionerMode.*"},"command":{"name":"setAirConditionerModeValue","label":"command: setAirConditionerModeValue(airConditionerMode*)","type":"command","parameters":[{"name":"airConditionerMode*","type":"STRING"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"items":{"type":"string"},"type":"array"}},"additionalProperties":false,"required":[],"capability":"airConditionerMode","attribute":"supportedAcModes","label":"attribute: supportedAcModes.*"},"command":{"name":"setSupportedAcModesValue","label":"command: setSupportedAcModesValue(supportedAcModes*)","type":"command","parameters":[{"name":"supportedAcModes*","type":"JSON_OBJECT"}]},"type":"smartTrigger"},{"trigger":{"name":"setFanMode","label":"command: setFanMode(fanMode*)","type":"command","parameters":[{"name":"fanMode*","type":"STRING"}]},"command":{"name":"setFanMode","arguments":[{"name":"fanMode","optional":false,"schema":{"maxLength":255,"title":"String","type":"string"}}],"type":"command","capability":"airConditionerFanMode","label":"command: setFanMode(fanMode*)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"items":{"type":"string"},"type":"array"}},"additionalProperties":false,"required":[],"capability":"airConditionerFanMode","attribute":"supportedAcFanModes","label":"attribute: supportedAcFanModes.*"},"command":{"name":"setSupportedAcFanModesValue","label":"command: setSupportedAcFanModesValue(supportedAcFanModes*)","type":"command","parameters":[{"name":"supportedAcFanModes*","type":"JSON_OBJECT"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"maxLength":255,"title":"String","type":"string"}},"additionalProperties":false,"required":[],"capability":"airConditionerFanMode","attribute":"fanMode","label":"attribute: fanMode.*"},"command":{"name":"setFanModeValue","label":"command: setFanModeValue(fanMode*)","type":"command","parameters":[{"name":"fanMode*","type":"STRING"}]},"type":"smartTrigger"},{"trigger":{"name":"setFanOscillationMode","label":"command: setFanOscillationMode(fanOscillationMode*)","type":"command","parameters":[{"name":"fanOscillationMode*","type":"ENUM"}]},"command":{"name":"setFanOscillationMode","arguments":[{"name":"fanOscillationMode","optional":false,"schema":{"title":"FanOscillationMode","type":"string","enum":["off","individual","fixed","vertical","horizontal","all","indirect","direct","fixedCenter","fixedLeft","fixedRight","far","wide","mid","spot","swing"]}}],"type":"command","capability":"fanOscillationMode","label":"command: setFanOscillationMode(fanOscillationMode*)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"FanOscillationMode","type":"string"}},"additionalProperties":false,"required":[],"capability":"fanOscillationMode","attribute":"fanOscillationMode","label":"attribute: fanOscillationMode.*"},"command":{"name":"setFanOscillationModeValue","label":"command: setFanOscillationModeValue(fanOscillationMode*)","type":"command","parameters":[{"name":"fanOscillationMode*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"items":{"title":"FanOscillationMode","type":"string","enum":["off","individual","fixed","vertical","horizontal","all","indirect","direct","fixedCenter","fixedLeft","fixedRight","far","wide","mid","spot","swing"]},"type":"array"}},"additionalProperties":false,"required":["value"],"capability":"fanOscillationMode","attribute":"supportedFanOscillationModes","label":"attribute: supportedFanOscillationModes.*"},"command":{"name":"setSupportedFanOscillationModesValue","label":"command: setSupportedFanOscillationModesValue(supportedFanOscillationModes*)","type":"command","parameters":[{"name":"supportedFanOscillationModes*","type":"JSON_OBJECT"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"temperatureMeasurement","attribute":"temperature","label":"attribute: temperature.*"},"command":{"name":"setTemperatureValue","label":"command: setTemperatureValue(temperature*)","type":"command","parameters":[{"name":"temperature*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"name":"setCoolingSetpoint","label":"command: setCoolingSetpoint(setpoint*)","type":"command","parameters":[{"name":"setpoint*","type":"NUMBER"}]},"command":{"name":"setCoolingSetpoint","arguments":[{"name":"setpoint","optional":false,"schema":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000}}],"type":"command","capability":"thermostatCoolingSetpoint","label":"command: setCoolingSetpoint(setpoint*)"},"type":"hubitatTrigger"},{"trigger":{"title":"Temperature","type":"attribute","properties":{"value":{"title":"TemperatureValue","type":"number","minimum":-460,"maximum":10000},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value","unit"],"capability":"thermostatCoolingSetpoint","attribute":"coolingSetpoint","label":"attribute: coolingSetpoint.*"},"command":{"name":"setCoolingSetpointValue","label":"command: setCoolingSetpointValue(coolingSetpoint*)","type":"command","parameters":[{"name":"coolingSetpoint*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["CAQI"],"default":"CAQI"}},"additionalProperties":false,"required":["value"],"capability":"airQualitySensor","attribute":"airQuality","label":"attribute: airQuality.*"},"command":{"name":"setAirQualityValue","label":"command: setAirQualityValue(airQuality*)","type":"command","parameters":[{"name":"airQuality*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"title":"Percent","type":"attribute","properties":{"value":{"type":"number","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"relativeHumidityMeasurement","attribute":"humidity","label":"attribute: humidity.*"},"command":{"name":"setHumidityValue","label":"command: setHumidityValue(humidity*)","type":"command","parameters":[{"name":"humidity*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"PositiveInteger","type":"integer","minimum":0},"unit":{"type":"string","enum":["\u03bcg/m^3"],"default":"\u03bcg/m^3"}},"additionalProperties":false,"required":["value"],"capability":"dustSensor","attribute":"dustLevel","label":"attribute: dustLevel.*"},"command":{"name":"setDustLevelValue","label":"command: setDustLevelValue(dustLevel*)","type":"command","parameters":[{"name":"dustLevel*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"PositiveInteger","type":"integer","minimum":0},"unit":{"type":"string","enum":["\u03bcg/m^3"],"default":"\u03bcg/m^3"}},"additionalProperties":false,"required":["value"],"capability":"dustSensor","attribute":"fineDustLevel","label":"attribute: fineDustLevel.*"},"command":{"name":"setFineDustLevelValue","label":"command: setFineDustLevelValue(fineDustLevel*)","type":"command","parameters":[{"name":"fineDustLevel*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"PositiveInteger","type":"integer","minimum":0},"unit":{"type":"string","enum":["\u03bcg/m^3"],"default":"\u03bcg/m^3"}},"additionalProperties":false,"required":["value"],"capability":"veryFineDustSensor","attribute":"veryFineDustLevel","label":"attribute: veryFineDustLevel.*"},"command":{"name":"setVeryFineDustLevelValue","label":"command: setVeryFineDustLevelValue(veryFineDustLevel*)","type":"command","parameters":[{"name":"veryFineDustLevel*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"remoteControlStatus","attribute":"remoteControlEnabled","label":"attribute: remoteControlEnabled.*"},"command":{"name":"setRemoteControlEnabledValue","label":"command: setRemoteControlEnabledValue(remoteControlEnabled*)","type":"command","parameters":[{"name":"remoteControlEnabled*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"properties":{"deltaEnergy":{"type":"number"},"end":{"pattern":"removed","title":"Iso8601Date","type":"string"},"start":{"pattern":"removed","title":"Iso8601Date","type":"string"},"energySaved":{"type":"number"},"persistedSavedEnergy":{"type":"number"},"energy":{"type":"number"},"power":{"type":"number"},"powerEnergy":{"type":"number"},"persistedEnergy":{"type":"number"}},"additionalProperties":false,"title":"PowerConsumption","type":"object"}},"additionalProperties":false,"required":["value"],"capability":"powerConsumptionReport","attribute":"powerConsumption","label":"attribute: powerConsumption.*"},"command":{"name":"setPowerConsumptionValue","label":"command: setPowerConsumptionValue(powerConsumption*)","type":"command","parameters":[{"name":"powerConsumption*","type":"JSON_OBJECT"}]},"type":"smartTrigger"},{"trigger":{"name":"setVolume","label":"command: setVolume(volume*)","type":"command","parameters":[{"name":"volume*","type":"NUMBER"}]},"command":{"name":"setVolume","arguments":[{"name":"volume","optional":false,"schema":{"type":"integer","minimum":0,"maximum":100}}],"type":"command","capability":"audioVolume","label":"command: setVolume(volume*)"},"type":"hubitatTrigger"},{"trigger":{"name":"volumeDown","label":"command: volumeDown()","type":"command"},"command":{"name":"volumeDown","type":"command","capability":"audioVolume","label":"command: volumeDown()"},"type":"hubitatTrigger"},{"trigger":{"name":"volumeUp","label":"command: volumeUp()","type":"command"},"command":{"name":"volumeUp","type":"command","capability":"audioVolume","label":"command: volumeUp()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"custom.spiMode","attribute":"spiMode","label":"attribute: spiMode.*"},"command":{"name":"setSpiModeValue","label":"command: setSpiModeValue(spiMode*)","type":"command","parameters":[{"name":"spiMode*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"name":"raiseSetpoint","label":"command: raiseSetpoint()","type":"command"},"command":{"name":"raiseSetpoint","type":"command","capability":"custom.thermostatSetpointControl","label":"command: raiseSetpoint()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value"],"capability":"custom.thermostatSetpointControl","attribute":"maximumSetpoint","label":"attribute: maximumSetpoint.*"},"command":{"name":"setMaximumSetpointValue","label":"command: setMaximumSetpointValue(maximumSetpoint*)","type":"command","parameters":[{"name":"maximumSetpoint*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"number"},"unit":{"type":"string","enum":["F","C"]}},"additionalProperties":false,"required":["value"],"capability":"custom.thermostatSetpointControl","attribute":"minimumSetpoint","label":"attribute: minimumSetpoint.*"},"command":{"name":"setMinimumSetpointValue","label":"command: setMinimumSetpointValue(minimumSetpoint*)","type":"command","parameters":[{"name":"minimumSetpoint*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"name":"setAcOptionalMode","label":"command: setAcOptionalMode(mode*)","type":"command","parameters":[{"name":"mode*","type":"ENUM"}]},"command":{"name":"setAcOptionalMode","arguments":[{"name":"mode","optional":false,"schema":{"type":"string","enum":["off","energySaving","windFree","sleep","windFreeSleep","speed","smart","quiet","twoStep","comfort","dlightCool","cubePurify","longWind","motionIndirect","motionDirect"]}}],"type":"command","capability":"custom.airConditionerOptionalMode","label":"command: setAcOptionalMode(mode*)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"custom.airConditionerOptionalMode","attribute":"acOptionalMode","label":"attribute: acOptionalMode.*"},"command":{"name":"setAcOptionalModeValue","label":"command: setAcOptionalModeValue(acOptionalMode*)","type":"command","parameters":[{"name":"acOptionalMode*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"array","items":{"type":"string","enum":["off","energySaving","windFree","sleep","windFreeSleep","speed","smart","quiet","twoStep","comfort","dlightCool","cubePurify","longWind","motionIndirect","motionDirect"]}}},"additionalProperties":false,"required":["value"],"capability":"custom.airConditionerOptionalMode","attribute":"supportedAcOptionalMode","label":"attribute: supportedAcOptionalMode.*"},"command":{"name":"setSupportedAcOptionalModeValue","label":"command: setSupportedAcOptionalModeValue(supportedAcOptionalMode*)","type":"command","parameters":[{"name":"supportedAcOptionalMode*","type":"JSON_OBJECT"}]},"type":"smartTrigger"},{"trigger":{"name":"setAcTropicalNightModeLevel","label":"command: setAcTropicalNightModeLevel(hours*)","type":"command","parameters":[{"name":"hours*","type":"NUMBER"}]},"command":{"name":"setAcTropicalNightModeLevel","arguments":[{"name":"hours","optional":false,"schema":{"minimum":0,"type":"integer","maximum":35}}],"type":"command","capability":"custom.airConditionerTropicalNightMode","label":"command: setAcTropicalNightModeLevel(hours*)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"minimum":0,"type":"integer","maximum":35}},"additionalProperties":false,"required":["value"],"capability":"custom.airConditionerTropicalNightMode","attribute":"acTropicalNightModeLevel","label":"attribute: acTropicalNightModeLevel.*"},"command":{"name":"setAcTropicalNightModeLevelValue","label":"command: setAcTropicalNightModeLevelValue(acTropicalNightModeLevel*)","type":"command","parameters":[{"name":"acTropicalNightModeLevel*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"name":"setAutoCleaningMode","label":"command: setAutoCleaningMode(mode*)","type":"command","parameters":[{"name":"mode*","type":"ENUM"}]},"command":{"name":"setAutoCleaningMode","arguments":[{"name":"mode","optional":false,"schema":{"type":"string","enum":["on","speedClean","quietClean","off"]}}],"type":"command","capability":"custom.autoCleaningMode","label":"command: setAutoCleaningMode(mode*)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"custom.autoCleaningMode","attribute":"autoCleaningMode","label":"attribute: autoCleaningMode.*"},"command":{"name":"setAutoCleaningModeValue","label":"command: setAutoCleaningModeValue(autoCleaningMode*)","type":"command","parameters":[{"name":"autoCleaningMode*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"name":"resetDustFilter","label":"command: resetDustFilter()","type":"command"},"command":{"name":"resetDustFilter","type":"command","capability":"custom.dustFilter","label":"command: resetDustFilter()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"integer"},"unit":{"type":"string","enum":["CC","Cycle","Gallon","Hour","Month"]}},"additionalProperties":false,"required":["value","unit"],"capability":"custom.dustFilter","attribute":"dustFilterCapacity","label":"attribute: dustFilterCapacity.*"},"command":{"name":"setDustFilterCapacityValue","label":"command: setDustFilterCapacityValue(dustFilterCapacity*)","type":"command","parameters":[{"name":"dustFilterCapacity*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"pattern":"removed","type":"string"}},"additionalProperties":false,"required":[],"capability":"custom.dustFilter","attribute":"dustFilterLastResetDate","label":"attribute: dustFilterLastResetDate.*"},"command":{"name":"setDustFilterLastResetDateValue","label":"command: setDustFilterLastResetDateValue(dustFilterLastResetDate*)","type":"command","parameters":[{"name":"dustFilterLastResetDate*","type":"STRING"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"custom.dustFilter","attribute":"dustFilterStatus","label":"attribute: dustFilterStatus.*"},"command":{"name":"setDustFilterStatusValue","label":"command: setDustFilterStatusValue(dustFilterStatus*)","type":"command","parameters":[{"name":"dustFilterStatus*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"min":1,"type":"integer","max":100}},"additionalProperties":false,"required":["value"],"capability":"custom.dustFilter","attribute":"dustFilterUsageStep","label":"attribute: dustFilterUsageStep.*"},"command":{"name":"setDustFilterUsageStepValue","label":"command: setDustFilterUsageStepValue(dustFilterUsageStep*)","type":"command","parameters":[{"name":"dustFilterUsageStep*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"min":0,"type":"integer","max":100}},"additionalProperties":false,"required":["value"],"capability":"custom.dustFilter","attribute":"dustFilterUsage","label":"attribute: dustFilterUsage.*"},"command":{"name":"setDustFilterUsageValue","label":"command: setDustFilterUsageValue(dustFilterUsage*)","type":"command","parameters":[{"name":"dustFilterUsage*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"items":{"type":"string","enum":["replaceable","washable"]},"type":"array"}},"additionalProperties":false,"required":["value"],"capability":"custom.dustFilter","attribute":"dustFilterResetType","label":"attribute: dustFilterResetType.*"},"command":{"name":"setDustFilterResetTypeValue","label":"command: setDustFilterResetTypeValue(dustFilterResetType*)","type":"command","parameters":[{"name":"dustFilterResetType*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"name":"setAirConditionerOdorControllerState","label":"command: setAirConditionerOdorControllerState(state*)","type":"command","parameters":[{"name":"state*","type":"ENUM"}]},"command":{"name":"setAirConditionerOdorControllerState","arguments":[{"name":"state","optional":false,"schema":{"type":"string","enum":["on","off"]}}],"type":"command","capability":"custom.airConditionerOdorController","label":"command: setAirConditionerOdorControllerState(state*)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"integer","max":100,"min":0}},"additionalProperties":false,"required":["value"],"capability":"custom.airConditionerOdorController","attribute":"airConditionerOdorControllerProgress","label":"attribute: airConditionerOdorControllerProgress.*"},"command":{"name":"setAirConditionerOdorControllerProgressValue","label":"command: setAirConditionerOdorControllerProgressValue(airConditionerOdorControllerProgress*)","type":"command","parameters":[{"name":"airConditionerOdorControllerProgress*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"custom.airConditionerOdorController","attribute":"airConditionerOdorControllerState","label":"attribute: airConditionerOdorControllerState.*"},"command":{"name":"setAirConditionerOdorControllerStateValue","label":"command: setAirConditionerOdorControllerStateValue(airConditionerOdorControllerState*)","type":"command","parameters":[{"name":"airConditionerOdorControllerState*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"name":"resetDeodorFilter","label":"command: resetDeodorFilter()","type":"command"},"command":{"name":"resetDeodorFilter","type":"command","capability":"custom.deodorFilter","label":"command: resetDeodorFilter()"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"pattern":"removed","type":"string"}},"additionalProperties":false,"required":[],"capability":"custom.deodorFilter","attribute":"deodorFilterLastResetDate","label":"attribute: deodorFilterLastResetDate.*"},"command":{"name":"setDeodorFilterLastResetDateValue","label":"command: setDeodorFilterLastResetDateValue(deodorFilterLastResetDate*)","type":"command","parameters":[{"name":"deodorFilterLastResetDate*","type":"STRING"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"custom.deodorFilter","attribute":"deodorFilterStatus","label":"attribute: deodorFilterStatus.*"},"command":{"name":"setDeodorFilterStatusValue","label":"command: setDeodorFilterStatusValue(deodorFilterStatus*)","type":"command","parameters":[{"name":"deodorFilterStatus*","type":"ENUM"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"min":0,"type":"integer","max":100}},"additionalProperties":false,"required":["value"],"capability":"custom.deodorFilter","attribute":"deodorFilterUsage","label":"attribute: deodorFilterUsage.*"},"command":{"name":"setDeodorFilterUsageValue","label":"command: setDeodorFilterUsageValue(deodorFilterUsage*)","type":"command","parameters":[{"name":"deodorFilterUsage*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"samsungce.deviceIdentification","attribute":"modelName","label":"attribute: modelName.*"},"command":{"name":"setModelNameValue","label":"command: setModelNameValue(modelName*)","type":"command","parameters":[{"name":"modelName*","type":"STRING"}]},"type":"smartTrigger","mute":true,"disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"samsungce.deviceIdentification","attribute":"serialNumber","label":"attribute: serialNumber.*"},"command":{"name":"setSerialNumberValue","label":"command: setSerialNumberValue(serialNumber*)","type":"command","parameters":[{"name":"serialNumber*","type":"STRING"}]},"type":"smartTrigger","mute":true,"disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"samsungce.deviceIdentification","attribute":"serialNumberExtra","label":"attribute: serialNumberExtra.*"},"command":{"name":"setSerialNumberExtraValue","label":"command: setSerialNumberExtraValue(serialNumberExtra*)","type":"command","parameters":[{"name":"serialNumberExtra*","type":"STRING"}]},"type":"smartTrigger","mute":true,"disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"string","pattern":"removed"}},"additionalProperties":false,"required":["value"],"capability":"samsungce.deviceIdentification","attribute":"modelClassificationCode","label":"attribute: modelClassificationCode.*"},"command":{"name":"setModelClassificationCodeValue","label":"command: setModelClassificationCodeValue(modelClassificationCode*)","type":"command","parameters":[{"name":"modelClassificationCode*","type":"STRING"}]},"type":"smartTrigger","mute":true,"disableStatus":true},{"trigger":{"type":"attribute","properties":{"value":{"type":"string"}},"additionalProperties":false,"required":["value"],"capability":"samsungce.deviceIdentification","attribute":"description","label":"attribute: description.*"},"command":{"name":"setDescriptionValue","label":"command: setDescriptionValue(description*)","type":"command","parameters":[{"name":"description*","type":"STRING"}]},"type":"smartTrigger","mute":true,"disableStatus":true},{"trigger":{"name":"lowerSetpoint","label":"command: lowerSetpoint()","type":"command"},"command":{"name":"lowerSetpoint","type":"command","capability":"custom.thermostatSetpointControl","label":"command: lowerSetpoint()"},"type":"hubitatTrigger"},{"trigger":{"name":"execute","label":"command: execute(command*, args)","type":"command","parameters":[{"name":"command*","type":"STRING"},{"name":"args","type":"JSON_OBJECT","data":"args"}]},"command":{"name":"execute","arguments":[{"name":"command","optional":false,"schema":{"title":"String","type":"string","maxLength":255}},{"name":"args","optional":true,"schema":{"title":"JsonObject","type":"object"}}],"type":"command","capability":"execute","label":"command: execute(command*, args)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"JsonObject","type":"object"},"data":{"type":"object","additionalProperties":true,"required":[]}},"additionalProperties":false,"required":["value"],"capability":"execute","attribute":"data","label":"attribute: data.*"},"command":{"name":"setDataValue","label":"command: setDataValue(data*)","type":"command","parameters":[{"name":"data*","type":"JSON_OBJECT"}]},"type":"smartTrigger","disableStatus":false},{"trigger":{"name":"setEnergySavingLevel","label":"command: setEnergySavingLevel(energySavingLevel*)","type":"command","parameters":[{"name":"energySavingLevel*","type":"NUMBER"}]},"command":{"name":"setEnergySavingLevel","arguments":[{"name":"energySavingLevel","optional":false,"schema":{"type":"integer"}}],"type":"command","capability":"custom.energyType","label":"command: setEnergySavingLevel(energySavingLevel*)"},"type":"hubitatTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"type":"integer"}},"additionalProperties":false,"required":["value"],"capability":"custom.energyType","attribute":"energySavingLevel","label":"attribute: energySavingLevel.*"},"command":{"name":"setEnergySavingLevelValue","label":"command: setEnergySavingLevelValue(energySavingLevel*)","type":"command","parameters":[{"name":"energySavingLevel*","type":"NUMBER"}]},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.on","value":"on","dataType":"ENUM"},"command":{"name":"setSwitchOn","label":"command: setSwitchOn()","type":"command"},"type":"smartTrigger"},{"trigger":{"type":"attribute","properties":{"value":{"title":"SwitchState","type":"string"}},"additionalProperties":false,"required":["value"],"capability":"switch","attribute":"switch","label":"attribute: switch.off","value":"off","dataType":"ENUM"},"command":{"name":"setSwitchOff","label":"command: setSwitchOff()","type":"command"},"type":"smartTrigger"},{"trigger":{"name":"requestDrlcAction","label":"command: requestDrlcAction(drlcType*, drlcLevel*, start*, duration*, reportingPeriod)","type":"command","parameters":[{"name":"drlcType*","type":"NUMBER"},{"name":"drlcLevel*","type":"NUMBER","data":"drlcLevel"},{"name":"start*","type":"STRING","data":"start"},{"name":"duration*","type":"NUMBER","data":"duration"},{"name":"reportingPeriod","type":"NUMBER","data":"reportingPeriod"}]},"command":{"name":"requestDrlcAction","arguments":[{"name":"drlcType","optional":false,"schema":{"title":"DrlcType","type":"integer","minimum":0,"maximum":1}},{"name":"drlcLevel","optional":false,"schema":{"title":"DrlcLevel","type":"integer","minimum":-1,"maximum":4}},{"name":"start","optional":false,"schema":{"title":"Iso8601Date","type":"string"}},{"name":"duration","optional":false,"schema":{"title":"PositiveInteger","type":"integer","minimum":0}},{"name":"reportingPeriod","optional":true,"schema":{"title":"PositiveInteger","type":"integer","minimum":0}}],"type":"command","capability":"demandResponseLoadControl","label":"command: requestDrlcAction(drlcType*, drlcLevel*, start*, duration*, reportingPeriod)"},"type":"hubitatTrigger"},{"trigger":{"name":"refresh","label":"command: refresh()","type":"command"},"command":{"name":"refresh","type":"command","capability":"refresh","label":"command: refresh()"},"type":"hubitatTrigger"},{"trigger":{"title":"IntegerPercent","type":"attribute","properties":{"value":{"type":"integer","minimum":0,"maximum":100},"unit":{"type":"string","enum":["%"],"default":"%"}},"additionalProperties":false,"required":["value"],"capability":"audioVolume","attribute":"volume","label":"attribute: volume.*"},"command":{"name":"setVolumeValue","label":"command: setVolumeValue(volume*)","type":"command","parameters":[{"name":"volume*","type":"NUMBER"}]},"type":"smartTrigger"}]}"""
 }
+
+// ===== Thermostat commands (actual mapping) =====
+// Main entry point for Hubitat Thermostat tile
+def setThermostatMode(String mode) {
+    logInfo "${device.displayName} setThermostatMode($mode)"
+
+    switch (mode) {
+        case "off":
+            // Turn AC off via Replica
+            off()
+            sendEvent(name: "thermostatMode", value: "off")
+            sendEvent(name: "thermostatOperatingState", value: "idle")
+            break
+
+        case "cool":
+            on()
+            setAirConditionerMode("cool")
+            sendEvent(name: "thermostatMode", value: "cool")
+            // operating state will update via status; set to idle for now
+            sendEvent(name: "thermostatOperatingState", value: "idle")
+            break
+
+        case "heat":
+            on()
+            setAirConditionerMode("heat")
+            sendEvent(name: "thermostatMode", value: "heat")
+            sendEvent(name: "thermostatOperatingState", value: "idle")
+            break
+
+        case "auto":
+            on()
+            setAirConditionerMode("auto")
+            sendEvent(name: "thermostatMode", value: "auto")
+            sendEvent(name: "thermostatOperatingState", value: "idle")
+            break
+
+        default:
+            logWarn "Unsupported thermostat mode requested: $mode"
+    }
+}
+
+// Convenience methods some apps/tiles still call
+def cool() { setThermostatMode("cool") }
+def heat() { setThermostatMode("heat") }
+def auto() { setThermostatMode("auto") }
+def emergencyHeat() { setThermostatMode("heat") }
+
+/*
+def setThermostatFanMode(String fanMode) {
+    logInfo "${device.displayName} setThermostatFanMode($fanMode)"
+    setFanMode(fanMode)
+}
+*/
+// Thermostat API compatibility: mirror to cooling setpoint
+
+def setHeatingSetpoint(Number v) {
+    logInfo "${device.displayName} setHeatingSetpoint($v) – mirroring to coolingSetpoint"
+    setCoolingSetpoint(v)
+}
+
+def setThermostatSetpoint(Number v) {
+    logInfo "${device.displayName} setThermostatSetpoint($v) – mirroring to coolingSetpoint"
+    setCoolingSetpoint(v)
+}
+
+// Optional: “dead” thermostat commands we don’t use → no-op
+def fanAuto()       { logInfo "${device.displayName} fanAuto() not used" }
+def fanOn()         { logInfo "${device.displayName} fanOn() not used" }
+def fanCirculate()  { logInfo "${device.displayName} fanCirculate() not used" }
+//def setHeatingSetpoint(Number v)   { logInfo "${device.displayName} heatingSetpoint not used ($v)" }
+def setSchedule(String sched)      { logInfo "${device.displayName} setSchedule not used" }
+//def setThermostatSetpoint(Number v){ logInfo "${device.displayName} thermostatSetpoint not used ($v)" }
+
 
 private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
 private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
