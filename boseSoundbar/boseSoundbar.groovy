@@ -38,7 +38,7 @@ import groovy.transform.Field
 @Field static final Map<Integer, String> audioLevels = (-100..100).step(10).collectEntries { v -> [(v): (v > 0 ? "+${v}" : v.toString())] }
 
 metadata {
-    definition(name: "Bose Soundbar", namespace: "bloodtick", author: "Hubitat")
+    definition(name: "Bose Soundbar", namespace: "bloodtick", author: "Hubitat", importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/boseSoundbar/boseSoundbar.groovy")
     {
         capability "Actuator"
         capability "Initialize"
