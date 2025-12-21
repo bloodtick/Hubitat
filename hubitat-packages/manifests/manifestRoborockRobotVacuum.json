@@ -9,8 +9,8 @@
         "Cloud"
     ],
     "dateReleased": "2024-04-18",
-    "releaseNotes": "1.1.11 Patch for robots with no is_exploring attribute.\nHubitat 2.3.9+ is now required to load this driver.\n1.1.10 Updates to prevent healthStatus ping pong.\n1.1.9 Fix for change in id code from integer to string.\n1.1.8 Added preference to disable chatty clean events.\n1.1.7 Added dockErrorCodes 40, reduced logging.\n1.1.6 Error event added for authorization error. Fixed enums for Rule Engine.",
-    "version": "1.1.11",
+    "releaseNotes": "1.1.12 2FA Support.\n1.1.11 Patch for robots with no is_exploring attribute.\nHubitat 2.3.9+ is now required to load this driver.\n1.1.10 Updates to prevent healthStatus ping pong.\n1.1.9 Fix for change in id code from integer to string.\n1.1.8 Added preference to disable chatty clean events.\n1.1.7 Added dockErrorCodes 40, reduced logging.\n1.1.6 Error event added for authorization error. Fixed enums for Rule Engine.",
+    "version": "1.1.12",
     "drivers": [
         {
             "id": "f33dcb2f-3c85-4f92-9f1f-5edce5a3ffa1",
