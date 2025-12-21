@@ -1,5 +1,5 @@
 /**
- *  Copyright 2024 Bloodtick Jones
+ *  Copyright 2025 Bloodtick Jones
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -19,8 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.11"}
-@Field static final Boolean hubitatVersion239 = true
+public static String version() {return "1.1.12"}
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -52,6 +51,9 @@ metadata {
         // Use Hubitat 'Button Controller' built in app to set commands to run.
         capability "PushableButton"
         
+        command "zRequestEmailCode"
+	    command "zAuthorizeEmailCode", [[type:"STRING", description:"REQUIRED: Enter CODE provided by Roborock"]]
+        
         command "appClean"
         command "appDock"
         command "appPause"
@@ -67,13 +69,8 @@ metadata {
         attribute "name", "string"
         attribute "rooms", "JSON_OBJECT"
         attribute "scenes", "JSON_OBJECT"
-        if(hubitatVersion239) {
-            attribute "state", "enum", stateCodes.values().collect{ it.toLowerCase() }   
-            attribute "error", "enum", errorCodes.values().collect{ it.toLowerCase() }
-        } else {
-            attribute "state", "string" // , stateCodes.values().collect() -- too long 2.3.9+ change to 1024  
-            attribute "error", "string" // , errorCodes.values().collect() -- too long
-        }        
+        attribute "state", "enum", stateCodes.values().collect{ it.toLowerCase() }   
+        attribute "error", "enum", errorCodes.values().collect{ it.toLowerCase() }
         attribute "fanPower", "enum", fanPowerCodes.values().collect{ it.toLowerCase() }
         attribute "cleanTime", "number"
         attribute "cleanArea", "number"
@@ -107,7 +104,7 @@ preferences {
 def logsOff() {
     device.updateSetting("deviceDebugEnable",[value:'false',type:"bool"])
     device.updateSetting("deviceTraceEnable",[value:'false',type:"bool"])
-    logInfo "${device.displayName} disabling debug logs"
+    logInfo "disabling debug logs"
 }
 Boolean autoLogsOff() { if ((Boolean)settings.deviceDebugEnable || (Boolean)settings.deviceTraceEnable) runIn(1800, "logsOff"); else unschedule('logsOff');}
 
@@ -122,27 +119,74 @@ def updated() {
 def initialize() {
     unschedule()
     autoLogsOff()
-            
+    sendEvent(name:"numberOfButtons", value: (settings?.numberOfButtons)?:1)
+
     if(settings?.allowLogin && settings?.username && settings?.password) {
-        logInfo "${device.displayName} executing 'initialize()' allowLogin"
+        logInfo "executing 'initialize()' allowLogin"
         disconnect()
         // blow away all state information
         state?.keySet()?.collect()?.each{ state.remove(it) }
         state.sequence = (new Random().nextInt(2000) + 1)
         if(state?.restore) state.duid = state.restore
-        clearAttributes()        
-        if(login()?.msg=="success") {
+        clearAttributes()
+        Map login = login()
+     
+        if(login?.msg=="success") {
             device.updateSetting("allowLogin",[value:'false',type:"bool"])
             runIn(1, "getHomeDetail") //runs getHomeData()->getHomeDataCallback() async serial
+            return
         } else {
-            logWarn "${device.displayName} login with username:'$username' password:'$password' failed"
+            device.updateSetting("allowLogin",[value:'false',type:"bool"])
+            logWarn "login failed with username:'$username' password:'$password' msg:${login?.msg}"
+            if(login?.code!=null && login.code.toInteger() == 2031) { processEvent("state", 501) } else { processEvent("state", 500) }
         }
-    } 
-    else if(state?.login) {
+    } else if(state?.login) {
         disconnect()
         runIn(1, "getHomeData") //runs getHomeDataCallback() async serial
     }
-    sendEvent(name:"numberOfButtons", value: (settings?.numberOfButtons)?:1)
+}
+
+def zRequestEmailCode() {    
+	if(state.sendEmailCodeTimestamp) {
+    	Integer timeout = 60 * 1000
+    	Long last = state.sendEmailCodeTimestamp as Long
+    	Long remaining = (last + timeout) - now()
+        if(remaining > 0) {
+        	logWarn "need to wait ${(remaining / 1000).toInteger()} seconds before requesting email code again"
+        	return
+    	}
+    }
+    state.sendEmailCodeTimestamp = now()
+    
+    logInfo "executing 'zRequestEmailCode()'"
+    Map sendEmailCode = sendEmailCode() 
+    
+    if(sendEmailCode.msg=="success") {
+    	processEvent("state", 502)
+    } else {
+        logWarn "request email code failed msg:'${sendEmailCode?.msg}'"
+    	processEvent("state", 504)
+    }
+}
+
+def zAuthorizeEmailCode(String pin) {
+    logInfo "executing 'zAuthorizeEmailCode($pin)'"
+    if(!pin || !state?.sendEmailCodeTimestamp || now() > ((state.sendEmailCodeTimestamp as Long) + 15*60*1000)) { // only good for 15 min
+        logWarn "authorize code failed pin:'$pin' timestamp:'${state?.sendEmailCodeTimestamp ?: "expired"}'"
+        return
+    }
+    Map loginWithCode = loginWithCode(pin)    
+    
+    if(loginWithCode?.msg=="success") {
+        disconnect()
+    	processEvent("state", 503) // good
+        runIn(1, "getHomeDetail") //runs getHomeData()->getHomeDataCallback() async serial
+        state.remove("sendEmailCodeTimestamp")
+    } else {
+        logWarn "authorize email code failed pin:'$pin' msg:'${loginWithCode?.msg}'"
+    	processEvent("error_code", 257)
+    	processEvent("state", 500)
+    }
 }
 
 def push(buttonNumber) {
@@ -172,7 +216,7 @@ def selectDevice() {
         clearAttributes()
         initialize()
     } else {
-        logInfo "${device.displayName} device id is ${getDeviceId()}"
+        logInfo "device id is ${getDeviceId()}"
     }
 }
 
@@ -182,13 +226,13 @@ void clearAttributes() {
 }
 
 void getHomeDataCallback() {
-    logDebug "${device.displayName} executing 'getHomeDataCallback()' ${getHomeDataResult()}"
-    logDebug "${device.displayName} device id is ${getDeviceId()}"
+    logDebug "executing 'getHomeDataCallback()' ${getHomeDataResult()}"
+    logDebug "device id is ${getDeviceId()}"
     
     Boolean deviceOnline = !!(getHomeDataResult()?.devices?.find{ it.duid?.toString() == getDeviceId() }?.online)
     //processEvent("wifi", (deviceOnline ? "online" : "offline"))
     if(!deviceOnline) {
-        //logWarn "${device.displayName} wifi is offline"
+        //logWarn "wifi is offline"
         processEvent("error_code", 256)
         setHealthStatusEvent(false)
         qClear()
@@ -204,7 +248,7 @@ void getHomeDataCallback() {
 }
 
 void updateHomeData() {
-    logDebug "${device.displayName} executing 'updateHomeData()'"    
+    logDebug "executing 'updateHomeData()'"    
     execute("get_room_mapping")
 	if(device.currentValue("switch")!="on") execute("get_consumable") 	
 	
@@ -214,7 +258,7 @@ void updateHomeData() {
 
 @Field volatile static Map<Long,Long> g_mLastRefreshTime = [:]
 def refresh(Map data=[type:1]) {
-    logDebug "${device.displayName} executing 'refresh($data)'"
+    logDebug "executing 'refresh($data)'"
 
     execute("get_prop", """["get_status"]""")
     if(device.currentValue("switch")=="on") execute("get_consumable")    
@@ -230,7 +274,7 @@ def execute(String command, String args=null) {
     def param = args ? convertNumbers((new JsonSlurper().parseText(args))) : []
     // reduce info logging on these cyclic checks
     Closure logFunction = [ "get_prop", "get_room_mapping", "get_consumable" ].find{ it == command } ? this.&logDebug : this.&logInfo
-    logFunction( "${device.displayName} executing execute(command:$command, param:$param)" )
+    logFunction( "executing execute(command:$command, param:$param)" )
     
     Integer id = (Integer)(state.sequence++ & 0xFFFFFFFF)
     qPush([duid: getDeviceId(), command: command, param: param, id:id])
@@ -243,7 +287,7 @@ void executeQueue() {
         runIn(15, "watchdog") // unscheduled in processMsg()
         publish(cmd.duid, cmd.command, cmd.param, cmd.id)
     } else if(!qIsEmpty() && !interfaces.mqtt.isConnected()) {
-        logInfo "${device.displayName} scheduling 'connect()' in 'executeQueue()'"
+        logInfo "scheduling 'connect()' in 'executeQueue()'"
         runIn(1, "connect")        
     } else {
         unschedule('watchdog')
@@ -252,53 +296,53 @@ void executeQueue() {
 
 void watchdog() {
     if(qIsEmpty()) return
-    logInfo "${device.displayName} executing 'watchdog()' on queue:${qPeek()}"    
+    logInfo "executing 'watchdog()' on queue:${qPeek()}"    
     disconnect()
     runIn(1, "getHomeData")
 }
 
 void scheduleRefresh(Integer delay=5) {
-    logDebug "${device.displayName} executing 'scheduleRefresh($delay)'"
+    logDebug "executing 'scheduleRefresh($delay)'"
     runIn(delay, "refresh", [data: [type:2]])    
 }
 
 void disconnect() {
-    logInfo "${device.displayName} executing 'disconnect()'"
+    logInfo "executing 'disconnect()'"
     unsubscribe()
     interfaces.mqtt.disconnect()
     runIn(10, "setHealthStatusEvent") // false
 }
 
 void connect() {
-    logDebug "${device.displayName} executing 'connect()'"
+    logDebug "executing 'connect()'"
     Map rriot = getLoginData()?.rriot
     String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10)
     String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16)
     
-    logInfo "${device.displayName} connecting mqttUser:$mqttUser to $rriot.r.m"
+    logInfo "connecting mqttUser:$mqttUser to $rriot.r.m"
     try {
         interfaces.mqtt.connect(rriot.r.m, "${device.deviceNetworkId}", mqttUser, mqttPassword, byteInterface:true)
         state.remove('restore')
-        logDebug "${device.displayName} connected successfully"
+        logDebug "connected successfully"
     } catch (org.eclipse.paho.client.mqttv3.MqttSecurityException e) {
         // what i need to catch: org.eclipse.paho.client.mqttv3.MqttSecurityException: Not authorized to connect (method connect)
         // what i can fake:      org.eclipse.paho.client.mqttv3.MqttSecurityException: Bad user name or password (method connect)
-        logError "${device.displayName} mqtt security exception: '${e.message}'"        
+        logError "mqtt security exception: '${e.message}'"        
         if(settings?.autoLogin && settings.autoLogin!="manual") {
             processEvent("error_code", 257)
-            logInfo "${device.displayName} auto scheduling 'initialize' in ${settings.autoLogin} seconds"
+            logInfo "auto scheduling 'initialize' in ${settings.autoLogin} seconds"
             unschedule()
             device.updateSetting("allowLogin",[value:'true',type:"bool"])
             state.restore = state.duid
             runIn(settings.autoLogin.toInteger(), "initialize")
         }    
     } catch (Exception e) {
-        logError "${device.displayName} MQTT Connection Exception: ${e.message}"
+        logError "MQTT Connection Exception: ${e.message}"
     }    
 }
 
 def mqttClientStatus(String message) {
-    logInfo "${device.displayName} executing 'mqttClientStatus($message)'"
+    logInfo "executing 'mqttClientStatus($message)'"
     if(message.toLowerCase().contains("connection succeeded")) {
         runIn(1, "subscribe")
     }
@@ -309,7 +353,7 @@ def mqttClientStatus(String message) {
 }
 
 void subscribe() {
-    logDebug "${device.displayName} executing 'subscribe()'"
+    logDebug "executing 'subscribe()'"
     if(!interfaces.mqtt.isConnected()) return
     
     Map rriot = getLoginData()?.rriot
@@ -317,7 +361,7 @@ void subscribe() {
     String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
     
     String topic = "rr/m/o/${rriot.u}/${mqttUser}/#"
-    logInfo "${device.displayName} subscribe topic:$topic"
+    logInfo "subscribe topic:$topic"
     interfaces.mqtt.subscribe(topic)
     
     runEvery30Minutes(refresh)
@@ -327,7 +371,7 @@ void subscribe() {
 }
 
 void unsubscribe() {
-    logDebug "${device.displayName} executing 'unsubscribe()'"
+    logDebug "executing 'unsubscribe()'"
     if(!interfaces.mqtt.isConnected()) return
     
     Map rriot = getLoginData()?.rriot
@@ -336,43 +380,43 @@ void unsubscribe() {
         String mqttPassword = md5hex(rriot.s + ':' + rriot.k).substring(16);
     
         String topic = "rr/m/o/${rriot.u}/${mqttUser}/#"
-        logInfo "${device.displayName} unsubscribe topic:$topic"
+        logInfo "unsubscribe topic:$topic"
         interfaces.mqtt.unsubscribe(topic)
     }
 }
 
 void sendEventX(Map x) {
-    if(device.currentValue(x?.name).toString() != x?.value.toString() && !x?.eventDisable) {
+    if(x?.value!=null  && !x?.eventDisable && (device.currentValue(x?.name).toString() != x?.value.toString() || x?.isStateChange)) {
         if(x?.descriptionText) { if(x?.logLevel=="warn") logWarn (x?.descriptionText); else logInfo (x?.descriptionText); }
         sendEvent(name: x?.name, value: x?.value, unit: x?.unit, descriptionText: x?.descriptionText, isStateChange: (x?.isStateChange ?: false))
     }
 }
 
 void processEvent(String name, def value) {
-    logTrace "${device.displayName} executing 'processEvent($name, $value)'"
+    logTrace "executing 'processEvent($name, $value)'"
     String descriptionText = null    
     switch(name) {
     case "get_water_box_custom_mode":
         String valueEnum = mopWaterModeCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "mopWaterMode", value: valueEnum, descriptionText: "${device.displayName} mop water mode is $valueEnum ($value)")        
+        sendEventX(name: "mopWaterMode", value: valueEnum, descriptionText: "mop water mode is $valueEnum ($value)")        
         break
     case "switch":    
-        sendEventX(name: "switch", value: value, descriptionText: "${device.displayName} switch is $value")        
+        sendEventX(name: "switch", value: value, descriptionText: "switch is $value")        
         break
     case "name":
-        sendEventX(name: "name", value: value, descriptionText: "${device.displayName} name set to $value")
+        sendEventX(name: "name", value: value, descriptionText: "name set to $value")
         break    
     case "healthStatus":
-        sendEventX(name: "healthStatus", value: value, descriptionText: "${device.displayName} healthStatus set to $value", logLevel:(value=="online"?"info":"warn"))
+        sendEventX(name: "healthStatus", value: value, descriptionText: "healthStatus set to $value", logLevel:(value=="online"?"info":"warn"))
         break
     case "wifi":
-        //sendEventX(name: "wifi", value: value, descriptionText: "${device.displayName} wifi set to $value")
+        //sendEventX(name: "wifi", value: value, descriptionText: "wifi set to $value")
         break    
     case "rooms":
-        sendEventX(name: "rooms", value: JsonOutput.toJson(value), descriptionText: "${device.displayName} rooms set to $value")
+        sendEventX(name: "rooms", value: JsonOutput.toJson(value), descriptionText: "rooms set to $value")
         break
     case "scenes":
-        sendEventX(name: "scenes", value: JsonOutput.toJson(value), descriptionText: "${device.displayName} scenes set to $value")
+        sendEventX(name: "scenes", value: JsonOutput.toJson(value), descriptionText: "scenes set to $value")
         break
     case "rpc_request":
         break
@@ -380,18 +424,18 @@ void processEvent(String name, def value) {
         break
     case "error_code":
         String valueEnum = errorCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "error", value: valueEnum, descriptionText: "${device.displayName} error is $valueEnum ($value)", logLevel:(value==0?"info":"warn"))
+        sendEventX(name: "error", value: valueEnum, descriptionText: "error is $valueEnum ($value)", logLevel:(value==0?"info":"warn"))
         break
     case "state":
         String valueEnum = stateCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "state", value: valueEnum, descriptionText: "${device.displayName} state is $valueEnum ($value)")
+        sendEventX(name: "state", value: valueEnum, descriptionText: "state is $valueEnum ($value)")
         break
     case "battery": 
-        sendEventX(name: "battery", value: value.toInteger(), unit: "%", descriptionText: "${device.displayName} battery level is $value%")
+        sendEventX(name: "battery", value: value.toInteger(), unit: "%", descriptionText: "battery level is $value%")
         break
     case "fan_power":
         String valueEnum = fanPowerCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "fanPower", value: valueEnum, descriptionText: "${device.displayName} fan power is $valueEnum ($value)")
+        sendEventX(name: "fanPower", value: valueEnum, descriptionText: "fan power is $valueEnum ($value)")
         break
     case "water_box_mode":
         break
@@ -399,17 +443,17 @@ void processEvent(String name, def value) {
         break
     case "main_brush_work_time":
         Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.main * 60 * 60)) * 100).toInteger()))
-        sendEventX(name: "remainingMainBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} main brush time remaining is $percentAvail%")
+        sendEventX(name: "remainingMainBrush", value: percentAvail, unit: "%", descriptionText: "main brush time remaining is $percentAvail%")
         break
     case "side_brush_life":
         break
     case "side_brush_work_time":
         Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.side * 60 * 60)) * 100).toInteger()))
-        sendEventX(name: "remainingSideBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} side brush time remaining is $percentAvail%")
+        sendEventX(name: "remainingSideBrush", value: percentAvail, unit: "%", descriptionText: "side brush time remaining is $percentAvail%")
         break
     case "cleaning_brush_work_times":
         Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / life.highSpeed) * 100).toInteger()))
-        sendEventX(name: "remainingHighSpeedMaintBrush", value: percentAvail, unit: "%", descriptionText: "${device.displayName} high-speed maintenance brush remaining life is $percentAvail%")
+        sendEventX(name: "remainingHighSpeedMaintBrush", value: percentAvail, unit: "%", descriptionText: "high-speed maintenance brush remaining life is $percentAvail%")
         break
     case "filter_life":
     case "filter_work_time":
@@ -422,7 +466,7 @@ void processEvent(String name, def value) {
         break
     case "sensor_dirty_time":
         Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / (life.sensor * 60 * 60)) * 100).toInteger()))
-        sendEventX(name: "remainingSensors", value: percentAvail, unit: "%", descriptionText: "${device.displayName} sensor time remaining is $percentAvail%")
+        sendEventX(name: "remainingSensors", value: percentAvail, unit: "%", descriptionText: "sensor time remaining is $percentAvail%")
         break
     case "filter_element_work_time":
     case "dust_collection_work_times":
@@ -431,12 +475,12 @@ void processEvent(String name, def value) {
         break
     case "clean_time":
         Integer totalMinutes = Math.ceil(value.toInteger()/60).toInteger()
-        sendEventX(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: "${device.displayName} clean time is $totalMinutes ${totalMinutes==1?"minute":"minutes"}", eventDisable: cleanAttributeDisable)
+        sendEventX(name: "cleanTime", value: totalMinutes, unit: "min", descriptionText: "clean time is $totalMinutes ${totalMinutes==1?"minute":"minutes"}", eventDisable: cleanAttributeDisable)
         break
     case "clean_area":
         String unit = (areaUnit==null || areaUnit=="0") ? "ft²" : "m²"
         Integer area = (unit=="ft²") ? value.toInteger() / 92903.04 : value.toInteger() / 1000000
-        sendEventX(name: "cleanArea", value: area, unit: unit, descriptionText: "${device.displayName} clean area is $area $unit", eventDisable: cleanAttributeDisable)
+        sendEventX(name: "cleanArea", value: area, unit: unit, descriptionText: "clean area is $area $unit", eventDisable: cleanAttributeDisable)
         break
     case "map_present":
     case "in_cleaning":
@@ -449,7 +493,7 @@ void processEvent(String name, def value) {
         break
     case "is_locating":
         String locatingString = (value==0 ? "false" : "true")
-        sendEventX(name: "locating", value: locatingString, descriptionText: "${device.displayName} locating value is $locatingString ($value)")        
+        sendEventX(name: "locating", value: locatingString, descriptionText: "locating value is $locatingString ($value)")        
         break
     case "lock_status":
     case "water_box_carriage_status":
@@ -462,14 +506,14 @@ void processEvent(String name, def value) {
         break
     case "dust_collection_status": 
         String dustCollectionString = (value==0 ? "off" : "on")
-        sendEventX(name: "dustCollection", value: dustCollectionString, descriptionText: "${device.displayName} dust collection is $dustCollectionString ($value)") 
+        sendEventX(name: "dustCollection", value: dustCollectionString, descriptionText: "dust collection is $dustCollectionString ($value)") 
         break
     case "auto_dust_collection":
     case "avoid_count":
         break
     case "mop_mode": 
         String valueEnum = mopModeCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "mopMode", value: valueEnum, descriptionText: "${device.displayName} mop mode is $valueEnum ($value)")
+        sendEventX(name: "mopMode", value: valueEnum, descriptionText: "mop mode is $valueEnum ($value)")
         break
     case "debug_mode":
     case "collision_avoid_status":
@@ -477,13 +521,13 @@ void processEvent(String name, def value) {
         break
     case "dock_error_status": 
         String valueEnum = dockErrorCodes[value?.toInteger()]?.toLowerCase() ?: value
-        sendEventX(name: "dockError", value: valueEnum, descriptionText: "${device.displayName} dock error is $valueEnum ($value)", logLevel:(value==0?"info":"warn"))
+        sendEventX(name: "dockError", value: valueEnum, descriptionText: "dock error is $valueEnum ($value)", logLevel:(value==0?"info":"warn"))
         break
     case "unsave_map_reason":
     case "unsave_map_flag":
         break
     case "clean_percent":
-        sendEventX(name: "cleanPercent", value: value.toInteger(), unit: "%", descriptionText: "${device.displayName} percent completed is $value%", eventDisable: cleanAttributeDisable)        
+        sendEventX(name: "cleanPercent", value: value.toInteger(), unit: "%", descriptionText: "percent completed is $value%", eventDisable: cleanAttributeDisable)        
         break
     case "rss":
     case "dss":
@@ -495,7 +539,7 @@ void processEvent(String name, def value) {
         break
     case "strainer_work_times":  // start reported by Q Revo
 		Integer percentAvail = Math.max(0, (100 - Math.floor((value.toInteger() / life.filter) * 100).toInteger()))
-        sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "${device.displayName} filter life remaining is $percentAvail%")
+        sendEventX(name: "remainingFilter", value: percentAvail, unit: "%", descriptionText: "filter life remaining is $percentAvail%")
         break
     case "wash_status":
     case "wash_ready":
@@ -512,13 +556,13 @@ void processEvent(String name, def value) {
     case "repeat":
         break
     default:
-        if(settings?.deviceDebugEnable) logWarn "${device.displayName} did not process name:$name with value:$value"     
+        if(settings?.deviceDebugEnable) logWarn "did not process name:$name with value:$value"     
     }
     if(descriptionText) logInfo descriptionText
 }
 
 void processMsg(Map message) {
-    logDebug "${device.displayName} executing 'processMsg($message)'"
+    logDebug "executing 'processMsg($message)'"
     message?.dps?.each { key,value ->        
         // look up id and find the 'code' that was mapped in the home data. duid is used find the productID. 
         Map home = getHomeDataResult()
@@ -535,11 +579,11 @@ void processMsg(Map message) {
             try {
                 jsonValue = (new JsonSlurper()).parseText( value )
             } catch(e) {
-                logWarn "${device.displayName} message not json: key:$key value:$value message:$message"
+                logWarn "message not json: key:$key value:$value message:$message"
             }
             
             if(qPeek()?.id?.toInteger() != jsonValue?.id?.toInteger()) {
-                if(settings?.deviceDebugEnable) logWarn "${device.displayName} message unknown: $jsonValue"
+                if(settings?.deviceDebugEnable) logWarn "message unknown: $jsonValue"
                 return
             }           
             // lets get our command that sent this request and we can start the queue up again.
@@ -547,7 +591,7 @@ void processMsg(Map message) {
             executeQueue()
     
             if((cmd?.command=="get_prop" && cmd?.param==["get_status"]) || cmd?.command=="get_consumable") {
-                logDebug "${device.displayName} command '$cmd.command' was accepted"
+                logDebug "command '$cmd.command' was accepted"
                 jsonValue?.result?.each{ result ->
                     if(cmd?.param==["get_status"]) {
                         result.switch=((result?.in_cleaning ?: 0).toInteger() != 0 || (result?.is_locating ?: 0).toInteger() != 0 || (result?.is_exploring ?: 0).toInteger() != 0) ? "on" : "off"
@@ -555,24 +599,24 @@ void processMsg(Map message) {
                         if(result?.clean_percent?.toInteger()==0 && result?.clean_area?.toInteger()>1) result.clean_percent=100
                         if(!stateDoNotRefreshCodes.contains(result.state)) { scheduleRefresh(60) } // some units don't send real time dps events
                     }
-                    logDebug "${device.displayName} processing $result"
+                    logDebug "processing $result"
                     result?.each{ c,v -> processEvent(c,v) }
                 }                
             }
             else if(cmd?.command=="get_room_mapping") {
-                logDebug "${device.displayName} command '$cmd.command' was accepted"
+                logDebug "command '$cmd.command' was accepted"
                 setRoomsValue(jsonValue)
             }
             else if(cmd?.command=="get_water_box_custom_mode" && (jsonValue?.result?.water_box_mode)) {
-                logDebug "${device.displayName} command '$cmd.command' was accepted"
+                logDebug "command '$cmd.command' was accepted"
                 processEvent(cmd?.command, jsonValue.result.water_box_mode)
             }
             else if(jsonValue?.result==["ok"] || jsonValue?.result==["OK"]) {
-                logInfo "${device.displayName} command '$cmd.command' was accepted"
+                logInfo "command '$cmd.command' was accepted"
                 scheduleRefresh()
             }                
             else {
-                logWarn "${device.displayName} rpc_response not handled: command:$cmd result:$jsonValue"
+                logWarn "rpc_response not handled: command:$cmd result:$jsonValue"
             }
         }
         else if(code!=null && value!=null) {            
@@ -581,14 +625,14 @@ void processMsg(Map message) {
         }
         else {
             // this should never happen. if it does, clear the queue and wait for the normal 30min refresh to try again.
-            logError "${device.displayName} message not handled: key:$key value:$value"
+            logError "message not handled: key:$key value:$value"
             qClear()
         }
     } 
 }
 
 void setRoomsValue(Map get_room_mapping) {
-    logDebug "${device.displayName} executing 'setRoomsValue()'"
+    logDebug "executing 'setRoomsValue()'"
     Map roomsMap = getHomeDataResult()?.rooms?.collectEntries { [(it.id.toString()): it.name] }
     if(roomsMap && get_room_mapping) {
         Map rooms = get_room_mapping?.result.collectEntries { mapping ->
@@ -608,7 +652,7 @@ void setHealthStatusEvent(Boolean mqttClientStatus=false) {
 }
 
 def parse(String message) {
-    logDebug "${device.displayName} executing 'parse()'"
+    logDebug "executing 'parse()'"
     Map mqttMessage = interfaces.mqtt.parseMessage(message)
     parse( mqttMessage.topic, mqttMessage.payload.decodeHex() )
 }          
@@ -616,11 +660,11 @@ def parse(String message) {
 def parse(String topic, byte[] message) {
     String deviceId = topic.split('/')[-1]
     if(deviceId!=state.duid) {
-        logDebug "${device.displayName} parse message rejected: I am ${state.duid} and this was for $deviceId"
+        logDebug "parse message rejected: I am ${state.duid} and this was for $deviceId"
         return
     }
     String localKey = getLocalKey(deviceId)
-    logDebug "${device.displayName} parse deviceId:$deviceId, localKey:$localKey, topic:$topic"
+    logDebug "parse deviceId:$deviceId, localKey:$localKey, topic:$topic"
     //  .endianess('big')
     //  .string('version', {length: 3})
     //  .uint32('seq')
@@ -634,13 +678,13 @@ def parse(String topic, byte[] message) {
     String version = bytesToString(message, 0, 3)
     // Do some checks
     if (version!="1.0") {// && version!="A01") {
-	    logWarn "${device.displayName} parse was not version as expected:$version, Message: ${message.encodeHex()}"
+	    logWarn "parse was not version as expected:$version, Message: ${message.encodeHex()}"
 	    return
 	}
     Integer crc32 = CRC32(message, message.length - 4)
 	Integer expectedCrc32 = readInt32BE(message, message.length - 4)
 	if (crc32 != expectedCrc32) {
-        logWarn "${device.displayName} parse was not crc32:${(crc32 & 0xFFFFFFFFL)} as expected:${(expectedCrc32 & 0xFFFFFFFFL)}, Message: ${message.encodeHex()}"
+        logWarn "parse was not crc32:${(crc32 & 0xFFFFFFFFL)} as expected:${(expectedCrc32 & 0xFFFFFFFFL)}, Message: ${message.encodeHex()}"
         return
 	}    
 
@@ -653,7 +697,7 @@ def parse(String topic, byte[] message) {
     byte[] payload = message[19..(19+payloadLen-1)]    
     logTrace "payloadLen:$payloadLen, payload:${payload.length}, byte0:${ String.format("%02x", payload[0] & 0xFF) }"
     logTrace "payload: ${payload.encodeHex()}"    
-    logDebug "${device.displayName} parsed message deviceId:$deviceId, version:${version}, sequence:${sequence}, random:${random}, timestamp:${timestamp}, protocol:${protocol}, payloadLen:${payloadLen}, crc32:${Integer.toHexString(crc32)}"
+    logDebug "parsed message deviceId:$deviceId, version:${version}, sequence:${sequence}, random:${random}, timestamp:${timestamp}, protocol:${protocol}, payloadLen:${payloadLen}, crc32:${Integer.toHexString(crc32)}"
     
     String key = encodeTimestamp(timestamp) + localKey + salt   
     byte[] result = decrypt(payload, key)
@@ -663,10 +707,10 @@ def parse(String topic, byte[] message) {
         try {
              jsonObject = (new JsonSlurper()).parseText( new String(result, "UTF-8") )            
         } catch(e) {
-            logWarn "${device.displayName} payload was not json. protocol:$protocol, length:${result.length}"
+            logWarn "payload was not json. protocol:$protocol, length:${result.length}"
         }
     } else {
-        logDebug "${device.displayName} payload protocol:$protocol, length:${result.length}"
+        logDebug "payload protocol:$protocol, length:${result.length}"
     }
     if(!jsonObject.isEmpty()) {
        processMsg( jsonObject )
@@ -674,7 +718,7 @@ def parse(String topic, byte[] message) {
 }
 
 Integer publish(String deviceId, method, params, Integer id) {
-    logDebug "${device.displayName} executing 'publish($deviceId, $method, $params)'" 
+    logDebug "executing 'publish($deviceId, $method, $params)'" 
     
     Integer timestamp = (Integer)(now() / 1000)
     Integer protocol = 101    
@@ -688,7 +732,7 @@ Integer publish(String deviceId, method, params, Integer id) {
     String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10);
     
     String topic = "rr/m/i/${rriot.u}/${mqttUser}/${deviceId}"
-    logDebug "${device.displayName} publishing topic:'$topic'"
+    logDebug "publishing topic:'$topic'"
     interfaces.mqtt.publish(topic, message.encodeHex().toString())
     
     return requestId
@@ -860,11 +904,11 @@ String getBaseURL() {
         if(resp.status == 200) {
             response = resp.data?.data?.url
             if(response && response!=settings.regionUri) {
-                logWarn "${device.displayName} found username:'${settings.username}' base url:'$response'"
+                logWarn "found username:'${settings.username}' base url:'$response'"
                 state.base = response
             }                
         } else {
-            logWarn "${device.displayName} 'getBaseURL()' failure. Status code:${response.getStatus()}"
+            logWarn "'getBaseURL()' failure. Status code:${response.getStatus()}"
         }
     }
     return response
@@ -881,13 +925,60 @@ Map login() {
     Map response = [:]
     httpPostJson(uri:uri, path:path, queryString:queryString, headers:headers) { resp ->
         if(resp.status == 200) {
-			logDebug "${device.displayName} login results (<b>*** DO NOT SHARE ***</b>): ${resp?.data}"
-			if(resp.data?.msg != "success") { logWarn "${device.displayName} login failure. Driver only supports Roborock (not Xiaomi) integrations"; return response; }
-            storeJsonState( "login", datetimestring(), resp.data )
-            response = resp.data			
+            response = resp.data
+			logDebug "login results (<b>*** DO NOT SHARE ***</b>): $response"
+			if(resp.data?.msg != "success") { logWarn "driver only supports Roborock (not Xiaomi) integrations"; return response; }
+            storeJsonState( "login", datetimestring(), resp.data )            			
         } else {
-            logWarn "${device.displayName} 'login()' failure. Status code:${response.getStatus()}"
+            logWarn "'login()' failure. Status code:${response.getStatus()}"
         }
+    }
+    g_mGetLoginData[device.getIdAsLong()]?.clear()
+    g_mGetLoginData[device.getIdAsLong()] = null
+    return response
+}
+
+Map sendEmailCode() {
+    String uri = getBaseURL() ?: settings.regionUri
+    String path = "/api/v1/sendEmailCode"
+    String queryString = ("username=" + URLEncoder.encode(settings.username, "UTF-8") + "&type=auth").toString()
+    // Hash the username with MD5 and encode it to Base64 for the client ID header
+    String headerClientId = generateHash(settings.username)
+    Map headers = ['header_clientid':headerClientId] 
+
+    Map response = [:]
+    try {
+        httpPostJson(uri: uri, path: path, queryString: queryString, headers: headers) { resp ->
+        if(resp.status == 200) {
+            response = resp.data         			
+        } else {
+            logWarn "'sendEmailCode()' failure. Status code:${response.getStatus()}"
+        }
+        }
+    } catch (Exception e) {
+        logError "sendEmailCode() error: ${e}"
+    }
+
+    return response
+}
+
+Map loginWithCode(String verifyCode) {
+    String uri = getBaseURL() ?: settings.regionUri
+    String path = "/api/v1/loginWithCode"
+    String queryString = ("username=" + URLEncoder.encode(settings.username, "UTF-8") + "&verifycode=" + URLEncoder.encode(verifyCode?.toString(), "UTF-8") + "&verifycodetype=AUTH_EMAIL_CODE").toString()
+    // Hash the username with MD5 and encode it to Base64 for the client ID header
+    String headerClientId = generateHash(settings.username)
+    Map headers = ['header_clientid':headerClientId] 
+
+    Map response = [:]
+    try {
+        httpPostJson(uri: uri, path: path, queryString: queryString, headers: headers) { resp ->
+            response = resp.data
+            logDebug "loginWithCode results (<b>*** DO NOT SHARE ***</b>): $response"
+            if(resp.data?.msg == "success") storeJsonState( "login", datetimestring(), resp.data )
+        }
+    } catch (Exception e) {
+        logWarn "loginWithCode() error: ${e}"
     }
     g_mGetLoginData[device.getIdAsLong()]?.clear()
     g_mGetLoginData[device.getIdAsLong()] = null
@@ -903,7 +994,7 @@ void getHomeDetail() {
     try {
 	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeDetail", store: "homeDetail", params:params])
 	} catch (e) {
-	    logWarn "${device.displayName} 'getHomeDetail()' asynchttpGet() error: $e"
+	    logWarn "'getHomeDetail()' asynchttpGet() error: $e"
 	}
 }
 
@@ -919,7 +1010,7 @@ void getHomeData() {
     try {
 	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeData", store: "homeData", params:params])
 	} catch (e) {
-	    logWarn "${device.displayName} 'getHomeData()' asynchttpGet() error: $e"
+	    logWarn "'getHomeData()' asynchttpGet() error: $e"
 	}
 }
 
@@ -935,7 +1026,7 @@ void getHomeRooms() {
     try {
 	    asynchttpGet("asyncHttpCallback", params, [method: "getHomeRooms", store: "homeRooms", params:params])
 	} catch (e) {
-	    logWarn "${device.displayName} 'getHomeRooms()' asynchttpGet() error: $e"
+	    logWarn "'getHomeRooms()' asynchttpGet() error: $e"
 	}
 }
 
@@ -950,7 +1041,7 @@ void getDeviceScenes() {
     try {
 	    asynchttpGet("asyncHttpCallback", params, [method: "getDeviceScenes", params:params])
 	} catch (e) {
-	    logWarn "${device.displayName} 'getDeviceScenes()' asynchttpGet() error: $e"
+	    logWarn "'getDeviceScenes()' asynchttpGet() error: $e"
 	}
 }
 
@@ -967,12 +1058,12 @@ void setDeviceScene(String sceneId) {
     try {
 	    asynchttpPost("asyncHttpCallback", params, [method: "setDeviceScene", sceneId: sceneId, params:params])
 	} catch (e) {
-	    logWarn "${device.displayName} 'setDeviceScene()' asynchttpPost() error: $e"
+	    logWarn "'setDeviceScene()' asynchttpPost() error: $e"
 	}
 }
 
 void asyncHttpCallback(resp, data) {
-    logDebug "${device.displayName} executing 'asyncHttpCallback()' status: ${resp.status} method: ${data?.method}"
+    logDebug "executing 'asyncHttpCallback()' status: ${resp.status} method: ${data?.method}"
     
     if (resp.status == 200) {
         resp.headers.each { logTrace "${it.key} : ${it.value}" }
@@ -1004,15 +1095,15 @@ void asyncHttpCallback(resp, data) {
                 processEvent("scenes", scenes?.sort())
                 break
             case "setDeviceScene":
-                logInfo "${device.displayName} ${respJson?.status=="ok"?"accepted":"rejected"} sceneId:$data.sceneId"
+                logInfo "${respJson?.status=="ok"?"accepted":"rejected"} sceneId:$data.sceneId"
                 break
             default:
-                logWarn "${device.displayName} asyncHttpGetCallback() ${data?.method} not supported"
+                logWarn "asyncHttpGetCallback() ${data?.method} not supported"
                 if (resp?.data) { logInfo resp.data }
         }
     }
     else {
-        logWarn("${device.displayName} asyncHttpGetCallback() ${data?.method} status:${resp.status} errorMessage:${resp?.errorMessage?:"none"} params:${data?.params}")
+        logWarn("asyncHttpGetCallback() ${data?.method} status:${resp.status} errorMessage:${resp?.errorMessage?:"none"} params:${data?.params}")
         logTrace("Available Properties: ${resp.properties}")
     }
 }
@@ -1062,7 +1153,7 @@ String getLocalKey(String deviceId) {
 @Field volatile static Map<Long,Map> g_mGetLoginData = [:]
 Map getLoginData() {
     if(g_mGetLoginData[device.getIdAsLong()] == null) {
-        logDebug "${device.displayName} executing 'getLoginData()' cache"
+        logDebug "executing 'getLoginData()' cache"
         g_mGetLoginData[device.getIdAsLong()] = fetchJsonState("login")
     } 
     return g_mGetLoginData[device.getIdAsLong()]?.data ?: [:]
@@ -1071,7 +1162,7 @@ Map getLoginData() {
 @Field volatile static Map<Long,Map> g_mGetHomeDetail = [:]
 Map getHomeDetailData() {
     if(g_mGetHomeDetail[device.getIdAsLong()] == null) {
-        logDebug "${device.displayName} executing 'getHomeDetailData()' cache"
+        logDebug "executing 'getHomeDetailData()' cache"
         g_mGetHomeDetail[device.getIdAsLong()] = fetchJsonState("homeDetail")
     }
     return g_mGetHomeDetail[device.getIdAsLong()]?.data ?: [:]
@@ -1081,7 +1172,7 @@ Map getHomeDetailData() {
 Map getHomeDataResult() {
     if(g_mGetHomeData[device.getIdAsLong()] == null) {
         synchronized (this) {
-            logDebug "${device.displayName} executing 'getHomeDataResult()' cache"
+            logDebug "executing 'getHomeDataResult()' cache"
             g_mGetHomeData[device.getIdAsLong()] = fetchJsonState("homeData")
         }
     } 
@@ -1184,6 +1275,12 @@ Integer qSize() {
 	28: "In call",
 	29: "Mapping",
 	100: "Charged",
+    
+    500: "Authorization error",
+    501: "Authorization Requires PIN", 
+    502: "Waiting for Authorization PIN",
+    503: "Authorized",
+    504: "Error requesting PIN",
 ]
 
 @Field static final Map fanPowerCodes  = [
@@ -1222,13 +1319,17 @@ Integer qSize() {
     38: "Water Empty",
     39: "Waste Water Tank Full",
     40: "Water Filter Not Installed",
+    42: "Check the Water Filter Has Been Correctly Installed",
     44: "Dirty Tank Latch Open",
     46: "No Dust Bin",
     53: "Cleaning Tank Full Blocked",
 ]
 
-private logInfo(msg)  { if(settings?.deviceInfoDisable != true) { log.info  "${msg}" } }
-private logDebug(msg) { if(settings?.deviceDebugEnable == true) { log.debug "${msg}" } }
-private logTrace(msg) { if(settings?.deviceTraceEnable == true) { log.trace "${msg}" } }
-private logWarn(msg)  { log.warn   "${msg}" }
-private logError(msg) { log.error  "${msg}" }
+/* ============================================================
+ *  LOG HELPERS
+ * ============================================================ */
+def logInfo(msg)  { if(!deviceInfoDisable) log.info "${device.displayName} ${msg}" }
+def logDebug(msg) { if(deviceDebugEnable)  log.debug "${device.displayName} ${msg}" }
+def logTrace(msg) { if(deviceTraceEnable)  log.trace "${device.displayName} ${msg}" }
+def logWarn(msg)  { log.warn "${device.displayName} ${msg}" }
+def logError(msg) { log.error "${device.displayName} ${msg}" }
