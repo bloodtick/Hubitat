@@ -1,5 +1,5 @@
 /**
- *  Copyright 2025 Bloodtick Jones
+ *  Copyright 2026 Bloodtick Jones
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -827,7 +827,7 @@ void parseVolume(Map data) {
     sendEventX(name: "mute", value: mute, descriptionText: "mute is ${mute}")
 
     Integer prev = (state.lastVolume as Integer) ?: volume
-    String direction = volume > prev ? "+" : volume < prev ? "-" : ""
+    String direction = volume > prev ? "+" : volume < prev ? "-" : "!"
     state.lastVolume = volume
 
     if (direction) {
@@ -903,7 +903,7 @@ void parsePresets(Map data) {
     (1..PRESET_COUNT).each { n ->
         def p = data?.presets?.presets?."${n}"?.actions?.getAt(0)?.payload?.contentItem
         String preset = "preset$n"
-        if(p && state[preset].sort()!= p.sort()) {
+        if(p && state[preset]?.sort()!= p.sort()) {
             state[preset] = p.sort()
             logInfo "stored $preset: ${p.name}"
             sendEventX(name: preset, value: p.name as String)
