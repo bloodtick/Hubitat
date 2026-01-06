@@ -139,7 +139,7 @@ void setEventText(String name, String descriptionText=null) {
 void setEventText(Map p) { setEventText(p.name, p?.descriptionText) }
 
 String getEventText(String name, String defaultValue = null) {
-    return (state.event.containsKey(name) ? state.event[name] : defaultValue ?: "")
+    return (state.event?.containsKey(name) ? state.event[name] : defaultValue ?: "")
 }
 String getEventText(Map p) { return getEventText(p.name, p?.defaultValue) }
 
