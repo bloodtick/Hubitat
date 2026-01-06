@@ -1,4 +1,6 @@
 /**
+ *  NOTICE: THIS DRIVER NO LONGER FUNCTIONS. BOSE MOVED TO AZURE AUHTORIZATION AND AWAY FROM GIGYA.
+ *
  *  Copyright 2026 Bloodtick Jones
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
