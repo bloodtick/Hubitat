@@ -45,24 +45,23 @@ metadata {
         capability "MusicPlayer"
         capability "PushableButton"
         
-        //command "disconnect"
-        
+        //command "disconnect"        
         command "initialize", [[name: "reset",  type: "ENUM", description: "Reset all device attributes and states. Default: false ", constraints: ["false", "true"]]]
             
         command "remoteControl", [
-            [name: "keyValue*",  type: "ENUM", description: "Remote Button Value", constraints: ["POWER_TOGGLE","POWER_ON","POWER_OFF","PRESET_SET","PRESET_1","PRESET_2","PRESET_3","PRESET_4","PRESET_5","PRESET_6","PLAY","PAUSE","REWIND",
+            [name: "keyValue*", type: "ENUM", description: "Remote Button Value ", constraints: ["POWER_TOGGLE","POWER_ON","POWER_OFF","PRESET_SET","PRESET_1","PRESET_2","PRESET_3","PRESET_4","PRESET_5","PRESET_6","PLAY","PAUSE","REWIND",
                                                                                                  "FAST_FORWARD","STOP","VOLUME_SET","VOLUME_UP","VOLUME_DOWN","MUTE_TOGGLE","MUTE","UNMUTE","SELECT_TV","SELECT_OPTICAL","SELECT_AUX",
                                                                                                  "NUMBER_OF_BUTTONS_SET"]],
-            [name: "keyNumeric", type: "NUMBER", description: "Optional Numeric Value for SET commands", constraints: "0..100"],
-            [name: "createChild",  type: "ENUM", description: "Create a child device to trigger remote", constraints: ["NONE", "Generic Component Switch"]],// "Generic Component Dimmer"]] 
+            [name: "keyNumeric", type: "NUMBER", description: "Optional: Numeric Value for SET commands ", constraints: "0..100"],
+            [name: "createChildLabel", type: "STRING", description: "Optional: Create a child device to trigger remote. Default: Empty "], 
         ]
         
         command "remoteControlEq", [
-            [name: "keyValue*",  type: "ENUM", description: "Remote Button Value", constraints: ["AUDIO_BASE_SET","AUDIO_BASE_UP","AUDIO_BASE_DOWN","AUDIO_CENTER_SET","AUDIO_CENTER_UP","AUDIO_CENTER_DOWN",
+            [name: "keyValue*", type: "ENUM", description: "Remote Button Value ", constraints: ["AUDIO_BASE_SET","AUDIO_BASE_UP","AUDIO_BASE_DOWN","AUDIO_CENTER_SET","AUDIO_CENTER_UP","AUDIO_CENTER_DOWN",
                                                                                                  "AUDIO_TREBLE_SET","AUDIO_TREBLE_UP","AUDIO_TREBLE_DOWN","AUDIO_HEIGHT_SET","AUDIO_HEIGHT_UP","AUDIO_HEIGHT_DOWN",
                                                                                                  "AUDIO_WOOFER_SET","AUDIO_WOOFER_UP","AUDIO_WOOFER_DOWN","AUDIO_REARS_SET","AUDIO_REARS_UP","AUDIO_REARS_DOWN"]],
-            [name: "keyNumeric*", type: "ENUM", description: "Required Numeric Value for ALL commands", constraints: audioLevels.values().collect{ it } ],
-            [name: "createChild",  type: "ENUM", description: "Create a child device to trigger remote", constraints: ["NONE", "Generic Component Switch"]],// "Generic Component Dimmer"]] 
+            [name: "keyNumeric*", type: "ENUM", description: "Required Numeric Value for ALL commands ", constraints: audioLevels.values().collect{ it } ],
+            [name: "createChildLabel", type: "STRING", description: "Optional: Create a child device to trigger remote. Default: Empty "], 
         ]
         
         (1..PRESET_COUNT).each { n -> attribute "preset$n", "string" }
@@ -226,16 +225,17 @@ void webSocketOpen(String reason) {
 /* ============================================================
  *  COMMAND VIRTUAL DEVICE CREATION
  * ============================================================ */
-def createVirtualDevice(String childType, String keyValue, String keyNumeric=null ) {
+def createVirtualDevice(String createChildLabel, String keyValue, String keyNumeric=null ) {
 
-    String label = "${keyValue}${keyNumeric != null ? (keyNumeric.toInteger() >= 0 ? "_P${Math.abs(keyNumeric.toInteger())}" : "_M${Math.abs(keyNumeric.toInteger())}") : ""}"
-	String dni   = "${device.deviceNetworkId}-${label}"
+    String label = createChildLabel
+    String name  = "${keyValue}${keyNumeric != null ? (keyNumeric.toInteger() >= 0 ? "_P${Math.abs(keyNumeric.toInteger())}" : "_M${Math.abs(keyNumeric.toInteger())}") : ""}"
+	String dni   = "${device.deviceNetworkId}-${name}"
     
     def child = getChildDevice(dni)
     if(child) return
 
     try {
-    	child = addChildDevice( "hubitat", childType, dni, [label: label, isComponent: true])
+    	child = addChildDevice( "hubitat", "Generic Component Switch", dni, [name: name, label: label, isComponent: true])
     } catch (e) {
     	logWarn "could not create child device: $label"
         return
@@ -244,7 +244,7 @@ def createVirtualDevice(String childType, String keyValue, String keyNumeric=nul
     if(keyNumeric!=null) child.updateDataValue("keyNumeric", keyNumeric)
     child.sendEvent(name: "switch", value: "off")
     
-    logInfo "Created child device: $label (${dni})"
+    logInfo "Created child device: '$label' (${dni})"
 }
 
 def componentEvent(Map data) {
@@ -273,14 +273,14 @@ def componentRefresh(child) {
 /* ============================================================
  *  COMMANDS
  * ============================================================ */
-def remoteControlEq(String keyValue, def keyNumeric=null, String createChild=null) {
-    remoteControl(keyValue, keyNumeric, createChild)
+def remoteControlEq(String keyValue, def keyNumeric=null, String createChildLabel=null) {
+    remoteControl(keyValue, keyNumeric, createChildLabel)
 }
 
-def remoteControl(String keyValue, def keyNumeric=null, String createChild=null) {
-    logDebug "executing 'remoteControl($keyValue, $keyNumeric, $createChild)'"
-    if(createChild!=null && createChild!="NONE") { 
-        createVirtualDevice(createChild as String, keyValue as String, keyNumeric as String)
+def remoteControl(String keyValue, def keyNumeric=null, String createChildLabel=null) {
+    logDebug "executing 'remoteControl($keyValue, $keyNumeric, $createChildLabel)'"
+    if(createChildLabel!=null) { 
+        createVirtualDevice(createChildLabel as String, keyValue as String, keyNumeric as String)
         return
     }
    
@@ -489,9 +489,10 @@ void parseVolume(Map data) {
     Integer volume = (data.volume ?: data.value ?: data.level) as Integer
     String mute   = data.muted == null ? "unknown" : (data.muted ? "muted" : "unmuted")
     sendEventX(name: "mute", value: mute, descriptionText: "mute is ${mute}")
+    sendEventX(name: "level",  value: volume, unit: "%") // level will move much faster than volume on purpose
 
-    Integer prev = (state.lastVolume as Integer) ?: volume
-    String direction = volume > prev ? "+" : volume < prev ? "-" : "!"
+    Integer lastVolume = (state.lastVolume as Integer) ?: volume
+    String direction = volume > lastVolume ? "+" : volume < lastVolume ? "-" : "!"
     state.lastVolume = volume
 
     if (direction) {
@@ -501,8 +502,7 @@ void parseVolume(Map data) {
 }
 // called from parseVolume() to allow for volume pattern matching. Only reports audio change after one second of audio change inactivity.
 void parseVolumePattern() {
-    Integer volume = state.lastVolume as Integer
-    sendEventX(name: "level",  value: volume, unit: "%")
+    Integer volume = state.lastVolume as Integer    
     sendEventX(name: "volume", value: volume, unit: "%", descriptionText: "volume is ${volume}%")
 
     String pattern = state.volumePattern ?: ""
@@ -699,7 +699,7 @@ private void fetchCapabilities() {
 
 private void parseCapabilities(Map data) {
     logDebug "parseCapabilities(): $data"
-    state.capabilities = data    
+    state.capabilities = data
     runIn(0,"subscribe")
 }
 
