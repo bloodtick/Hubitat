@@ -49,19 +49,19 @@ metadata {
         command "initialize", [[name: "reset",  type: "ENUM", description: "Reset all device attributes and states. Default: false ", constraints: ["false", "true"]]]
             
         command "remoteControl", [
-            [name: "keyValue*", type: "ENUM", description: "Remote Button Value ", constraints: ["POWER_TOGGLE","POWER_ON","POWER_OFF","PRESET_SET","PRESET_1","PRESET_2","PRESET_3","PRESET_4","PRESET_5","PRESET_6","PLAY","PAUSE","REWIND",
+            [name: "Key Value*", type: "ENUM", description: "Remote Button Value ", constraints: ["POWER_TOGGLE","POWER_ON","POWER_OFF","PRESET_SET","PRESET_1","PRESET_2","PRESET_3","PRESET_4","PRESET_5","PRESET_6","PLAY","PAUSE","REWIND",
                                                                                                  "FAST_FORWARD","STOP","VOLUME_SET","VOLUME_UP","VOLUME_DOWN","MUTE_TOGGLE","MUTE","UNMUTE","SELECT_TV","SELECT_OPTICAL","SELECT_AUX",
                                                                                                  "NUMBER_OF_BUTTONS_SET"]],
-            [name: "keyNumeric", type: "NUMBER", description: "Optional: Numeric Value for SET commands ", constraints: "0..100"],
-            [name: "createChildLabel", type: "STRING", description: "Optional: Create a child device to trigger remote. Default: Empty "], 
+            [name: "Key Numeric", type: "NUMBER", description: "Optional: Numeric Value for SET commands ", constraints: "0..100"],
+            [name: "Create Child Label", type: "STRING", description: "Optional: Create a child device to trigger remote. Default: Empty "], 
         ]
         
         command "remoteControlEq", [
-            [name: "keyValue*", type: "ENUM", description: "Remote Button Value ", constraints: ["AUDIO_BASE_SET","AUDIO_BASE_UP","AUDIO_BASE_DOWN","AUDIO_CENTER_SET","AUDIO_CENTER_UP","AUDIO_CENTER_DOWN",
+            [name: "Key Value*", type: "ENUM", description: "Remote Button Value ", constraints: ["AUDIO_BASE_SET","AUDIO_BASE_UP","AUDIO_BASE_DOWN","AUDIO_CENTER_SET","AUDIO_CENTER_UP","AUDIO_CENTER_DOWN",
                                                                                                  "AUDIO_TREBLE_SET","AUDIO_TREBLE_UP","AUDIO_TREBLE_DOWN","AUDIO_HEIGHT_SET","AUDIO_HEIGHT_UP","AUDIO_HEIGHT_DOWN",
                                                                                                  "AUDIO_WOOFER_SET","AUDIO_WOOFER_UP","AUDIO_WOOFER_DOWN","AUDIO_REARS_SET","AUDIO_REARS_UP","AUDIO_REARS_DOWN"]],
-            [name: "keyNumeric*", type: "ENUM", description: "Required Numeric Value for ALL commands ", constraints: audioLevels.values().collect{ it } ],
-            [name: "createChildLabel", type: "STRING", description: "Optional: Create a child device to trigger remote. Default: Empty "], 
+            [name: "Key Numeric*", type: "ENUM", description: "Required Numeric Value for ALL commands ", constraints: audioLevels.values().collect{ it } ],
+            [name: "Create Child Label", type: "STRING", description: "Optional: Create a child device to trigger remote. Default: Empty "], 
         ]
         
         (1..PRESET_COUNT).each { n -> attribute "preset$n", "string" }
@@ -309,23 +309,23 @@ def remoteControl(String keyValue, def keyNumeric=null, String createChildLabel=
         case "21": case "SELECT_TV": setSelectTV(); break
         case "22": case "SELECT_AUX":   setSelectAux(); break    
         case "23": case "AUDIO_BASE_SET":    setAudioBass(keyNumeric); break
-        case "24": case "AUDIO_BASE_UP":     setAudioBass((device.currentValue("audioBass")?.toInteger()?:0)+keyNumeric.toInteger()?:10); break
-        case "25": case "AUDIO_BASE_DOWN":   setAudioBass((device.currentValue("audioBass")?.toInteger()?:0)-keyNumeric.toInteger()?:10); break
+        case "24": case "AUDIO_BASE_UP":     setAudioBass((device.currentValue("audioBass")?.toInteger()?:0)+keyNumeric.toInteger()); break
+        case "25": case "AUDIO_BASE_DOWN":   setAudioBass((device.currentValue("audioBass")?.toInteger()?:0)-keyNumeric.toInteger()); break
         case "26": case "AUDIO_CENTER_SET":  setAudioCenter(keyNumeric); break
-        case "27": case "AUDIO_CENTER_UP":   setAudioCenter((device.currentValue("audioCenter")?.toInteger()?:0)+keyNumeric.toInteger()?:10); break
-        case "28": case "AUDIO_CENTER_DOWN": setAudioCenter((device.currentValue("audioCenter")?.toInteger()?:0)-keyNumeric.toInteger()?:10); break
+        case "27": case "AUDIO_CENTER_UP":   setAudioCenter((device.currentValue("audioCenter")?.toInteger()?:0)+keyNumeric.toInteger()); break
+        case "28": case "AUDIO_CENTER_DOWN": setAudioCenter((device.currentValue("audioCenter")?.toInteger()?:0)-keyNumeric.toInteger()); break
         case "29": case "AUDIO_TREBLE_SET":  setAudioTreble(keyNumeric); break
-        case "30": case "AUDIO_TREBLE_UP":   setAudioTreble((device.currentValue("audioTreble")?.toInteger()?:0)+keyNumeric.toInteger()?:10); break
-        case "31": case "AUDIO_TREBLE_DOWN": setAudioTreble((device.currentValue("audioTreble")?.toInteger()?:0)-keyNumeric.toInteger()?:10); break
+        case "30": case "AUDIO_TREBLE_UP":   setAudioTreble((device.currentValue("audioTreble")?.toInteger()?:0)+keyNumeric.toInteger()); break
+        case "31": case "AUDIO_TREBLE_DOWN": setAudioTreble((device.currentValue("audioTreble")?.toInteger()?:0)-keyNumeric.toInteger()); break
         case "32": case "AUDIO_HEIGHT_SET":  setAudioHeight(keyNumeric); break
-        case "33": case "AUDIO_HEIGHT_UP":   setAudioHeight((device.currentValue("audioHeight")?.toInteger()?:0)+keyNumeric.toInteger()?:10); break
-        case "34": case "AUDIO_HEIGHT_DOWN": setAudioHeight((device.currentValue("audioHeight")?.toInteger()?:0)-keyNumeric.toInteger()?:10); break
+        case "33": case "AUDIO_HEIGHT_UP":   setAudioHeight((device.currentValue("audioHeight")?.toInteger()?:0)+keyNumeric.toInteger()); break
+        case "34": case "AUDIO_HEIGHT_DOWN": setAudioHeight((device.currentValue("audioHeight")?.toInteger()?:0)-keyNumeric.toInteger()); break
         case "35": case "AUDIO_WOOFER_SET":  setAudioWoofer(keyNumeric); break
-        case "36": case "AUDIO_WOOFER_UP":   setAudioWoofer((device.currentValue("audioWoofer")?.toInteger()?:0)+keyNumeric.toInteger()?:10); break
-        case "37": case "AUDIO_WOOFER_DOWN": setAudioWoofer((device.currentValue("audioWoofer")?.toInteger()?:0)-keyNumeric.toInteger()?:10); break
+        case "36": case "AUDIO_WOOFER_UP":   setAudioWoofer((device.currentValue("audioWoofer")?.toInteger()?:0)+keyNumeric.toInteger()); break
+        case "37": case "AUDIO_WOOFER_DOWN": setAudioWoofer((device.currentValue("audioWoofer")?.toInteger()?:0)-keyNumeric.toInteger()); break
         case "38": case "AUDIO_REARS_SET":   setAudioRears(keyNumeric); break
-        case "39": case "AUDIO_REARS_UP":    setAudioRears((device.currentValue("audioRears")?.toInteger()?:0)+keyNumeric.toInteger()?:10); break
-        case "40": case "AUDIO_REARS_DOWN":  setAudioRears((device.currentValue("audioRears")?.toInteger()?:0)+keyNumeric.toInteger()?:10); break
+        case "39": case "AUDIO_REARS_UP":    setAudioRears((device.currentValue("audioRears")?.toInteger()?:0)+keyNumeric.toInteger()); break
+        case "40": case "AUDIO_REARS_DOWN":  setAudioRears((device.currentValue("audioRears")?.toInteger()?:0)+keyNumeric.toInteger()); break
         case "41": case "PRESET_SET": setPreset(keyNumeric); break       
         case "$NUMBER_OF_BUTTONS_SET": case "NUMBER_OF_BUTTONS_SET": sendEventX(name: "numberOfButtons", value: keyNumeric as Integer); break  
         // reserved up to 49 for future internal use
