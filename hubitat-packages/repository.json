@@ -50,6 +50,18 @@
                 "Tools & Utilities"
             ],
             "id": "53555efe-4333-4072-8128-f322ec43b407"
+        },
+        {
+            "name": "Bose Soundbar Integration",
+            "category": "Integrations",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubitat-packages/manifests/manifestBoseSoundbarIntegration.json",
+            "description": "Hubitat Application and Driver to connect your Bose Soundbar Speakers (not SoundTouch) to Hubitat",
+            "tags": [
+                "Automations & Groups",
+                "Cloud",
+                "Tools & Utilities"
+            ],
+            "id": "04729cda-ca68-4ccd-b520-b700d7580d9b"
         }
     ]
 }
