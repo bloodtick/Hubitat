@@ -1,0 +1,36 @@
+{
+    "packageName": "Bose Soundbar Integration",
+    "author": "Bloodtick Jones",
+    "communityLink": "https://community.hubitat.com/t/bose-soundbar-not-soundtouch-alpha/159590",
+    "minimumHEVersion": "2.4.3",
+    "category": "Integrations",
+    "tags": [
+        "Automations & Groups",
+        "Cloud",
+        "Tools & Utilities"
+    ],
+    "dateReleased": "2026-01-04",
+    "releaseNotes": "1.0.00 2026-01-04 Initial Release. Does not support SoundTouch devices.\n",
+    "apps": [
+        {
+            "id": "d692bf0a-6124-4987-8995-3aa1da7179b2",
+            "name": "Bose Soundbar Integration",
+            "namespace": "bloodtick",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/boseSoundbar/boseSoundbarIntegration.groovy",
+            "required": true,
+            "oauth": true,
+            "primary": true,
+            "version": "1.0.00"
+        }
+    ],
+    "drivers": [
+        {
+            "id": "2483699a-3179-4185-b49e-3a60727a7153",
+            "name": "Bose Soundbar Device",
+            "namespace": "bloodtick",
+            "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/boseSoundbar/boseSoundbarDevice.groovy",
+            "required": true,
+            "version": "1.0.00"
+        }
+    ]
+}
