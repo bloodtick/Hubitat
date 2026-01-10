@@ -177,7 +177,7 @@ private void connect() {
     Map headers = [ "Sec-WebSocket-Protocol": "eco2" ]
 
     try {
-        logInfo "connecting to ${url}"
+        logDebug "connecting to ${url}"
         interfaces.webSocket.connect([ignoreSSLIssues: true, headers: headers], url)
     } catch (e) {
         logError "connect(): exception ${e}"
@@ -686,7 +686,7 @@ def parse(String message) {
 }
 
 private void parseSocketReady(Map data) {
-    logInfo "connection ready"
+    logInfo "connection is ready"
     setHealthStatusEvent([healthStatus:"online"])
     // this needs to be done first. Then run subscribe and status.
     runIn(0,"fetchCapabilities")
