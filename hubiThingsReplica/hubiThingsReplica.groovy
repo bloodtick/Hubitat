@@ -1,5 +1,5 @@
 /**
-*  Copyright 2025 Bloodtick
+*  Copyright 2026 Bloodtick
 *
 *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 *  in compliance with the License. You may obtain a copy of the License at:
@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-10-01 First pass.
 *  ...    Deleted
-*  1.4.01 2024-12-14 Updates to OAuth asyncHttpPostJson and asyncHttpGet to reject if token is invalid.
 *  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
 *  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead.
@@ -27,10 +26,11 @@
 *  1.5.06 2025-04-01 More fixes to improve hub startup performance. Added 'update' to deviceTriggerHandler for use with drivers.
 *  1.5.07 2025-04-13 Allow user to directly set attributes and function parameters in rules. Updates have #tagRuleOverride.
 *  1.5.08 2025-04-18 Updates to virtual device configurations and use locationId finding OAuth and not PAT.
+*  1.5.09 2026-01-17 Minor update on checkCommand() to correct logic showing if SmartThings command is valid. Happy New Year.
 *  LINE 30 MAX */ 
 
-public static String version() { return "1.5.08" }
-public static String copyright() { return "&copy; 2025 ${author()}" }
+public static String version() { return "1.5.09" }
+public static String copyright() { return "&copy; 2026 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
 import groovy.json.*
@@ -2392,14 +2392,14 @@ def checkFirmwareVersion(versionString) {
 Boolean checkTrigger(replicaDevice, type, ruleTrigger) {
     Map trigger = type=='hubitatTrigger' ? getHubitatAttributeOptions(replicaDevice) : getSmartAttributeOptions(replicaDevice)
     // #tagRuleOverride added the !!trigger?.find when hubitatTrigger
-    return (type=='hubitatTrigger' ? trigger?.get(ruleTrigger?.label) || !!trigger?.find{ k,v -> v?.capability==ruleTrigger?.capability && v?.attribute==ruleTrigger?.attribute } : !!trigger?.find{ k,v -> v?.capability==ruleTrigger?.capability && v?.attribute==ruleTrigger?.attribute })
+    return (type=='hubitatTrigger' ? (trigger?.get(ruleTrigger?.label) || !!trigger?.find{ k,v -> v?.capability==ruleTrigger?.capability && v?.attribute==ruleTrigger?.attribute }) : !!trigger?.find{ k,v -> v?.capability==ruleTrigger?.capability && v?.attribute==ruleTrigger?.attribute })
     //return trigger?.get(ruleTrigger?.label)
 }
 
 Boolean checkCommand(replicaDevice, type, ruleCommand) {
     Map commands = type!='hubitatTrigger' ? getHubitatCommandOptions(replicaDevice) : getSmartCommandOptions(replicaDevice)
     // #tagRuleOverride added the !!commands?.find when hubitatTrigger
-    return (type=='hubitatTrigger' ? commands?.get(ruleCommand?.label) || !!commands?.find{ k,v -> v?.capability==ruleCommand?.capability && v?.name==ruleCommand?.name } : !!commands?.find{ k,v -> v?.capability==ruleCommand?.capability && v?.name==ruleCommand?.name })
+    return (type!='hubitatTrigger' ? (commands?.get(ruleCommand?.label) || !!commands?.find{ k,v -> v?.capability==ruleCommand?.capability && v?.name==ruleCommand?.name }) : !!commands?.find{ k,v -> v?.capability==ruleCommand?.capability && v?.name==ruleCommand?.name })
     //return commands?.get(ruleCommand?.label)
 }       
 
