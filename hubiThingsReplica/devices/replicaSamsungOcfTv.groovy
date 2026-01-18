@@ -197,7 +197,9 @@ def setSupportedSoundModesValue(value) {
     // could be a list of strings or a list of a map like [{"id":"modeMovie","name":"Movie"},{"id":"modeDynamic","name":"Dynamic"},{"id":"modeStandard","name":"Standard"}]
     // you need to set via the name when string or id when map.
     Boolean isMapList = value && value[0] instanceof Map
-    if(isMapList) state.supportedSoundModesMap = value; else state.remove('supportedSoundModesMap');
+    if(isMapList) { // lets add all the unique 
+        state.supportedSoundModesMap = ((state.supportedSoundModesMap ?: []) + (value ?: [])).unique { "${it?.id}|${it?.name}" }
+    } else state.remove('supportedSoundModesMap');
     
 	def sortedValue = (value ?: []).collect { isMapList ? (it.name ?: it.id) : it }.findAll { it }.sort { it.toString().toLowerCase() } 
     if(value==null || sortedValue.toString()==supportedSoundModes.toString()) return
@@ -226,7 +228,9 @@ def setSupportedPictureModesValue(value) {
     // could be a list of strings or a list of a map like [{"id":"modeMovie","name":"Movie"},{"id":"modeDynamic","name":"Dynamic"},{"id":"modeStandard","name":"Standard"}]
     // you need to set via the name when string or id when map.
     Boolean isMapList = value && value[0] instanceof Map
-    if(isMapList) state.supportedPictureModesMap = value; else state.remove('supportedPictureModesMap');
+    if(isMapList) { // lets add all the unique since it looks like HDR is different.
+        state.supportedPictureModesMap = ((state.supportedPictureModesMap ?: []) + (value ?: [])).unique { "${it?.id}|${it?.name}" }
+    } else state.remove('supportedPictureModesMap');
     
 	def sortedValue = (value ?: []).collect { isMapList ? (it.name ?: it.id) : it }.findAll { it }.sort { it.toString().toLowerCase() }    
     if(sortedValue==null || sortedValue.toString()==supportedPictureModes.toString()) return    
@@ -417,15 +421,21 @@ def channelUp()  {
 }
 
 def setPictureMode(mode) {
-    if(state?.supportedPictureModesMap && !(state.supportedPictureModesMap.any{ it?.id?.toString() == mode }) ) {     
-    	mode = state.supportedPictureModesMap.find{ it?.name?.toString()?.equalsIgnoreCase(mode) }?.id ?: mode
+    if(state?.supportedPictureModesMap?.any{ it?.name?.toString()?.equalsIgnoreCase(mode) } ) {     
+    	state.supportedPictureModesMap.findAll{ it?.name?.toString()?.equalsIgnoreCase(mode) }?.each {
+            sendCommand("setPictureMode", it?.id)
+        }
+        return
     }
     sendCommand("setPictureMode", mode)
 }
 
 def setSoundMode(mode) {
-    if(state?.supportedSoundModesMap && !(state.supportedSoundModesMap.any{ it?.id?.toString() == mode }) ) {     
-    	mode = state.supportedSoundModesMap.find{ it?.name?.toString()?.equalsIgnoreCase(mode) }?.id ?: mode
+    if(state?.supportedSoundModesMap?.any{ it?.name?.toString()?.equalsIgnoreCase(mode) } ) {     
+    	state.supportedSoundModesMap.findAll{ it?.name?.toString()?.equalsIgnoreCase(mode) }?.each {
+            sendCommand("setPictureMode", it?.id)
+        }
+        return
     }
     sendCommand("setSoundMode", mode)
 }
