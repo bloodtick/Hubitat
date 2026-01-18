@@ -197,10 +197,11 @@ def setSupportedSoundModesValue(value) {
     // could be a list of strings or a list of a map like [{"id":"modeMovie","name":"Movie"},{"id":"modeDynamic","name":"Dynamic"},{"id":"modeStandard","name":"Standard"}]
     // you need to set via the name when string or id when map.
     Boolean isMapList = value && value[0] instanceof Map
-	def sortedValue = (value ?: []).collect { isMapList ? (it.name ?: it.id) : it }.findAll { it }.sort { it.toString().toLowerCase() } 
-    if(value==null || sortedValue.toString()==supportedSoundModes.toString()) return
     if(isMapList) state.supportedSoundModesMap = value; else state.remove('supportedSoundModesMap');
     
+	def sortedValue = (value ?: []).collect { isMapList ? (it.name ?: it.id) : it }.findAll { it }.sort { it.toString().toLowerCase() } 
+    if(value==null || sortedValue.toString()==supportedSoundModes.toString()) return
+        
     String descriptionText = "${device.displayName} supported sound modes are $sortedValue"
     sendEvent(name: "supportedSoundModes", value: groovy.json.JsonOutput.toJson(sortedValue), descriptionText: descriptionText)
     logInfo descriptionText
@@ -225,9 +226,10 @@ def setSupportedPictureModesValue(value) {
     // could be a list of strings or a list of a map like [{"id":"modeMovie","name":"Movie"},{"id":"modeDynamic","name":"Dynamic"},{"id":"modeStandard","name":"Standard"}]
     // you need to set via the name when string or id when map.
     Boolean isMapList = value && value[0] instanceof Map
-	def sortedValue = (value ?: []).collect { isMapList ? (it.name ?: it.id) : it }.findAll { it }.sort { it.toString().toLowerCase() }    
-    if(sortedValue==null || sortedValue.toString()==supportedPictureModes.toString()) return
     if(isMapList) state.supportedPictureModesMap = value; else state.remove('supportedPictureModesMap');
+    
+	def sortedValue = (value ?: []).collect { isMapList ? (it.name ?: it.id) : it }.findAll { it }.sort { it.toString().toLowerCase() }    
+    if(sortedValue==null || sortedValue.toString()==supportedPictureModes.toString()) return    
     
     String descriptionText = "${device.displayName} supported picture modes are $sortedValue"
     sendEvent(name: "supportedPictureModes", value: groovy.json.JsonOutput.toJson(sortedValue), descriptionText: descriptionText)
