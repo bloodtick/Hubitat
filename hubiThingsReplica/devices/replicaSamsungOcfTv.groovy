@@ -418,14 +418,14 @@ def channelUp()  {
 
 def setPictureMode(mode) {
     if(state?.supportedPictureModesMap && !(state.supportedPictureModesMap.any{ it?.id?.toString() == mode }) ) {     
-    	mode = state.supportedPictureModesMap.find{ it?.name?.toString()?.equalsIgnoreCase(mode) }?.id ?: ""
+    	mode = state.supportedPictureModesMap.find{ it?.name?.toString()?.equalsIgnoreCase(mode) }?.id ?: mode
     }
     sendCommand("setPictureMode", mode)
 }
 
 def setSoundMode(mode) {
     if(state?.supportedSoundModesMap && !(state.supportedSoundModesMap.any{ it?.id?.toString() == mode }) ) {     
-    	mode = state.supportedSoundModesMap.find{ it?.name?.toString()?.equalsIgnoreCase(mode) }?.id ?: ""
+    	mode = state.supportedSoundModesMap.find{ it?.name?.toString()?.equalsIgnoreCase(mode) }?.id ?: mode
     }
     sendCommand("setSoundMode", mode)
 }
