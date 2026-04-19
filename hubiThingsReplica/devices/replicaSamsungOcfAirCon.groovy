@@ -12,6 +12,7 @@
 *
 * Changes by amithalp
 * Added ThermostatFanMode integration for Hubitat Thermostat tile:
+* - Implemented powerMeter capability
 * - Implemented setThermostatFanMode() to map tile commands into Samsung setFanMode().
 * - Added thermostatFanMode attribute updates to mirror fanMode for proper Dashboard display.
 * - Ensures Thermostat tile control works correctly while preserving Samsung behavior
@@ -38,6 +39,7 @@ metadata
         // Special capablity to allow for Hubitat dashboarding to set commands via the Button template
         // Use Hubitat 'Button Controller' built in app to set commands to run.
         capability "PushableButton"
+		capability "PowerMeter"
         
         
         
@@ -91,6 +93,7 @@ metadata
         attribute "supportedThermostatFanModes", "JSON_OBJECT"
         attribute "heatingSetpoint", "number"
         attribute "thermostatSetpoint", "number"
+		attribute "power", "number"
         
         command "setAirConditionerMode", [[name: "mode*", type: "STRING", description: "Set the air conditioner mode"]] //capability "airConditionerMode" in SmartThings
         command "setFanMode", [[name: "fanMode*", type: "STRING", description: "Set the fan mode"]] //capability "airConditionerFanMode" in SmartThings
@@ -403,6 +406,7 @@ def setRemoteControlEnabledValue(value) {
 def setPowerConsumptionValue(value) {
     String descriptionText = "${device.displayName} power consumption report is $value"
     sendEvent(name: "powerConsumption", value: value, descriptionText: descriptionText)
+	sendEvent(name: "power", value: value?.value?.power)
     logInfo descriptionText
 }
 
