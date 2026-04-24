@@ -17,7 +17,6 @@
 *
 *  1.0.00 2022-12-04 First pass.
 *  ...    Deleted
-*  1.5.00 2024-12-20 Updates to use the OAuth token as much as possible. See here: https://community.smartthings.com/t/changes-to-personal-access-tokens-pat/292019
 *  1.5.01 2025-01-06 OAuth patch to set status and json correctly for external application use of the OAuth token. (no Replcia changes)
 *  1.5.02 2025-03-01 Set refresh waits in Replica and OAuth to reduce excessive message traffic and lower Hubitat overhead
 *  1.5.03 2025-03-03 Move startup to 30 seconds after hub is ready. Fix app to show real time events. (no OAuth changes)
@@ -27,9 +26,10 @@
 *  1.5.07 2025-04-13 Allow user to directly set attributes and function parameters in rules. Updates have #tagRuleOverride. (no OAuth changes)
 *  1.5.08 2025-04-18 Updates to virtual device configurations and use locationId finding OAuth and not PAT. (no OAuth changes)
 *  1.5.09 2026-01-17 Minor update on checkCommand() to correct logic showing if SmartThings command is valid. Happy New Year. (no OAuth changes)
+*  1.5.10 2026-04-24 Hubitat 'bag-of-hammers' update.
 *  LINE 30 MAX */  
 
-public static String version() { return "1.5.09" }
+public static String version() { return "1.5.10" }
 public static String copyright() { return "&copy; 2026 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -64,6 +64,7 @@ definition(
     namespace: sSTNamespace,
     author: "bloodtick",
     description: "Hubitat Child Application to manage SmartThings OAuth",
+	menu: "Integrations",
     category: "Convenience",
     importUrl:"https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubiThingsReplica/hubiThingsOauth.groovy",
     iconUrl: "",
