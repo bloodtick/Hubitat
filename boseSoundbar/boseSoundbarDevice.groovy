@@ -18,7 +18,7 @@
  *  Author: bloodtick
  *  Date: 2026-01-04
  */
-public static String version() {return "1.0.00"}
+public static String version() {return "1.0.01"}
 
 import groovy.json.*
 import groovy.transform.CompileStatic
