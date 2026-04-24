@@ -18,7 +18,7 @@
  *  Author: bloodtick
  *  Date: 2026-01-04
  */
-public static String version() { return "1.0.00" }
+public static String version() { return "1.0.01" }
 public static String copyright() { return "&copy; 2026 ${author()}" }
 public static String author() { return "Bloodtick Jones" }
 
@@ -55,6 +55,7 @@ definition(
     namespace: "bloodtick",
     author: "Hubitat",
     description: "Connect your Bose Soundbar Speakers (not SoundTouch) to Hubitat.",
+	menu: "Integrations",
     category: "Convenience",
     importUrl: "https://raw.githubusercontent.com/bloodtick/Hubitat/main/boseSoundbar/boseSoundbarIntegration.groovy",
 	iconUrl: "",
