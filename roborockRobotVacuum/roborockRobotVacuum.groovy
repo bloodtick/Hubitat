@@ -1,5 +1,5 @@
 /**
- *  Copyright 2025 Bloodtick Jones
+ *  Copyright 2026 Bloodtick Jones
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -19,7 +19,7 @@
  *  Author: bloodtick
  *  Date: 2024-04-18
  */
-public static String version() {return "1.1.12"}
+public static String version() {return "1.1.13"}  // local: shared robots (receivedDevices) + MQTT keep-alive, see mqttKeepAlive()
 
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
@@ -137,7 +137,7 @@ def initialize() {
             return
         } else {
             device.updateSetting("allowLogin",[value:'false',type:"bool"])
-            logWarn "login failed with username:'$username' password:'$password' msg:${login?.msg}"
+            logWarn "login failed with username:'$username' msg:${login?.msg}"  // local: password no longer logged
             if(login?.code!=null && login.code.toInteger() == 2031) { processEvent("state", 501) } else { processEvent("state", 500) }
         }
     } else if(state?.login) {
@@ -229,7 +229,7 @@ void getHomeDataCallback() {
     logDebug "executing 'getHomeDataCallback()' ${getHomeDataResult()}"
     logDebug "device id is ${getDeviceId()}"
     
-    Boolean deviceOnline = !!(getHomeDataResult()?.devices?.find{ it.duid?.toString() == getDeviceId() }?.online)
+    Boolean deviceOnline = !!(homeDevices()?.find{ it.duid?.toString() == getDeviceId() }?.online)
     //processEvent("wifi", (deviceOnline ? "online" : "offline"))
     if(!deviceOnline) {
         //logWarn "wifi is offline"
@@ -252,7 +252,7 @@ void updateHomeData() {
     execute("get_room_mapping")
 	if(device.currentValue("switch")!="on") execute("get_consumable") 	
 	
-    String name = getHomeDataResult()?.devices?.find{ it.duid?.toString() == getDeviceId() }?.name ?: "unknown"
+    String name = homeDevices()?.find{ it.duid?.toString() == getDeviceId() }?.name ?: "unknown"
     processEvent("name", name)
 }
 
@@ -365,6 +365,20 @@ void subscribe() {
     interfaces.mqtt.subscribe(topic)
     
     runEvery30Minutes(refresh)
+    runIn(40, "mqttKeepAlive")
+}
+
+// Local: Roborock's newer brokers (mqtt-eu-6) drop a client that sends nothing for about a minute,
+// before the hub's own MQTT ping goes out. Re-subscribing to the same topic every 40 s is a small
+// client-to-server packet that keeps the connection open without bothering the robot.
+void mqttKeepAlive() {
+    if(!interfaces.mqtt.isConnected()) return
+    Map rriot = getLoginData()?.rriot
+    if(!rriot) return
+    String mqttUser = md5hex(rriot.u + ':' + rriot.k).substring(2, 10)
+    logDebug "executing 'mqttKeepAlive()'"
+    interfaces.mqtt.subscribe("rr/m/o/${rriot.u}/${mqttUser}/#")
+    runIn(40, "mqttKeepAlive")
     scheduleRefresh()
     updateHomeData()
     executeQueue()
@@ -567,7 +581,7 @@ void processMsg(Map message) {
         // look up id and find the 'code' that was mapped in the home data. duid is used find the productID. 
         Map home = getHomeDataResult()
         String duid = getDeviceId()        
-        String productId = home?.devices?.find{ it.duid?.toString() == duid?.toString() }?.productId
+        String productId = homeDevices(home)?.find{ it.duid?.toString() == duid?.toString() }?.productId
         String code = home?.products?.find{ it.id == productId }?.schema?.find { it.id?.toString() == key?.toString() }?.code
         //String code = home?.products?.find{ it.id == productId }?.schema?.find { it.id == key }?.code
         
@@ -646,7 +660,7 @@ void setRoomsValue(Map get_room_mapping) {
 
 void setHealthStatusEvent(Boolean mqttClientStatus=false) {
     unschedule('setHealthStatusEvent')
-    Boolean deviceOnline = getHomeDataResult()?.devices?.find{ it.duid?.toString() == getDeviceId() }?.online
+    Boolean deviceOnline = homeDevices()?.find{ it.duid?.toString() == getDeviceId() }?.online
     String healthStatus = mqttClientStatus && deviceOnline ? "online" : "offline"
     processEvent("healthStatus", healthStatus)
 }
@@ -847,8 +861,9 @@ String encodeTimestamp(int timestamp) {
 }
 
 // Helper method to check if a string is numeric
-String.metaClass.isNumber = {
-    delegate ==~ /-?\d+(\.\d+)?/
+// (was String.metaClass.isNumber, which newer Hubitat firmware no longer allows)
+Boolean isNumber(String s) {
+    return s ==~ /-?\d+(\.\d+)?/
 }
 
 def convertNumbers(element) {
@@ -860,7 +875,7 @@ def convertNumbers(element) {
         return element.collectEntries { key, value -> [(key): convertNumbers(value)] }
     } else if (element instanceof String) {
         // Element is a String; attempt to convert to a number if possible
-        if (element.isNumber()) {
+        if (isNumber(element)) {
             return element.contains('.') ? element.toFloat() : element.toInteger()
         } else {
             // Keep as String
@@ -1123,7 +1138,7 @@ Map fetchJsonState(String name) {
 
 // Function to find the 'next' device given a 'duid'
 String findNextDevice(String duid=null) {
-    List sortedDevices = getHomeDataResult()?.devices?.sort{ a, b -> a.duid <=> b.duid }
+    List sortedDevices = homeDevices()?.sort{ a, b -> a.duid <=> b.duid }
     sortedDevices?.result?.products.sort { it.id }?.result?.devices.sort { it.duid }
     Integer currentIndex = -1    
     // Check if duid is not null
@@ -1147,7 +1162,7 @@ String getDeviceId() {
 }
 
 String getLocalKey(String deviceId) {
-   return getHomeDataResult()?.devices?.find { it.duid == deviceId }?.localKey
+   return homeDevices()?.find { it.duid == deviceId }?.localKey
 }
 
 @Field volatile static Map<Long,Map> g_mGetLoginData = [:]
@@ -1169,6 +1184,11 @@ Map getHomeDetailData() {
 }
 
 @Field volatile static Map<Long,Map> g_mGetHomeData = [:]
+// Robots this account owns plus robots shared to it by another account.
+List homeDevices(Map home=getHomeDataResult()) {
+    return (home?.devices ?: []) + (home?.receivedDevices ?: [])
+}
+
 Map getHomeDataResult() {
     if(g_mGetHomeData[device.getIdAsLong()] == null) {
         synchronized (this) {
@@ -1179,40 +1199,56 @@ Map getHomeDataResult() {
     return g_mGetHomeData[device.getIdAsLong()]?.result ?: [:]
 }
 
-// needed a queue to manage publish messages, otherwise the broker will toss them. 
+// needed a queue to manage publish messages, otherwise the broker will toss them.
 @Field volatile static Map<Long,Map> qQueue = [:]
 private List qGet() {
-    if(!qQueue[device.getIdAsLong()]) qQueue[device.getIdAsLong()] = []
-    return qQueue[device.getIdAsLong()]
+    Long id = device.getIdAsLong()
+    synchronized (qQueue) {
+        if(qQueue[id] == null) qQueue[id] = []
+        return qQueue[id]
+    }
 }
-    
+
 void qPush(Map map) {
-    qGet().removeIf { now() > it?.ts + 30000 } //remove anything older than 30 seconds
-    map.ts = now() // Add timestamp
-    qGet() << map  // Append map to the end of the list
+    synchronized (qQueue) {
+        List queue = qGet()
+        Long cutoff = now() - 30000
+        queue.removeAll { it?.ts != null && it.ts < cutoff }
+        map.ts = now()
+        queue << map
+    }
 }
 
 void qClear() {
-    qGet().clear()
+    synchronized (qQueue) {
+        qGet().clear()
+    }
 }
 
 Map qPop() {
-    if(qGet().size() > 0) {
-        return qGet().remove(0)  // Remove and return the first element
+    synchronized (qQueue) {
+        List queue = qGet()
+        return queue.isEmpty() ? null : queue.remove(0)
     }
-    return null
 }
 
 Map qPeek() {
-    return qGet().isEmpty() ? null : qGet()[0]
+    synchronized (qQueue) {
+        List queue = qGet()
+        return queue.isEmpty() ? null : queue[0]?.clone()
+    }
 }
 
 Boolean qIsEmpty() {
-    return qGet().isEmpty()
+    synchronized (qQueue) {
+        return qGet().isEmpty()
+    }
 }
 
 Integer qSize() {
-    return qGet().size()
+    synchronized (qQueue) {
+        return qGet().size()
+    }
 }
 
 //https://github.com/copystring/ioBroker.roborock/blob/621351f58c6ef6c2d6cd2b9d7525cb8ca763ede8/lib/deviceFeatures.js
