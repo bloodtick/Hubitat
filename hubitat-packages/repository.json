@@ -3,7 +3,7 @@
     "gitHubUrl": "https://github.com/bloodtick/Hubitat",
     "packages": [
         {
-            "name": "HubiThings Replica",
+            "name": "HubiThings Replica [DEPRECATED]",
             "category": "Integrations",
             "location": "https://raw.githubusercontent.com/bloodtick/Hubitat/main/hubitat-packages/manifests/manifestHubiThings.json",
             "description": "Hubitat Application to manage SmartThings Devices allowing real-time bi-direction updates between devices, modes and scenes utilizing the SmartThings OAuth Cloud API. Includes the ability to have multiple ST locations with multiple ST hubs replicated to a single Hubitat hub. It is not a requirement to have a ST hub to operate mirror functions to cloud native ST devices.",
