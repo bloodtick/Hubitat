@@ -1310,6 +1310,8 @@ Integer qSize() {
 	26: "Going to wash the mop",
 	28: "In call",
 	29: "Mapping",
+	33: "Attaching the mop",       // seen on Qrevo Edge (a296); names per python-roborock
+	34: "Detaching the mop",
 	100: "Charged",
     
     500: "Authorization error",
